@@ -60,18 +60,15 @@ namespace winrt::App2::implementation
 
 	void winrt::App2::implementation::MainWindow::AppTitleBar_Loaded(winrt::Windows::Foundation::IInspectable const& sender, Microsoft::UI::Xaml::RoutedEventArgs const& e)
 	{
-		MoveAndResizeWindow(0.3f, 0.08f);// 30% of the work area width  8% of the work area height
+		MoveAndResizeWindow(0.38f, 0.1f);// 38% of the work area width and 10% of the work area height
 	}
 
-	void MainWindow::MoveAndResizeWindow(float width, float height)
+	void MainWindow::MoveAndResizeWindow(float widthPercentage, float heightPercentage)
 	{
+		// Get the app window and display area
 		auto appWindow = AppWindow();
 		auto displayArea = DisplayArea::GetFromWindowId(appWindow.Id(), DisplayAreaFallback::Primary);
 		auto workArea = displayArea.WorkArea();
-
-		// Calculate the desired size as a percentage of the work area
-		float widthPercentage = width;
-		float heightPercentage = height;
 
 		int32_t windowWidth = static_cast<int32_t>(workArea.Width * widthPercentage);
 		int32_t windowHeight = static_cast<int32_t>(workArea.Height * heightPercentage);
@@ -124,7 +121,6 @@ namespace winrt::App2::implementation
 				}).detach();
 
 			TextBoxElement().IsReadOnly(true);
-			MoveAndResizeWindow(0.4f, 0.1f);// 40% of the work area width  10% of the work area height
 
 			//ollama::generate(models[0], to_string(textBox.Text()), response_callback);
 
@@ -185,9 +181,9 @@ namespace winrt::App2::implementation
 
 	void winrt::App2::implementation::MainWindow::TextBoxElement_TextChanged(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::Controls::TextChangedEventArgs const& e)
 	{
-		if (sender.as<Microsoft::UI::Xaml::Controls::TextBox>().Text() == L"")
+		/*if (sender.as<Microsoft::UI::Xaml::Controls::TextBox>().Text() == L"")
 		{
 			MoveAndResizeWindow(0.3f, 0.08f);
-		}
+		}*/
 	}
 }
