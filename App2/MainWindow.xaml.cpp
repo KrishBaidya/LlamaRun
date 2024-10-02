@@ -75,7 +75,7 @@ namespace winrt::App2::implementation
 
 		// Center the window on the screen
 		int32_t centerX = workArea.X + (workArea.Width / 2);
-		int32_t centerY = workArea.Y + (workArea.Height / 2);
+		int32_t centerY = workArea.Y + (workArea.Height * 1 / 3);
 
 		appWindow.MoveAndResize(Windows::Graphics::RectInt32{ centerX - (windowWidth / 2), centerY - (windowHeight / 2), windowWidth, windowHeight });
 	}
