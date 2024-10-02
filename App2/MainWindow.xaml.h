@@ -21,6 +21,9 @@ namespace winrt::App2::implementation
 		int32_t MyProperty();
 		void MyProperty(int32_t value);
 
+		void StartSkeletonLoadingAnimation();
+		void StopSkeletonLoadingAnimation();
+
 		void MoveAndResizeWindow(float, float);
 
 		void myButton_Click(IInspectable const& sender, Microsoft::UI::Xaml::RoutedEventArgs const& args);

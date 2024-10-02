@@ -16,6 +16,9 @@ using namespace Microsoft::UI::Windowing;
 using namespace Windows::UI::ViewManagement;
 using namespace Windows::ApplicationModel::AppService;
 using namespace winrt::Windows::Foundation::Collections;
+using namespace Microsoft::UI::Xaml::Controls;
+using namespace Microsoft::UI::Xaml::Media;
+using namespace Microsoft::UI::Xaml::Media::Animation;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -35,11 +38,13 @@ namespace winrt::App2::implementation
 
 		auto appWindow = AppWindow();
 		auto presenter = appWindow.Presenter().as<OverlappedPresenter>();
+		//appWindow.IsShownInSwitchers(false);
 
 		presenter.IsMaximizable(false);
 		presenter.IsMinimizable(false);
 		presenter.IsResizable(false);
 		presenter.SetBorderAndTitleBar(false, false);
+		//presenter.IsAlwaysOnTop(true);
 
 		startOllamaServer();
 		MainWindow::models = ListModel();
@@ -56,6 +61,17 @@ namespace winrt::App2::implementation
 	void MainWindow::MyProperty(int32_t /* value */)
 	{
 		throw hresult_not_implemented();
+	}
+
+	void MainWindow::StartSkeletonLoadingAnimation()
+	{
+		LoadingStoryBoard().Begin();
+	}
+
+	void MainWindow::StopSkeletonLoadingAnimation()
+	{
+		BackgroundBrush().Opacity(0);
+		LoadingStoryBoard().Stop();
 	}
 
 	void winrt::App2::implementation::MainWindow::AppTitleBar_Loaded(winrt::Windows::Foundation::IInspectable const& sender, Microsoft::UI::Xaml::RoutedEventArgs const& e)
@@ -99,6 +115,7 @@ namespace winrt::App2::implementation
 							winrt::Microsoft::UI::Dispatching::DispatcherQueuePriority::Normal,
 							[&weakThis, response]() {
 								if (response.as_json()["done"] == true) {
+									weakThis.StopSkeletonLoadingAnimation();
 									weakThis.TextBoxElement().IsReadOnly(false);
 								}
 								weakThis.UpdateTextBox(to_hstring(response.as_simple_string()));
@@ -121,6 +138,7 @@ namespace winrt::App2::implementation
 				}).detach();
 
 			TextBoxElement().IsReadOnly(true);
+			StartSkeletonLoadingAnimation();
 
 			//ollama::generate(models[0], to_string(textBox.Text()), response_callback);
 
