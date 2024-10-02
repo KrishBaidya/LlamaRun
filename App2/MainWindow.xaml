@@ -14,6 +14,44 @@
     </Window.SystemBackdrop>
 
     <Grid x:Name="AppTitleBar" Loaded="AppTitleBar_Loaded" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+        <Grid.Resources>
+            <Storyboard x:Name="LoadingStoryBoard">
+                <!--<ColorAnimation
+                EnableDependentAnimation="True"
+                RepeatBehavior="Forever"
+                Storyboard.TargetName="AppTitleBar"
+                Storyboard.TargetProperty="(UIElement.Background).(LinearGradientBrush.GradientStops)[0].(GradientStop.Color)"
+                From="#ff00cc"
+                To="Transparent"
+                Duration="0:0:2" />-->
+                <ColorAnimation
+                EnableDependentAnimation="True"
+                RepeatBehavior="Forever"
+                Storyboard.TargetName="AppTitleBar"
+                Storyboard.TargetProperty="(UIElement.Background).(LinearGradientBrush.GradientStops)[0].(GradientStop.Color)"
+                From="#333399"
+                To="#ff00cc"
+                Duration="0:0:2" />
+                <DoubleAnimation
+                EnableDependentAnimation="True"
+                RepeatBehavior="Forever"
+                Storyboard.TargetName="AppTitleBar"
+                Storyboard.TargetProperty="(UIElement.Background).(LinearGradientBrush.GradientStops)[0].(GradientStop.Offset)"
+                From="0"
+                To="1"
+                Duration="0:0:2" />
+                <ColorAnimation
+                EnableDependentAnimation="True"
+                RepeatBehavior="Forever"
+                Storyboard.TargetName="AppTitleBar"
+                Storyboard.TargetProperty="(UIElement.Background).(LinearGradientBrush.GradientStops)[1].(GradientStop.Color)"
+                From="#ff00cc"
+                To="#333399"
+                Duration="0:0:2" />
+            </Storyboard>
+        </Grid.Resources>
+
+
         <TextBox
             x:Name="TextBoxElement"
             PlaceholderText="Write Somthing!" 
@@ -26,6 +64,14 @@
             TextChanged="TextBoxElement_TextChanged"
             Style="{StaticResource EditableTextBlockStyle}"
         />
+
+        <Grid.Background>
+            <LinearGradientBrush x:Name="LogoBackgroundBrush" StartPoint="0,0" EndPoint="1,1" Opacity="0.5">
+                <!--<GradientStop x:Name="Stop0" Offset="0" Color="Transparent" />-->
+                <GradientStop x:Name="Stop1" Offset="0" Color="#ff00cc" />
+                <GradientStop x:Name="Stop2" Offset="1" Color="#333399" />
+            </LinearGradientBrush>
+        </Grid.Background>
 
         <!--<AnimatedIcon x:Name="SearchAnimatedIcon">
             <AnimatedIcon.Source>
