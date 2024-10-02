@@ -22,6 +22,7 @@ namespace winrt::App2::implementation
 		void MyProperty(int32_t value);
 
 		void StartSkeletonLoadingAnimation();
+		void StopSkeletonLoadingAnimation();
 
 		void MoveAndResizeWindow(float, float);
 

@@ -16,41 +16,54 @@
     <Grid x:Name="AppTitleBar" Loaded="AppTitleBar_Loaded" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
         <Grid.Resources>
             <Storyboard x:Name="LoadingStoryBoard">
-                <!--<ColorAnimation
-                EnableDependentAnimation="True"
-                RepeatBehavior="Forever"
-                Storyboard.TargetName="AppTitleBar"
-                Storyboard.TargetProperty="(UIElement.Background).(LinearGradientBrush.GradientStops)[0].(GradientStop.Color)"
-                From="#ff00cc"
-                To="Transparent"
-                Duration="0:0:2" />-->
-                <ColorAnimation
-                EnableDependentAnimation="True"
-                RepeatBehavior="Forever"
-                Storyboard.TargetName="AppTitleBar"
-                Storyboard.TargetProperty="(UIElement.Background).(LinearGradientBrush.GradientStops)[0].(GradientStop.Color)"
-                From="#333399"
-                To="#ff00cc"
-                Duration="0:0:2" />
                 <DoubleAnimation
-                EnableDependentAnimation="True"
-                RepeatBehavior="Forever"
-                Storyboard.TargetName="AppTitleBar"
-                Storyboard.TargetProperty="(UIElement.Background).(LinearGradientBrush.GradientStops)[0].(GradientStop.Offset)"
-                From="0"
-                To="1"
-                Duration="0:0:2" />
+                    EnableDependentAnimation="True"
+                    Storyboard.TargetName="BackgroundBrush"
+                    Storyboard.TargetProperty="Opacity"
+                    From="0.0"
+                    To="0.15"
+                    Duration="0:0:1"/>
+                <!-- Animate the first gradient stop's color -->
                 <ColorAnimation
-                EnableDependentAnimation="True"
-                RepeatBehavior="Forever"
-                Storyboard.TargetName="AppTitleBar"
-                Storyboard.TargetProperty="(UIElement.Background).(LinearGradientBrush.GradientStops)[1].(GradientStop.Color)"
-                From="#ff00cc"
-                To="#333399"
-                Duration="0:0:2" />
+                    EnableDependentAnimation="True"
+                    RepeatBehavior="Forever"
+                    AutoReverse="True"
+                    Storyboard.TargetName="Stop1"
+                    Storyboard.TargetProperty="Color"
+                    From="#ff00cc"
+                    To="#333399"
+                    Duration="0:0:1" />
+                
+                <!-- Animate the third gradient stop's color -->
+                <ColorAnimation
+                    EnableDependentAnimation="True"
+                    RepeatBehavior="Forever"
+                    AutoReverse="True"
+                    Storyboard.TargetName="Stop2"
+                    Storyboard.TargetProperty="Color"
+                    From="#333399"
+                    To="#ff00cc"
+                    Duration="0:0:1" />
+
+                <!-- Animate the offset of the third gradient stop -->
+                <!--<DoubleAnimation
+                    EnableDependentAnimation="True"
+                    RepeatBehavior="Forever"
+                    Storyboard.TargetName="Stop2"
+                    Storyboard.TargetProperty="Offset"
+                    From="0.0"
+                    To="0.0"
+                    Duration="2:0:6" />-->
             </Storyboard>
         </Grid.Resources>
 
+        <!-- Background gradient brush -->
+        <Grid.Background>
+            <LinearGradientBrush x:Name="BackgroundBrush" StartPoint="0,0" EndPoint="1,1" Opacity="0">
+                <GradientStop x:Name="Stop1" Offset="0" Color="#ff00cc" />
+                <GradientStop x:Name="Stop2" Offset="1" Color="#333399" />
+            </LinearGradientBrush>
+        </Grid.Background>
 
         <TextBox
             x:Name="TextBoxElement"
@@ -64,14 +77,6 @@
             TextChanged="TextBoxElement_TextChanged"
             Style="{StaticResource EditableTextBlockStyle}"
         />
-
-        <Grid.Background>
-            <LinearGradientBrush x:Name="LogoBackgroundBrush" StartPoint="0,0" EndPoint="1,1" Opacity="0.5">
-                <!--<GradientStop x:Name="Stop0" Offset="0" Color="Transparent" />-->
-                <GradientStop x:Name="Stop1" Offset="0" Color="#ff00cc" />
-                <GradientStop x:Name="Stop2" Offset="1" Color="#333399" />
-            </LinearGradientBrush>
-        </Grid.Background>
 
         <!--<AnimatedIcon x:Name="SearchAnimatedIcon">
             <AnimatedIcon.Source>

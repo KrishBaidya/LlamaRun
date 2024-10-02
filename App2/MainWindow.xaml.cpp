@@ -68,6 +68,12 @@ namespace winrt::App2::implementation
 		LoadingStoryBoard().Begin();
 	}
 
+	void MainWindow::StopSkeletonLoadingAnimation()
+	{
+		BackgroundBrush().Opacity(0);
+		LoadingStoryBoard().Stop();
+	}
+
 	void winrt::App2::implementation::MainWindow::AppTitleBar_Loaded(winrt::Windows::Foundation::IInspectable const& sender, Microsoft::UI::Xaml::RoutedEventArgs const& e)
 	{
 		MoveAndResizeWindow(0.38f, 0.1f);// 38% of the work area width and 10% of the work area height
@@ -109,6 +115,7 @@ namespace winrt::App2::implementation
 							winrt::Microsoft::UI::Dispatching::DispatcherQueuePriority::Normal,
 							[&weakThis, response]() {
 								if (response.as_json()["done"] == true) {
+									weakThis.StopSkeletonLoadingAnimation();
 									weakThis.TextBoxElement().IsReadOnly(false);
 								}
 								weakThis.UpdateTextBox(to_hstring(response.as_simple_string()));
