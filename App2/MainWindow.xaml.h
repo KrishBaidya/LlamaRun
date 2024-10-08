@@ -34,6 +34,8 @@ namespace winrt::App2::implementation
 
 		static LRESULT CALLBACK CustomWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 		{
+			MainWindow* pThis = reinterpret_cast<MainWindow*>(GetWindowLongPtr(hWnd, GWLP_USERDATA));
+
 			switch (uMsg)
 			{
 			case WM_HOTKEY:
@@ -42,6 +44,9 @@ namespace winrt::App2::implementation
 					// Window is hidden, so show it
 					ShowWindow(hWnd, SW_SHOW);
 					SetForegroundWindow(hWnd);
+					if (pThis) {
+						pThis->SetFocusOnTextBox();
+					}
 				}
 				else
 				{
@@ -52,7 +57,7 @@ namespace winrt::App2::implementation
 			case WM_CLOSE:
 				ShowWindow(hWnd, SW_HIDE);
 				SetForegroundWindow(hWnd);
-				return 0;
+				return DefWindowProc(hWnd, uMsg, wParam, lParam);
 			default:
 				return DefWindowProc(hWnd, uMsg, wParam, lParam);
 			}
@@ -60,7 +65,8 @@ namespace winrt::App2::implementation
 
 		void SubclassWndProc(HWND hwnd)
 		{
-			SetWindowLongPtr(hwnd, GWLP_WNDPROC, (LONG_PTR)CustomWndProc);
+			SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
+			SetWindowLongPtr(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(CustomWndProc));
 		}
 
 		void RegisterGlobalHotkey(HWND hwnd)
@@ -80,6 +86,13 @@ namespace winrt::App2::implementation
 			UnregisterHotKey(hwnd, 1);
 		}
 		void TextBoxElement_TextChanged(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::Controls::TextChangedEventArgs const& e);
+
+		void SetFocusOnTextBox()
+		{
+			auto state = TextBoxElement().FocusState();
+			winrt::Microsoft::UI::Xaml::FocusState key = winrt::Microsoft::UI::Xaml::FocusState::Keyboard;
+			TextBoxElement().Focus(key);
+		}
 	};
 }
 

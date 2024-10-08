@@ -48,6 +48,9 @@ namespace winrt::App2::implementation
 
 		startOllamaServer();
 		MainWindow::models = ListModel();
+		if (models.size() <= 0) { 
+			throw std::exception("No Models Downloaded");
+		}
 		LoadModelIntoMemory(models[0]);
 
 		this->Closed({ this, &MainWindow::OnWindowClosed });
@@ -89,9 +92,8 @@ namespace winrt::App2::implementation
 		int32_t windowWidth = static_cast<int32_t>(workArea.Width * widthPercentage);
 		int32_t windowHeight = static_cast<int32_t>(workArea.Height * heightPercentage);
 
-		// Center the window on the screen
-		int32_t centerX = workArea.X + (workArea.Width / 2);
-		int32_t centerY = workArea.Y + (workArea.Height * 1 / 3);
+		int32_t centerX = workArea.X + (workArea.Width / 2); // Center the window on the screen Horizontally
+		int32_t centerY = workArea.Y + (workArea.Height * 1 / 3); // Window with 33% Margin from top of the screen 
 
 		appWindow.MoveAndResize(Windows::Graphics::RectInt32{ centerX - (windowWidth / 2), centerY - (windowHeight / 2), windowWidth, windowHeight });
 	}
