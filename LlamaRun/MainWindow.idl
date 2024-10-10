@@ -1,4 +1,4 @@
-namespace App2
+namespace LlamaRun
 {
     [default_interface]
     runtimeclass MainWindow : Microsoft.UI.Xaml.Window

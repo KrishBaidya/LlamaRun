@@ -29,7 +29,7 @@ using namespace Microsoft::UI::Xaml::Media::Animation;
 #define ID_TRAYICON_EXIT 1002
 #define WM_TRAYICON (WM_USER + 1)
 
-namespace winrt::App2::implementation
+namespace winrt::LlamaRun::implementation
 {
 	MainWindow::MainWindow()
 	{
@@ -77,7 +77,7 @@ namespace winrt::App2::implementation
 		LoadingStoryBoard().Stop();
 	}
 
-	void winrt::App2::implementation::MainWindow::AppTitleBar_Loaded(winrt::Windows::Foundation::IInspectable const& sender, Microsoft::UI::Xaml::RoutedEventArgs const& e)
+	void winrt::LlamaRun::implementation::MainWindow::AppTitleBar_Loaded(winrt::Windows::Foundation::IInspectable const& sender, Microsoft::UI::Xaml::RoutedEventArgs const& e)
 	{
 		MoveAndResizeWindow(0.38f, 0.1f);// 38% of the work area width and 10% of the work area height
 	}
@@ -98,7 +98,7 @@ namespace winrt::App2::implementation
 		appWindow.MoveAndResize(Windows::Graphics::RectInt32{ centerX - (windowWidth / 2), centerY - (windowHeight / 2), windowWidth, windowHeight });
 	}
 
-	void winrt::App2::implementation::MainWindow::TextBoxElement_KeyDown(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const& e)
+	void winrt::LlamaRun::implementation::MainWindow::TextBoxElement_KeyDown(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const& e)
 	{
 		auto textBox = sender.as<Microsoft::UI::Xaml::Controls::TextBox>();
 		if (e.Key() == winrt::Windows::System::VirtualKey::Enter)
@@ -196,7 +196,7 @@ namespace winrt::App2::implementation
 		args.as<WindowEventArgs>().Handled(true);
 	}
 
-	void winrt::App2::implementation::MainWindow::TextBoxElement_TextChanged(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::Controls::TextChangedEventArgs const& e)
+	void winrt::LlamaRun::implementation::MainWindow::TextBoxElement_TextChanged(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::Controls::TextChangedEventArgs const& e)
 	{
 		/*if (sender.as<Microsoft::UI::Xaml::Controls::TextBox>().Text() == L"")
 		{

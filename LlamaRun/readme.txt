@@ -1,5 +1,5 @@
 ========================================================================
-    App2 Project Overview
+    LlamaRun Project Overview
 ========================================================================
 
 This project demonstrates how to get started writing WinUI3 apps directly

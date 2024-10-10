@@ -1,7 +1,7 @@
 #pragma once
 #include "MainWindow.g.h"
 
-namespace winrt::App2::implementation
+namespace winrt::LlamaRun::implementation
 {
 	struct MainWindow : MainWindowT<MainWindow>
 	{
@@ -96,7 +96,7 @@ namespace winrt::App2::implementation
 	};
 }
 
-namespace winrt::App2::factory_implementation
+namespace winrt::LlamaRun::factory_implementation
 {
 	struct MainWindow : MainWindowT<MainWindow, implementation::MainWindow>
 	{

@@ -2,7 +2,7 @@
 
 #include "App.xaml.g.h"
 
-namespace winrt::App2::implementation
+namespace winrt::LlamaRun::implementation
 {
     struct App : AppT<App>
     {
