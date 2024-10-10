@@ -43,7 +43,7 @@ namespace winrt::App2::implementation
 		presenter.IsMaximizable(false);
 		presenter.IsMinimizable(false);
 		presenter.IsResizable(false);
-		presenter.SetBorderAndTitleBar(false, false);
+		presenter.SetBorderAndTitleBar(true, false);
 		//presenter.IsAlwaysOnTop(true);
 
 		startOllamaServer();
@@ -135,14 +135,11 @@ namespace winrt::App2::implementation
 				}
 				catch (const winrt::hresult_error& ex) {
 					// Handle exceptions from ollama::generate
-					std::cout << "Error: " << ex.message().c_str() << std::endl;
 				}
 				}).detach();
 
 			TextBoxElement().IsReadOnly(true);
 			StartSkeletonLoadingAnimation();
-
-			//ollama::generate(models[0], to_string(textBox.Text()), response_callback);
 
 			/*auto wi = &winrt::Windows::UI::Core::CoreWindow::GetForCurrentThread();
 			if (wi)
@@ -158,7 +155,7 @@ namespace winrt::App2::implementation
 
 		}
 	}
-	// New method to update TextBox using dispatcher
+
 	void MainWindow::UpdateTextBox(hstring const& text)
 	{
 		res.append(to_string(text));
