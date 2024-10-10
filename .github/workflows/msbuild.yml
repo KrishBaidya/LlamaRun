@@ -30,9 +30,10 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     
-    - uses: GuillaumeFalourd/setup-windows10-sdk-action@v2
+    - uses: ChristopheLav/windows-sdk-install@v1
       with:
-        sdk-version: 26100
+        version-sdk: 26100
+        features: 'OptionId.UWPCPP,OptionId.DesktopCPParm64'
 
     - name: Add MSBuild to PATH
       uses: microsoft/setup-msbuild@v2
