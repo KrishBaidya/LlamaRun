@@ -29,9 +29,12 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-
-    - name: Add MSBuild to PATH
-      uses: microsoft/setup-msbuild@v1.0.2
+    
+    - name: setup-msbuild
+      uses: microsoft/setup-msbuild@v2
+      with:
+        # The preferred processor architecture of MSBuild. Can be either "x86", "x64", or "arm64". "x64" is only available from Visual Studio version 17.0 and later.
+        msbuild-architecture: x64 # optional, default is x86
 
     - name: Restore NuGet packages
       working-directory: ${{env.GITHUB_WORKSPACE}}
