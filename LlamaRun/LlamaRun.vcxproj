@@ -151,6 +151,7 @@
     </Text>
   </ItemGroup>
   <ItemGroup>
+    <Image Include="Assets\LlamaRun.ico" />
     <Image Include="Assets\LockScreenLogo.scale-200.png" />
     <Image Include="Assets\SplashScreen.scale-200.png" />
     <Image Include="Assets\Square150x150Logo.scale-200.png" />

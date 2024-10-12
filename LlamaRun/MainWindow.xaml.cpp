@@ -51,7 +51,7 @@ namespace winrt::LlamaRun::implementation
 		if (models.size() <= 0) { 
 			throw std::exception("No Models Downloaded");
 		}
-		LoadModelIntoMemory(models[0]);
+		//LoadModelIntoMemory(models[0]);
 
 		this->Closed({ this, &MainWindow::OnWindowClosed });
 	}
@@ -80,6 +80,11 @@ namespace winrt::LlamaRun::implementation
 	void winrt::LlamaRun::implementation::MainWindow::AppTitleBar_Loaded(winrt::Windows::Foundation::IInspectable const& sender, Microsoft::UI::Xaml::RoutedEventArgs const& e)
 	{
 		MoveAndResizeWindow(0.38f, 0.1f);// 38% of the work area width and 10% of the work area height
+		
+		hWnd = GetActiveWindow();
+		AddTrayIcon(hWnd);
+		SubclassWndProc(hWnd);
+		RegisterGlobalHotkey(hWnd);
 	}
 
 	void MainWindow::MoveAndResizeWindow(float widthPercentage, float heightPercentage)
@@ -170,7 +175,18 @@ namespace winrt::LlamaRun::implementation
 		nid.uID = 1;  // Tray icon ID
 		nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
 		nid.uCallbackMessage = WM_TRAYICON; // Custom message to handle clicks
-		nid.hIcon = LoadIcon(NULL, IDI_APPLICATION);  // Load an icon for the tray
+
+
+		HICON hIcon = (HICON)LoadImage(
+			NULL,                     // hInstance is NULL when loading from a file
+			L"Assets/LlamaRun.ico", // Path to your .ico file
+			IMAGE_ICON,               // Type of image
+			0, 0,                     // Default icon size (use 0,0 for default size)
+			LR_LOADFROMFILE           // Load from file flag
+		);
+
+
+		nid.hIcon = hIcon;  // Load an icon for the tray
 		wcscpy_s(nid.szTip, L"My WinUI 3 App");
 
 		// Add the icon to the system tray
@@ -179,20 +195,20 @@ namespace winrt::LlamaRun::implementation
 
 	void MainWindow::OnWindowClosed(IInspectable const&, IInspectable const& args)
 	{
-		hWnd = GetActiveWindow();
+		//hWnd = GetActiveWindow();
 
 
-		if (IsWindowVisible(hWnd))
-		{
-			ShowWindowAsync(hWnd, SW_HIDE);
-			AddTrayIcon(hWnd);
+		//if (IsWindowVisible(hWnd))
+		//{
+		//	ShowWindowAsync(hWnd, SW_HIDE);
+		//	AddTrayIcon(hWnd);
 
-			SubclassWndProc(hWnd);
+		//	SubclassWndProc(hWnd);
 
-			// Register the hotkey
-			RegisterGlobalHotkey(hWnd);
-		}
-		/*Cancel the close operation*/
+		//	// Register the hotkey
+		//	RegisterGlobalHotkey(hWnd);
+		//}
+		///*Cancel the close operation*/
 		args.as<WindowEventArgs>().Handled(true);
 	}
 

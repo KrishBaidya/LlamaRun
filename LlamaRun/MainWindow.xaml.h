@@ -56,12 +56,17 @@ namespace winrt::LlamaRun::implementation
 				break;
 			case WM_CLOSE:
 				ShowWindow(hWnd, SW_HIDE);
-				SetForegroundWindow(hWnd);
-				return DefWindowProc(hWnd, uMsg, wParam, lParam);
+				break;
 			default:
 				return DefWindowProc(hWnd, uMsg, wParam, lParam);
 			}
 		}
+
+
+		/*static LRESULT CALLBACK CustomWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+		{
+			return DefWindowProc(hWnd, uMsg, wParam, lParam);
+		}*/
 
 		void SubclassWndProc(HWND hwnd)
 		{
