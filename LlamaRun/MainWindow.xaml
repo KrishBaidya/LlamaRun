@@ -33,7 +33,7 @@
                     From="#ff00cc"
                     To="#333399"
                     Duration="0:0:1" />
-                
+
                 <!-- Animate the third gradient stop's color -->
                 <ColorAnimation
                     EnableDependentAnimation="True"
@@ -65,18 +65,20 @@
             </LinearGradientBrush>
         </Grid.Background>
 
-        <TextBox
-            x:Name="TextBoxElement"
-            PlaceholderText="Write Somthing!" 
-            VerticalAlignment="Center"
-            HorizontalAlignment="Stretch" 
-            TextWrapping="Wrap"
-            AcceptsReturn="False"
-            IsSpellCheckEnabled="True"
-            KeyDown="TextBoxElement_KeyDown"
-            TextChanged="TextBoxElement_TextChanged"
-            Style="{StaticResource EditableTextBlockStyle}"
-        />
+        <ScrollViewer x:Name="scrollViewer" VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Hidden">
+            <TextBox
+               x:Name="TextBoxElement"
+               PlaceholderText="Write Somthing!" 
+               VerticalAlignment="Center"
+               HorizontalAlignment="Stretch" 
+               TextWrapping="Wrap"
+               AcceptsReturn="False"
+               IsSpellCheckEnabled="True"
+               KeyDown="TextBoxElement_KeyDown"
+               TextChanged="TextBoxElement_TextChanged"
+               Style="{StaticResource EditableTextBlockStyle}"
+            />
+        </ScrollViewer>
 
         <!--<AnimatedIcon x:Name="SearchAnimatedIcon">
             <AnimatedIcon.Source>

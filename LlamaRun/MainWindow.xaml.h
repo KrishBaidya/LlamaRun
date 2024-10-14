@@ -1,6 +1,10 @@
 #pragma once
 #include "MainWindow.g.h"
 
+#define ID_TRAYICON_RESTORE 1001
+#define ID_TRAYICON_EXIT 1002
+#define WM_TRAYICON (WM_USER + 1)
+
 namespace winrt::LlamaRun::implementation
 {
 	struct MainWindow : MainWindowT<MainWindow>
@@ -15,7 +19,8 @@ namespace winrt::LlamaRun::implementation
 
 		void UpdateTextBox(hstring const& text);
 
-		// Add the tray icon
+		void MainWindow::ShowTrayMenu();
+
 		void AddTrayIcon(HWND hWnd);
 
 		int32_t MyProperty();
@@ -26,7 +31,6 @@ namespace winrt::LlamaRun::implementation
 
 		void MoveAndResizeWindow(float, float);
 
-		void myButton_Click(IInspectable const& sender, Microsoft::UI::Xaml::RoutedEventArgs const& args);
 		void AppTitleBar_Loaded(winrt::Windows::Foundation::IInspectable const& sender, Microsoft::UI::Xaml::RoutedEventArgs const& e);
 		void TextBoxElement_KeyDown(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const& e);
 
@@ -56,17 +60,17 @@ namespace winrt::LlamaRun::implementation
 				break;
 			case WM_CLOSE:
 				ShowWindow(hWnd, SW_HIDE);
+				return 0;
+			case WM_TRAYICON:
+				if (lParam == WM_LBUTTONDOWN) {
+					// Tray icon was clicked
+					OutputDebugString(L"Tray icon clicked\n");
+					pThis->ShowTrayMenu();
+				}
 				break;
-			default:
-				return DefWindowProc(hWnd, uMsg, wParam, lParam);
 			}
-		}
-
-
-		/*static LRESULT CALLBACK CustomWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
-		{
 			return DefWindowProc(hWnd, uMsg, wParam, lParam);
-		}*/
+		}
 
 		void SubclassWndProc(HWND hwnd)
 		{

@@ -1,0 +1,9 @@
+namespace LlamaRun
+{
+    [default_interface]
+    runtimeclass SettingsWindow : Microsoft.UI.Xaml.Window
+    {
+        SettingsWindow();
+        Int32 MyProperty;
+    }
+}

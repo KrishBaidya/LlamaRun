@@ -25,16 +25,14 @@ using namespace Microsoft::UI::Xaml::Media::Animation;
 
 #include <iostream>
 
-#define ID_TRAYICON_RESTORE 1001
-#define ID_TRAYICON_EXIT 1002
-#define WM_TRAYICON (WM_USER + 1)
-
 namespace winrt::LlamaRun::implementation
 {
 	MainWindow::MainWindow()
 	{
 		// Extend content into the title bar
-		this->ExtendsContentIntoTitleBar(true);
+		ExtendsContentIntoTitleBar(true);
+		bool extended = AppWindow().TitleBar().ExtendsContentIntoTitleBar(); //extended will be set to true.
+
 
 		auto appWindow = AppWindow();
 		auto presenter = appWindow.Presenter().as<OverlappedPresenter>();
@@ -51,7 +49,7 @@ namespace winrt::LlamaRun::implementation
 		if (models.size() <= 0) { 
 			throw std::exception("No Models Downloaded");
 		}
-		//LoadModelIntoMemory(models[0]);
+		LoadModelIntoMemory(models[0]);
 
 		this->Closed({ this, &MainWindow::OnWindowClosed });
 	}
@@ -167,6 +165,12 @@ namespace winrt::LlamaRun::implementation
 		TextBoxElement().Text(to_hstring(res));
 	}
 
+	void MainWindow::ShowTrayMenu()
+	{
+		winrt::LlamaRun::SettingsWindow settingsWindow;
+		settingsWindow.Activate();
+	}
+
 	void MainWindow::AddTrayIcon(HWND hWnd)
 	{
 		NOTIFYICONDATA nid = {};
@@ -214,6 +218,7 @@ namespace winrt::LlamaRun::implementation
 
 	void winrt::LlamaRun::implementation::MainWindow::TextBoxElement_TextChanged(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::Controls::TextChangedEventArgs const& e)
 	{
+		scrollViewer().ChangeView(nullptr, scrollViewer().ScrollableHeight(), nullptr, true);
 		/*if (sender.as<Microsoft::UI::Xaml::Controls::TextBox>().Text() == L"")
 		{
 			MoveAndResizeWindow(0.3f, 0.08f);
