@@ -9,6 +9,7 @@
     mc:Ignorable="d">
 
     <StackPanel x:Name="rootPanel" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
-        
+        <ComboBox x:Name="MyComboBox" Width="200" Header="Select Model" Loaded="MyComboBox_Loaded">
+        </ComboBox>
     </StackPanel>
 </Window>

@@ -29,20 +29,22 @@ namespace winrt::LlamaRun::implementation
 {
 	MainWindow::MainWindow()
 	{
+		Title(L"Llama Run");
+
 		// Extend content into the title bar
 		ExtendsContentIntoTitleBar(true);
 		bool extended = AppWindow().TitleBar().ExtendsContentIntoTitleBar(); //extended will be set to true.
 
-
 		auto appWindow = AppWindow();
 		auto presenter = appWindow.Presenter().as<OverlappedPresenter>();
-		//appWindow.IsShownInSwitchers(false);
 
 		presenter.IsMaximizable(false);
 		presenter.IsMinimizable(false);
 		presenter.IsResizable(false);
 		presenter.SetBorderAndTitleBar(true, false);
-		//presenter.IsAlwaysOnTop(true);
+
+		presenter.IsAlwaysOnTop(true);
+		appWindow.IsShownInSwitchers(false);
 
 		startOllamaServer();
 		MainWindow::models = ListModel();
@@ -191,7 +193,7 @@ namespace winrt::LlamaRun::implementation
 
 
 		nid.hIcon = hIcon;  // Load an icon for the tray
-		wcscpy_s(nid.szTip, L"My WinUI 3 App");
+		wcscpy_s(nid.szTip, L"Llama Run");
 
 		// Add the icon to the system tray
 		Shell_NotifyIcon(NIM_ADD, &nid);

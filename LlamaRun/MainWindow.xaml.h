@@ -68,6 +68,12 @@ namespace winrt::LlamaRun::implementation
 					pThis->ShowTrayMenu();
 				}
 				break;
+			case WM_ACTIVATE:
+				if (LOWORD(wParam) == WA_INACTIVE)
+				{
+					ShowWindow(hWnd, SW_HIDE);
+				}
+				break;
 			}
 			return DefWindowProc(hWnd, uMsg, wParam, lParam);
 		}
