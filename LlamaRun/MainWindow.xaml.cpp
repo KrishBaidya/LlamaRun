@@ -33,7 +33,7 @@ namespace winrt::LlamaRun::implementation
 
 		// Extend content into the title bar
 		ExtendsContentIntoTitleBar(true);
-		bool extended = AppWindow().TitleBar().ExtendsContentIntoTitleBar(); //extended will be set to true.
+		bool extended = AppWindow().TitleBar().ExtendsContentIntoTitleBar();
 
 		auto appWindow = AppWindow();
 		auto presenter = appWindow.Presenter().as<OverlappedPresenter>();
@@ -46,14 +46,26 @@ namespace winrt::LlamaRun::implementation
 		presenter.IsAlwaysOnTop(true);
 		appWindow.IsShownInSwitchers(false);
 
-		startOllamaServer();
-		MainWindow::models = ListModel();
-		if (models.size() <= 0) { 
-			throw std::exception("No Models Downloaded");
-		}
-		LoadModelIntoMemory(models[0]);
+		CheckandLoadOllama();
 
 		this->Closed({ this, &MainWindow::OnWindowClosed });
+	}
+
+	void MainWindow::CheckandLoadOllama() {
+		std::thread serverCheckThread([&]() {
+			while (!ollama::is_running()) {
+				std::this_thread::sleep_for(std::chrono::seconds(2));
+			}
+
+			// Once server is up, load the models
+			MainWindow::models = ListModel();
+			if (models.size() <= 0) {
+				throw std::exception("No Models Downloaded");
+			}
+			LoadModelIntoMemory(models[0]);
+			});
+
+		serverCheckThread.detach();
 	}
 
 	int32_t MainWindow::MyProperty()
@@ -80,7 +92,7 @@ namespace winrt::LlamaRun::implementation
 	void winrt::LlamaRun::implementation::MainWindow::AppTitleBar_Loaded(winrt::Windows::Foundation::IInspectable const& sender, Microsoft::UI::Xaml::RoutedEventArgs const& e)
 	{
 		MoveAndResizeWindow(0.38f, 0.1f);// 38% of the work area width and 10% of the work area height
-		
+
 		hWnd = GetActiveWindow();
 		AddTrayIcon(hWnd);
 		SubclassWndProc(hWnd);
@@ -106,7 +118,7 @@ namespace winrt::LlamaRun::implementation
 	void winrt::LlamaRun::implementation::MainWindow::TextBoxElement_KeyDown(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const& e)
 	{
 		auto textBox = sender.as<Microsoft::UI::Xaml::Controls::TextBox>();
-		if (e.Key() == winrt::Windows::System::VirtualKey::Enter)
+		if (e.Key() == winrt::Windows::System::VirtualKey::Enter && !textBox.IsReadOnly())
 		{
 			std::string inputText = to_string(textBox.Text());
 			std::string model = models[0];
@@ -220,7 +232,7 @@ namespace winrt::LlamaRun::implementation
 
 	void winrt::LlamaRun::implementation::MainWindow::TextBoxElement_TextChanged(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::Controls::TextChangedEventArgs const& e)
 	{
-		scrollViewer().ChangeView(nullptr, scrollViewer().ScrollableHeight(), nullptr, true);
+		scrollViewer().ChangeView(nullptr, scrollViewer().ScrollableHeight(), nullptr);
 		/*if (sender.as<Microsoft::UI::Xaml::Controls::TextBox>().Text() == L"")
 		{
 			MoveAndResizeWindow(0.3f, 0.08f);

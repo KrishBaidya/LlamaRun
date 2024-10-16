@@ -12,8 +12,10 @@ namespace winrt::LlamaRun::implementation
 			// See https://github.com/microsoft/cppwinrt/tree/master/nuget#initializecomponent
 
 			Title(L"Llama Run Settings");
+			RequestStartup();
 		}
 
+		fire_and_forget SettingsWindow::RequestStartup();
 
 		void MyComboBox_Loaded(IInspectable const&, IInspectable const& args);
 

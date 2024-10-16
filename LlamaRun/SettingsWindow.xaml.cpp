@@ -24,6 +24,31 @@ namespace winrt::LlamaRun::implementation
 		}*/
 	}
 
+	fire_and_forget SettingsWindow::RequestStartup()
+	{
+		auto& startupTask = co_await winrt::Windows::ApplicationModel::StartupTask::GetAsync(L"LLamaRun Generation");
+		auto a = startupTask.GetForCurrentPackageAsync().Status();
+		switch (startupTask.State())
+		{
+		case winrt::Windows::ApplicationModel::StartupTaskState::Disabled:
+			// Request user permission to enable startup
+			co_await startupTask.RequestEnableAsync();
+			break;
+
+		case winrt::Windows::ApplicationModel::StartupTaskState::DisabledByUser:
+			co_await startupTask.RequestEnableAsync();
+			break;
+
+		case winrt::Windows::ApplicationModel::StartupTaskState::DisabledByPolicy:
+			// Startup disabled by group policy
+			break;
+
+		case winrt::Windows::ApplicationModel::StartupTaskState::Enabled:
+			// Already enabled
+			break;
+		}
+	}
+
 	int32_t SettingsWindow::MyProperty()
 	{
 		throw hresult_not_implemented();

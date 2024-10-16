@@ -10,6 +10,8 @@ namespace winrt::LlamaRun::implementation
 	struct MainWindow : MainWindowT<MainWindow>
 	{
 		MainWindow();
+		
+		void CheckandLoadOllama();
 
 		std::vector<std::string> MainWindow::models = std::vector<std::string>();
 
