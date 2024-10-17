@@ -68,7 +68,7 @@
         <ScrollViewer x:Name="scrollViewer" VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Hidden">
             <TextBox
                x:Name="TextBoxElement"
-               PlaceholderText="Write Somthing!" 
+               PlaceholderText="Ask Anything!" 
                VerticalAlignment="Center"
                HorizontalAlignment="Stretch" 
                TextWrapping="Wrap"

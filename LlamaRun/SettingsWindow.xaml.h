@@ -12,8 +12,11 @@ namespace winrt::LlamaRun::implementation
 			// See https://github.com/microsoft/cppwinrt/tree/master/nuget#initializecomponent
 
 			Title(L"Llama Run Settings");
+			ExtendsContentIntoTitleBar(true);
+
 			RequestStartup();
 		}
+		void SettingsWindow::SaveButtonClicked(IInspectable const&, IInspectable const& args);
 
 		fire_and_forget SettingsWindow::RequestStartup();
 
@@ -21,6 +24,9 @@ namespace winrt::LlamaRun::implementation
 
 		int32_t MyProperty();
 		void MyProperty(int32_t value);
+
+		static void SaveSetting(const std::string&, const std::string&);
+		static std::wstring LoadSetting(const std::string& key);
 	};
 }
 

@@ -3,10 +3,14 @@
 #if __has_include("SettingsWindow.g.cpp")
 #include "SettingsWindow.g.cpp"
 #endif
+#include <DataStore.cpp>
+#include <winrt/Windows.Storage.h>
 
 using namespace winrt;
 using namespace Microsoft::UI::Xaml;
 using namespace winrt::Microsoft::UI::Xaml::Media;
+using namespace Windows::Foundation;
+using namespace Windows::Storage;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -15,19 +19,61 @@ namespace winrt::LlamaRun::implementation
 {
 	void SettingsWindow::MyComboBox_Loaded(IInspectable const&, IInspectable const& args)
 	{
-		/*auto& models = ListModel();
-		for (auto model : models)
+		auto models = DataStore::GetInstance().GetModels();
+
+		if (SettingsWindow::LoadSetting("SelectedModel") != L"")
+		{
+			auto selectedModel = SettingsWindow::LoadSetting("SelectedModel");
+			DataStore::GetInstance().SetSelectedModel(to_string(selectedModel.data()));
+		}
+
+		auto selectedModel = DataStore::GetInstance().GetSelectedModel();
+		for (auto& model : models)
 		{
 			auto newItem = winrt::Microsoft::UI::Xaml::Controls::ComboBoxItem();
 			newItem.Content(winrt::box_value(to_hstring(model)));
 			MyComboBox().Items().Append(newItem);
-		}*/
+
+			if (selectedModel == model)
+			{
+				MyComboBox().SelectedItem(newItem);
+			}
+		}
+	}
+
+	void SettingsWindow::SaveButtonClicked(IInspectable const&, IInspectable const& args) {
+		auto selectedModelIndex = MyComboBox().SelectedIndex();
+		auto selectedModel = DataStore::GetInstance().GetModels()[selectedModelIndex];
+
+		SaveSetting("SModel", selectedModel);
+	}
+
+	void SettingsWindow::SaveSetting(const std::string& key, const std::string& value)
+	{
+		ApplicationDataContainer localSettings{ Windows::Storage::ApplicationData::Current().LocalSettings() };
+
+		localSettings.Values().Insert(to_hstring(key), box_value(to_hstring(value)));
+	}
+
+	std::wstring SettingsWindow::LoadSetting(const std::string& key)
+	{
+		ApplicationDataContainer localSettings{ Windows::Storage::ApplicationData::Current().LocalSettings() };
+
+		auto values{ localSettings.Values() };
+
+		winrt::hstring value{ winrt::unbox_value<winrt::hstring>(values.Lookup(to_hstring(key))) };
+
+		if (&value != nullptr)
+		{
+			return winrt::unbox_value<winrt::hstring>(box_value(value)).c_str();
+		}
+
+		return L"";
 	}
 
 	fire_and_forget SettingsWindow::RequestStartup()
 	{
 		auto& startupTask = co_await winrt::Windows::ApplicationModel::StartupTask::GetAsync(L"LLamaRun Generation");
-		auto a = startupTask.GetForCurrentPackageAsync().Status();
 		switch (startupTask.State())
 		{
 		case winrt::Windows::ApplicationModel::StartupTaskState::Disabled:
