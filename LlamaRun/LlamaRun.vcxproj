@@ -115,10 +115,6 @@
     <Manifest Include="app.manifest" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="OllamaNotAvaliablePage.xaml.h">
-      <DependentUpon>OllamaNotAvaliablePage.xaml</DependentUpon>
-      <SubType>Code</SubType>
-    </ClInclude>
     <ClInclude Include="pch.h" />
     <ClInclude Include="App.xaml.h">
       <DependentUpon>App.xaml</DependentUpon>
@@ -134,19 +130,12 @@
   <ItemGroup>
     <ApplicationDefinition Include="App.xaml" />
     <Page Include="MainWindow.xaml" />
-    <Page Include="OllamaNotAvaliablePage.xaml">
-      <SubType>Designer</SubType>
-    </Page>
     <Page Include="SettingsWindow.xaml">
       <SubType>Designer</SubType>
     </Page>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="DataStore.cpp" />
-    <ClCompile Include="OllamaNotAvaliablePage.xaml.cpp">
-      <DependentUpon>OllamaNotAvaliablePage.xaml</DependentUpon>
-      <SubType>Code</SubType>
-    </ClCompile>
     <ClCompile Include="pch.cpp">
       <PrecompiledHeader>Create</PrecompiledHeader>
     </ClCompile>
@@ -166,10 +155,6 @@
     <Midl Include="MainWindow.idl">
       <SubType>Code</SubType>
       <DependentUpon>MainWindow.xaml</DependentUpon>
-    </Midl>
-    <Midl Include="OllamaNotAvaliablePage.idl">
-      <DependentUpon>OllamaNotAvaliablePage.xaml</DependentUpon>
-      <SubType>Code</SubType>
     </Midl>
     <Midl Include="SettingsWindow.idl">
       <DependentUpon>SettingsWindow.xaml</DependentUpon>
