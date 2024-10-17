@@ -12,6 +12,8 @@ namespace winrt::LlamaRun::implementation
 		MainWindow();
 		
 		void CheckandLoadOllama();
+		void ShowOllamaDialog();
+		bool IsOllamaAvailable();
 
 		std::vector<std::string> MainWindow::models = std::vector<std::string>();
 
