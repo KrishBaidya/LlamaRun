@@ -1,9 +1,0 @@
-namespace LlamaRun
-{
-    [default_interface]
-    runtimeclass OllamaNotAvaliablePage : Microsoft.UI.Xaml.Controls.Page
-    {
-        OllamaNotAvaliablePage();
-        Int32 MyProperty;
-    }
-}

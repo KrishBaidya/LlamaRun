@@ -45,22 +45,20 @@ namespace winrt::LlamaRun::implementation
 		presenter.IsResizable(false);
 		presenter.SetBorderAndTitleBar(true, false);
 
-		//presenter.IsAlwaysOnTop(true);
-		//appWindow.IsShownInSwitchers(false);
+		presenter.IsAlwaysOnTop(true);
+		appWindow.IsShownInSwitchers(false);
 
 		CheckandLoadOllama();
-
-		this->Closed({ this, &MainWindow::OnWindowClosed });
 	}
 
 	void MainWindow::CheckandLoadOllama() {
 		if (IsOllamaAvailable())
 		{
 			OutputDebugString(L"Ollama Avaliable");
-			ShowOllamaDialog();
 		}
 		else
 		{
+			ShowOllamaDialog();
 			throw std::exception("Ollama not Avaliable!");
 		}
 
@@ -149,6 +147,7 @@ namespace winrt::LlamaRun::implementation
 		closeButton.Click([newWindow](IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&)
 			{
 				newWindow.Close();
+				Application::Current().Exit();
 			});
 
 		StackPanel panel;
@@ -302,25 +301,6 @@ namespace winrt::LlamaRun::implementation
 
 		// Add the icon to the system tray
 		Shell_NotifyIcon(NIM_ADD, &nid);
-	}
-
-	void MainWindow::OnWindowClosed(IInspectable const&, IInspectable const& args)
-	{
-		//hWnd = GetActiveWindow();
-
-
-		//if (IsWindowVisible(hWnd))
-		//{
-		//	ShowWindowAsync(hWnd, SW_HIDE);
-		//	AddTrayIcon(hWnd);
-
-		//	SubclassWndProc(hWnd);
-
-		//	// Register the hotkey
-		//	RegisterGlobalHotkey(hWnd);
-		//}
-		///*Cancel the close operation*/
-		args.as<WindowEventArgs>().Handled(true);
 	}
 
 	void winrt::LlamaRun::implementation::MainWindow::TextBoxElement_TextChanged(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::Controls::TextChangedEventArgs const& e)
