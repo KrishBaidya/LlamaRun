@@ -22,6 +22,27 @@
                 <Setter Property="Margin" Value="0"/>
             </Style>-->
 
+            <Style TargetType="HyperlinkButton" x:Key="TextBlockStyleHyperlink">
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="Padding" Value="0"/>
+                <Setter Property="HorizontalAlignment" Value="Left"/>
+                <Setter Property="VerticalAlignment" Value="Center"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="HyperlinkButton">
+                            <TextBlock
+                        Text="{TemplateBinding Content}"
+                        FontSize="{TemplateBinding FontSize}"
+                        Padding="0"
+                        TextDecorations="None"/>
+                            <!-- This removes underline -->
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+                <!-- Optional, removes hand cursor -->
+            </Style>
+
 
             <Style x:Key="EditableTextBlockStyle" TargetType="TextBox">
                 <Setter Property="BorderThickness" Value="0"/>
