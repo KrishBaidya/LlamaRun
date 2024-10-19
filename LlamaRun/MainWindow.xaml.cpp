@@ -48,8 +48,6 @@ namespace winrt::LlamaRun::implementation
 
 		presenter.IsAlwaysOnTop(true);
 		appWindow.IsShownInSwitchers(false);
-
-		CheckandLoadOllama();
 	}
 
 	void MainWindow::CheckandLoadOllama() {
@@ -249,6 +247,8 @@ namespace winrt::LlamaRun::implementation
 		AddTrayIcon(hWnd);
 		SubclassWndProc(hWnd);
 		RegisterGlobalHotkey(hWnd);
+
+		CheckandLoadOllama();
 	}
 
 	void MainWindow::MoveAndResizeWindow(float widthPercentage, float heightPercentage)
