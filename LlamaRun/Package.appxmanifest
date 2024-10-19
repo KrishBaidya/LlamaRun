@@ -9,15 +9,15 @@
   IgnorableNamespaces="uap rescap">
 
   <Identity
-    Name="9cef13e9-0c2d-4b19-b2e1-fa27a9f94461"
+    Name="KrishBaidya.231573AB78801"
     Publisher="CN=krish"
-    Version="1.0.0.0" />
+    Version="0.1.5.0" />
 
-  <mp:PhoneIdentity PhoneProductId="9cef13e9-0c2d-4b19-b2e1-fa27a9f94461" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
+  <mp:PhoneIdentity PhoneProductId="4f246020-aad9-4898-94ec-f7f68a593fc6" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
 
   <Properties>
-    <DisplayName>LlamaRun</DisplayName>
-    <PublisherDisplayName>krish</PublisherDisplayName>
+    <DisplayName>Llama Run</DisplayName>
+    <PublisherDisplayName>Krish Baidya</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
 
@@ -35,7 +35,7 @@
       Executable="$targetnametoken$.exe"
       EntryPoint="$targetentrypoint$">
       <uap:VisualElements
-        DisplayName="LlamaRun"
+        DisplayName="Llama Run"
         Description="LlamaRun"
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
