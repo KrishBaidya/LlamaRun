@@ -61,11 +61,21 @@ namespace winrt::LlamaRun::implementation
 
 		auto values{ localSettings.Values() };
 
-		winrt::hstring value{ winrt::unbox_value<winrt::hstring>(values.Lookup(to_hstring(key))) };
+		auto result = values.Lookup(to_hstring(key));
 
-		if (&value != nullptr)
+		if (result)
 		{
-			return winrt::unbox_value<winrt::hstring>(box_value(value)).c_str();
+			try
+			{
+				winrt::hstring value = winrt::unbox_value<winrt::hstring>(result);
+				OutputDebugString(value.c_str());
+
+				return winrt::unbox_value<winrt::hstring>(box_value(value)).c_str();
+			}
+			catch (const winrt::hresult_error& ex)
+			{
+				OutputDebugStringW(L"Failed to unbox the value.\n");
+			}
 		}
 
 		return L"";
