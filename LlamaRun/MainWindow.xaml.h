@@ -1,5 +1,6 @@
 #pragma once
 #include "MainWindow.g.h"
+#include "VSCodeConnector.h"
 
 #define ID_TRAYICON_RESTORE 1001
 #define ID_TRAYICON_EXIT 1002
@@ -12,6 +13,8 @@ namespace winrt::LlamaRun::implementation
 		MainWindow();
 		
 		void CheckandLoadOllama();
+		void ShowOllamaDialog();
+		bool IsOllamaAvailable();
 
 		std::vector<std::string> MainWindow::models = std::vector<std::string>();
 
@@ -47,6 +50,8 @@ namespace winrt::LlamaRun::implementation
 			case WM_HOTKEY:
 				if (!IsWindowVisible(hWnd))
 				{
+					VSCodeConnector::GetInstance().SaveLastActiveWindow();
+
 					// Window is hidden, so show it
 					ShowWindow(hWnd, SW_SHOW);
 					SetForegroundWindow(hWnd);

@@ -5,11 +5,27 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:LlamaRun"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:animatedvisuals="using:Microsoft.UI.Xaml.Controls.AnimatedVisuals"
     mc:Ignorable="d">
 
-    <StackPanel x:Name="rootPanel" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
-        <ComboBox x:Name="MyComboBox" Width="200" Header="Select Model" Loaded="MyComboBox_Loaded">
-        </ComboBox>
-    </StackPanel>
+    <Window.SystemBackdrop>
+        <MicaBackdrop />
+    </Window.SystemBackdrop>
+
+    <Grid x:Name="rootPanel">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="auto"/>
+        </Grid.RowDefinitions>
+        <StackPanel Grid.Row="0" Orientation="Vertical" HorizontalAlignment="Center" VerticalAlignment="Center">
+            <ComboBox x:Name="MyComboBox" Width="200" PlaceholderText="Select Model" Loaded="MyComboBox_Loaded" />
+            <Button HorizontalAlignment="Center" Margin="0,0,0,0" Click="SaveButtonClicked">Save</Button>
+        </StackPanel>
+        <StackPanel Grid.Row="1" Margin="0,-100,0,0" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+            <TextBlock Margin="0,0,0,0" FontSize="30">Made With</TextBlock>
+            <Image Source="Assets/red_heart_animated.gif" Margin="0,0,0,-10" Width="50"></Image>
+            <TextBlock FontSize="30">By&#160;</TextBlock>
+            <HyperlinkButton Margin="0,0,0,0" NavigateUri="https://github.com/krishbaidya" FontSize="30" Style="{StaticResource TextBlockStyleHyperlink}">Krish Baidya</HyperlinkButton>
+        </StackPanel>
+    </Grid>
 </Window>

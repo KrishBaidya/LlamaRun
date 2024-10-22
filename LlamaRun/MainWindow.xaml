@@ -22,7 +22,7 @@
                     Storyboard.TargetProperty="Opacity"
                     From="0.0"
                     To="0.15"
-                    Duration="0:0:1"/>
+                    Duration="0:0:3"/>
                 <!-- Animate the first gradient stop's color -->
                 <ColorAnimation
                     EnableDependentAnimation="True"
@@ -32,7 +32,11 @@
                     Storyboard.TargetProperty="Color"
                     From="#ff00cc"
                     To="#333399"
-                    Duration="0:0:1" />
+                    Duration="0:0:3">
+                    <ColorAnimation.EasingFunction>
+                        <SineEase EasingMode="EaseIn"/>
+                    </ColorAnimation.EasingFunction>
+                </ColorAnimation>
 
                 <!-- Animate the third gradient stop's color -->
                 <ColorAnimation
@@ -43,7 +47,11 @@
                     Storyboard.TargetProperty="Color"
                     From="#333399"
                     To="#ff00cc"
-                    Duration="0:0:1" />
+                    Duration="0:0:3" >
+                    <ColorAnimation.EasingFunction>
+                        <SineEase EasingMode="EaseIn"/>
+                    </ColorAnimation.EasingFunction>
+                </ColorAnimation>
 
                 <!-- Animate the offset of the third gradient stop -->
                 <!--<DoubleAnimation
@@ -68,7 +76,7 @@
         <ScrollViewer x:Name="scrollViewer" VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Hidden">
             <TextBox
                x:Name="TextBoxElement"
-               PlaceholderText="Write Somthing!" 
+               PlaceholderText="Ask Anything!" 
                VerticalAlignment="Center"
                HorizontalAlignment="Stretch" 
                TextWrapping="Wrap"
