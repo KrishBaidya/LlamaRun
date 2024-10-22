@@ -10,10 +10,10 @@
 
   <Identity
     Name="KrishBaidya.231573AB78801"
-    Publisher="CN=krish"
-    Version="0.1.5.0" />
+    Publisher="CN=B809A085-F142-48AC-BF92-46A116A84F96"
+    Version="0.1.0.0" />
 
-  <mp:PhoneIdentity PhoneProductId="4f246020-aad9-4898-94ec-f7f68a593fc6" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
+  <mp:PhoneIdentity PhoneProductId="4aa169a8-2d91-44f4-aa96-3b99ddbb2150" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
 
   <Properties>
     <DisplayName>Llama Run</DisplayName>

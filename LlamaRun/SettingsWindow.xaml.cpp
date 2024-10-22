@@ -45,7 +45,7 @@ namespace winrt::LlamaRun::implementation
 		auto selectedModelIndex = MyComboBox().SelectedIndex();
 		auto selectedModel = DataStore::GetInstance().GetModels()[selectedModelIndex];
 
-		SaveSetting("SModel", selectedModel);
+		SaveSetting("SelectedModel", selectedModel);
 	}
 
 	void SettingsWindow::SaveSetting(const std::string& key, const std::string& value)
