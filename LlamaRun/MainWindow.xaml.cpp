@@ -27,6 +27,7 @@ using namespace Microsoft::UI::Xaml::Media::Animation;
 #include <iostream>
 #include <DataStore.cpp>
 #include <SettingsWindow.xaml.h>
+#include "VSCodeConnector.h"
 
 namespace winrt::LlamaRun::implementation
 {
@@ -217,7 +218,6 @@ namespace winrt::LlamaRun::implementation
 		newWindow.Activate();
 	}
 
-
 	int32_t MainWindow::MyProperty()
 	{
 		throw hresult_not_implemented();
@@ -279,8 +279,10 @@ namespace winrt::LlamaRun::implementation
 			res = "";
 
 			std::thread([model, &weakThis, inputText]() {
+				bool isVSCodeActive = VSCodeConnector::GetInstance().IsVSCodeActive();
+
 				using ResponseCallback = winrt::delegate<void(ollama::response const&)>;
-				ResponseCallback callback = [&weakThis](ollama::response const& response) {
+				ResponseCallback callback_textbox = [&weakThis](ollama::response const& response) {
 					if (weakThis && weakThis.DispatcherQueue()) { // Check for both 'this' and DispatcherQueue
 						weakThis.DispatcherQueue().TryEnqueue(
 							winrt::Microsoft::UI::Dispatching::DispatcherQueuePriority::Normal,
@@ -298,9 +300,46 @@ namespace winrt::LlamaRun::implementation
 						// (e.g., log a message, display an error)
 					}
 					};
-
+				
 				try {
-					ollama::generate(model, inputText, callback); // Try-catch block to handle exceptions
+					if (isVSCodeActive)
+					{
+						SOCKET ConnectSocket = INVALID_SOCKET;
+
+						if (!VSCodeConnector::GetInstance().setupSocket(ConnectSocket)) {
+							OutputDebugString(L"Failed to set up socket connection to VS Code.");
+							throw std::runtime_error("Failed to set up socket connection to VS Code.");
+						}
+
+						ResponseCallback callback_vscode = [&weakThis, isVSCodeActive, ConnectSocket](ollama::response const& response) {
+							if (weakThis && weakThis.DispatcherQueue()) { // Check for both 'this' and DispatcherQueue
+								weakThis.DispatcherQueue().TryEnqueue(
+									winrt::Microsoft::UI::Dispatching::DispatcherQueuePriority::Normal,
+									[&weakThis, response, ConnectSocket]() {
+										if (response.as_json()["done"] == true) {
+											weakThis.StopSkeletonLoadingAnimation();
+											weakThis.TextBoxElement().IsReadOnly(false);
+										}
+										// Send the current chunk to VS Code
+										if (!VSCodeConnector::GetInstance().streamCodeToVSCode(response, ConnectSocket)) {
+											OutputDebugString(L"Failed to send code chunk to VS Code.");
+										}
+									}
+								);
+							}
+							else {
+								// Handle case where 'this' or DispatcherQueue is null
+								// (e.g., log a message, display an error)
+							}
+							};
+
+						ollama::generate(model, inputText, callback_vscode);
+
+						VSCodeConnector::GetInstance().cleanupSocket(ConnectSocket);
+
+						return 0;
+					}
+					ollama::generate(model, inputText, callback_textbox);
 				}
 				catch (const winrt::hresult_error& ex) {
 					// Handle exceptions from ollama::generate
