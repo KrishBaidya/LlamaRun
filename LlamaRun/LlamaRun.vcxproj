@@ -190,7 +190,11 @@
     <Image Include="Assets\SmallTile.scale-150.png" />
     <Image Include="Assets\SmallTile.scale-200.png" />
     <Image Include="Assets\SmallTile.scale-400.png" />
+    <Image Include="Assets\SplashScreen.scale-100.png" />
+    <Image Include="Assets\SplashScreen.scale-125.png" />
+    <Image Include="Assets\SplashScreen.scale-150.png" />
     <Image Include="Assets\SplashScreen.scale-200.png" />
+    <Image Include="Assets\SplashScreen.scale-400.png" />
     <Image Include="Assets\Square150x150Logo.scale-100.png" />
     <Image Include="Assets\Square150x150Logo.scale-125.png" />
     <Image Include="Assets\Square150x150Logo.scale-150.png" />
@@ -221,7 +225,11 @@
     <Image Include="Assets\StoreLogo.scale-150.png" />
     <Image Include="Assets\StoreLogo.scale-200.png" />
     <Image Include="Assets\StoreLogo.scale-400.png" />
+    <Image Include="Assets\Wide310x150Logo.scale-100.png" />
+    <Image Include="Assets\Wide310x150Logo.scale-125.png" />
+    <Image Include="Assets\Wide310x150Logo.scale-150.png" />
     <Image Include="Assets\Wide310x150Logo.scale-200.png" />
+    <Image Include="Assets\Wide310x150Logo.scale-400.png" />
   </ItemGroup>
   <!--
     Defining the "Msix" ProjectCapability here allows the Single-project MSIX Packaging
