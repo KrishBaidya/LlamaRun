@@ -55,7 +55,14 @@ namespace winrt::LlamaRun::implementation
 		localSettings.Values().Insert(to_hstring(key), box_value(to_hstring(value)));
 	}
 
-	std::wstring SettingsWindow::LoadSetting(const std::string& key)
+	void SettingsWindow::SaveSetting(const std::string& key, const hstring& value)
+	{
+		ApplicationDataContainer localSettings{ Windows::Storage::ApplicationData::Current().LocalSettings() };
+
+		localSettings.Values().Insert(to_hstring(key), box_value(value));
+	}
+
+	winrt::hstring SettingsWindow::LoadSetting(const std::string& key)
 	{
 		ApplicationDataContainer localSettings{ Windows::Storage::ApplicationData::Current().LocalSettings() };
 
@@ -70,7 +77,7 @@ namespace winrt::LlamaRun::implementation
 				winrt::hstring value = winrt::unbox_value<winrt::hstring>(result);
 				OutputDebugString(value.c_str());
 
-				return winrt::unbox_value<winrt::hstring>(box_value(value)).c_str();
+				return value;
 			}
 			catch (const winrt::hresult_error& ex)
 			{

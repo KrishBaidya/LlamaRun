@@ -1,0 +1,9 @@
+namespace LlamaRun
+{
+    [default_interface]
+    runtimeclass FirstRunWindow : Microsoft.UI.Xaml.Window
+    {
+        FirstRunWindow();
+        Int32 MyProperty;
+    }
+}
