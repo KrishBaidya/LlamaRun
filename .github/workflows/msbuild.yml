@@ -65,4 +65,4 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: LlamaRun-x64
-        path: ${{env.SOLUTION_FILE_PATH}}\\Packages
+        path: ${{env.SOLUTION_FILE_PATH}}\\LlamaRun\\Packages
