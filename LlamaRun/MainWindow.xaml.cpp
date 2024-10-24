@@ -55,67 +55,65 @@ namespace winrt::LlamaRun::implementation
 		if (IsOllamaAvailable())
 		{
 			OutputDebugString(L"Ollama Avaliable");
+
+			auto& weakThis = *this;
+			std::thread serverCheckThread([&]() {
+				if (weakThis && weakThis.DispatcherQueue()) { // Check for both 'this' and DispatcherQueue
+					weakThis.DispatcherQueue().TryEnqueue(
+						winrt::Microsoft::UI::Dispatching::DispatcherQueuePriority::Normal,
+						[&weakThis]() {
+							weakThis.TextBoxElement().PlaceholderText(L"Waiting for Ollama server!");
+							weakThis.TextBoxElement().IsReadOnly(true);
+						}
+					);
+				}
+				while (!ollama::is_running()) {
+					std::this_thread::sleep_for(std::chrono::seconds(2));
+				}
+
+				// Once server is up, load the models
+				MainWindow::models = ListModel();
+
+				if (models.size() <= 0) {
+					throw std::exception("No Models Downloaded");
+				}
+				DataStore::GetInstance().SetModels(models);
+
+				if (SettingsWindow::LoadSetting("SelectedModel") != L"")
+				{
+					auto selectedModel = SettingsWindow::LoadSetting("SelectedModel");
+					DataStore::GetInstance().SetSelectedModel(to_string(selectedModel));
+				}
+
+				if (DataStore::GetInstance().GetSelectedModel() != "")
+				{
+					LoadModelIntoMemory(DataStore::GetInstance().GetSelectedModel());
+				}
+				else
+				{
+					DataStore::GetInstance().SetSelectedModel(models[0]);
+					LoadModelIntoMemory(models[0]);
+
+					SettingsWindow::SaveSetting("SelectedModel", DataStore::GetInstance().GetSelectedModel());
+				}
+
+				if (weakThis && weakThis.DispatcherQueue()) { // Check for both 'this' and DispatcherQueue
+					weakThis.DispatcherQueue().TryEnqueue(
+						winrt::Microsoft::UI::Dispatching::DispatcherQueuePriority::Normal,
+						[&weakThis]() {
+							weakThis.TextBoxElement().PlaceholderText(L"Ask Anything!");
+							weakThis.TextBoxElement().IsReadOnly(false);
+						}
+					);
+				}
+				});
+
+			serverCheckThread.detach();
 		}
 		else
 		{
 			ShowOllamaDialog();
-			throw std::exception("Ollama not Avaliable!");
 		}
-
-
-		auto& weakThis = *this;
-		std::thread serverCheckThread([&]() {
-			if (weakThis && weakThis.DispatcherQueue()) { // Check for both 'this' and DispatcherQueue
-				weakThis.DispatcherQueue().TryEnqueue(
-					winrt::Microsoft::UI::Dispatching::DispatcherQueuePriority::Normal,
-					[&weakThis]() {
-						weakThis.TextBoxElement().PlaceholderText(L"Waiting for Ollama server!");
-						weakThis.TextBoxElement().IsReadOnly(true);
-					}
-				);
-			}
-			while (!ollama::is_running()) {
-				std::this_thread::sleep_for(std::chrono::seconds(2));
-			}
-
-			// Once server is up, load the models
-			MainWindow::models = ListModel();
-
-			if (models.size() <= 0) {
-				throw std::exception("No Models Downloaded");
-			}
-			DataStore::GetInstance().SetModels(models);
-
-			if (SettingsWindow::LoadSetting("SelectedModel") != L"")
-			{
-				auto selectedModel = SettingsWindow::LoadSetting("SelectedModel");
-				DataStore::GetInstance().SetSelectedModel(to_string(selectedModel));
-			}
-
-			if (DataStore::GetInstance().GetSelectedModel() != "")
-			{
-				LoadModelIntoMemory(DataStore::GetInstance().GetSelectedModel());
-			}
-			else
-			{
-				DataStore::GetInstance().SetSelectedModel(models[0]);
-				LoadModelIntoMemory(models[0]);
-
-				SettingsWindow::SaveSetting("SelectedModel", DataStore::GetInstance().GetSelectedModel());
-			}
-
-			if (weakThis && weakThis.DispatcherQueue()) { // Check for both 'this' and DispatcherQueue
-				weakThis.DispatcherQueue().TryEnqueue(
-					winrt::Microsoft::UI::Dispatching::DispatcherQueuePriority::Normal,
-					[&weakThis]() {
-						weakThis.TextBoxElement().PlaceholderText(L"Ask Anything!");
-						weakThis.TextBoxElement().IsReadOnly(false);
-					}
-				);
-			}
-			});
-
-		serverCheckThread.detach();
 	}
 
 	bool MainWindow::IsOllamaAvailable()
@@ -300,13 +298,19 @@ namespace winrt::LlamaRun::implementation
 						// (e.g., log a message, display an error)
 					}
 					};
-				
+
 				try {
-					if (isVSCodeActive)
+					if (true)
 					{
 						SOCKET ConnectSocket = INVALID_SOCKET;
 
-						if (!VSCodeConnector::GetInstance().setupSocket(ConnectSocket)) {
+						if (VSCodeConnector::GetInstance().setupServerSocket(ConnectSocket, "3000")) {
+							std::thread acceptThread([ConnectSocket]() {
+								VSCodeConnector::GetInstance().acceptConnections(ConnectSocket);
+								});
+							acceptThread.detach();
+						}
+						else {
 							OutputDebugString(L"Failed to set up socket connection to VS Code.");
 							throw std::runtime_error("Failed to set up socket connection to VS Code.");
 						}
@@ -320,10 +324,9 @@ namespace winrt::LlamaRun::implementation
 											weakThis.StopSkeletonLoadingAnimation();
 											weakThis.TextBoxElement().IsReadOnly(false);
 										}
-										// Send the current chunk to VS Code
-										if (!VSCodeConnector::GetInstance().streamCodeToVSCode(response, ConnectSocket)) {
-											OutputDebugString(L"Failed to send code chunk to VS Code.");
-										}
+
+										// Later in the program, broadcast code to clients
+										VSCodeConnector::GetInstance().broadcastCodeToClients("Generated code from LlamaRun");
 									}
 								);
 							}
