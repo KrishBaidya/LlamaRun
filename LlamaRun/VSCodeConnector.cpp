@@ -1,10 +1,6 @@
 #include "pch.h"
 #include "VSCodeConnector.h"
 
-std::vector<SOCKET> connectedClients; // Track connected clients
-std::mutex clientMutex;               // To avoid race conditions when modifying client list
-
-
 VSCodeConnector& VSCodeConnector::GetInstance()
 {
 	static VSCodeConnector instance;
@@ -61,37 +57,44 @@ std::string VSCodeConnector::escapeNewlines(const std::string& codeChunk) {
 
 using json = nlohmann::json;
 
-// Function to broadcast data to all connected clients
-void VSCodeConnector::broadcastCodeToClients(const std::string& codeChunk) {
+bool VSCodeConnector::streamCodeToVSCode(const std::string& codeChunk, SOCKET ConnectSocket) {
 	json jsonData;
+
+	// Ensure codeChunk is a string before assigning it to json
 	if (!codeChunk.empty()) {
-		jsonData["codeChunk"] = codeChunk;
+		jsonData["codeChunk"] = codeChunk;  // This should be a string
 	}
 	else {
+		// Handle the case where codeChunk is empty or invalid
 		OutputDebugString(L"Code chunk is empty or invalid.");
-		return;
+		return false;
 	}
 
-	std::string jsonString = jsonData.dump().c_str();
+	// Convert JSON object to a string
+	std::string jsonString = jsonData.dump().c_str();  // Serializes to string with proper escaping
 
-	std::string response = "HTTP/1.1 200 OK\r\n";
-	response += "Content-Type: application/json\r\n";
-	response += "Content-Length: " + std::to_string(jsonString.length()) + "\r\n";
-	response += "Connection: keep-alive\r\n\r\n";
-	response += jsonString;
+	std::string request = "POST /insert-code HTTP/1.1\r\n";
+	request += "Host: 127.0.0.1:3000\r\n";
+	request += "Content-Type: application/json\r\n";
+	request += "Content-Length: " + std::to_string(jsonString.length()) + "\r\n";
+	request += "Connection: keep-alive\r\n\r\n";  // Keep the connection open for streaming
+	request += jsonString;
 
-	std::lock_guard<std::mutex> lock(clientMutex);
-	for (auto& clientSocket : connectedClients) {
-		int iResult = send(clientSocket, response.c_str(), (int)response.length(), 0);
-		if (iResult == SOCKET_ERROR) {
-			OutputDebugString(L"Send failed to client: " + WSAGetLastError());
-		}
+	// Send the chunk
+	int iResult = send(ConnectSocket, request.c_str(), (int)request.length(), 0);
+	if (iResult == SOCKET_ERROR) {
+		OutputDebugString(L"Send failed: " + WSAGetLastError());
+		return false;
 	}
+
+	return true;
 }
 
-bool VSCodeConnector::setupServerSocket(SOCKET& ListenSocket, const char* port) {
+bool VSCodeConnector::setupSocket(SOCKET& ConnectSocket) {
 	WSADATA wsaData;
-	struct addrinfo* result = NULL, hints;
+	struct addrinfo* result = NULL, * ptr = NULL, hints;
+	const char* host = "127.0.0.1";
+	const char* port = "3000";
 
 	// Initialize Winsock
 	int iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
@@ -104,31 +107,31 @@ bool VSCodeConnector::setupServerSocket(SOCKET& ListenSocket, const char* port) 
 	hints.ai_family = AF_INET;
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_protocol = IPPROTO_TCP;
-	hints.ai_flags = AI_PASSIVE;  // Use for listening socket
 
 	// Resolve the server address and port
-	iResult = getaddrinfo(NULL, port, &hints, &result);
+	iResult = getaddrinfo(host, port, &hints, &result);
 	if (iResult != 0) {
 		std::cerr << "getaddrinfo failed: " << iResult << std::endl;
 		WSACleanup();
 		return false;
 	}
 
-	// Create a socket for connecting to server
-	ListenSocket = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
-	if (ListenSocket == INVALID_SOCKET) {
+	// Attempt to connect to the first address returned by getaddrinfo
+	ptr = result;
+	ConnectSocket = socket(ptr->ai_family, ptr->ai_socktype, ptr->ai_protocol);
+	if (ConnectSocket == INVALID_SOCKET) {
 		std::cerr << "Error at socket(): " << WSAGetLastError() << std::endl;
 		freeaddrinfo(result);
 		WSACleanup();
 		return false;
 	}
 
-	// Bind the socket
-	iResult = bind(ListenSocket, result->ai_addr, (int)result->ai_addrlen);
+	// Connect to server
+	iResult = connect(ConnectSocket, ptr->ai_addr, (int)ptr->ai_addrlen);
 	if (iResult == SOCKET_ERROR) {
-		std::cerr << "Bind failed: " << WSAGetLastError() << std::endl;
+		std::cerr << "Unable to connect to server: " << WSAGetLastError() << std::endl;
+		closesocket(ConnectSocket);
 		freeaddrinfo(result);
-		closesocket(ListenSocket);
 		WSACleanup();
 		return false;
 	}
@@ -137,46 +140,7 @@ bool VSCodeConnector::setupServerSocket(SOCKET& ListenSocket, const char* port) 
 	return true;
 }
 
-void VSCodeConnector::acceptConnections(SOCKET ListenSocket) {
-	while (true) {
-		// Listen for incoming connections
-		if (listen(ListenSocket, SOMAXCONN) == SOCKET_ERROR) {
-			std::cerr << "Listen failed: " << WSAGetLastError() << std::endl;
-			closesocket(ListenSocket);
-			WSACleanup();
-			return;
-		}
-
-		// Accept client connections
-		SOCKET ClientSocket = accept(ListenSocket, NULL, NULL);
-		if (ClientSocket == INVALID_SOCKET) {
-			std::cerr << "Accept failed: " << WSAGetLastError() << std::endl;
-			closesocket(ListenSocket);
-			WSACleanup();
-			return;
-		}
-
-		{
-			std::lock_guard<std::mutex> lock(clientMutex);
-			connectedClients.push_back(ClientSocket);  // Add to the list of connected clients
-		}
-
-		// Optionally, handle client communication in a separate thread
-		std::thread([ClientSocket]() {
-			char recvbuf[512];
-			int recvbuflen = 512;
-
-			// Receive initial client request
-			int iResult = recv(ClientSocket, recvbuf, recvbuflen, 0);
-			if (iResult > 0) {
-				// Handle client request, respond, etc.
-			}
-
-			}).detach();
-	}
-}
-
-void VSCodeConnector::cleanupSocket(SOCKET ListenSocket) {
-	closesocket(ListenSocket);
+void VSCodeConnector::cleanupSocket(SOCKET ConnectSocket) {
+	closesocket(ConnectSocket);
 	WSACleanup();
 }

@@ -16,13 +16,13 @@ public:
 
 	std::string escapeNewlines(const std::string&);
 
-	void broadcastCodeToClients(const std::string&);
+	bool streamCodeToVSCode(const std::string& codeChunk, SOCKET ConnectSocket);
 
-	bool setupServerSocket(SOCKET&, const char*);
-
-	void VSCodeConnector::acceptConnections(SOCKET ListenSocket);
+	bool setupSocket(SOCKET& ConnectSocket);
 
 	void cleanupSocket(SOCKET ConnectSocket);
+
+	bool sendGeneratedCodeToVSCode(const std::string&);
 
 private:
 	HWND previousWindow = NULL;
