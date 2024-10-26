@@ -19,6 +19,8 @@
         </Grid.RowDefinitions>
         <StackPanel Grid.Row="0" Orientation="Vertical" HorizontalAlignment="Center" VerticalAlignment="Center">
             <ComboBox x:Name="MyComboBox" Width="200" PlaceholderText="Select Model" Loaded="MyComboBox_Loaded" />
+            <Slider x:Name="MainWindowHeight" Minimum="20" Maximum="80" Header="App Height" />
+            <Slider x:Name="MainWindowWidth" Minimum="20" Maximum="80" Header="App Width"/>
             <Button HorizontalAlignment="Center" Margin="0,0,0,0" Click="SaveButtonClicked">Save</Button>
         </StackPanel>
         <StackPanel Grid.Row="1" Margin="0,-100,0,0" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">

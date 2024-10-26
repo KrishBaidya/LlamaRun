@@ -300,7 +300,7 @@ namespace winrt::LlamaRun::implementation
 						// (e.g., log a message, display an error)
 					}
 					};
-				
+
 				try {
 					if (isVSCodeActive)
 					{
