@@ -16,9 +16,9 @@ namespace winrt::LlamaRun::implementation
 
 			RequestStartup();
 		}
-		void SettingsWindow::SaveButtonClicked(IInspectable const&, IInspectable const& args);
+		void SaveButtonClicked(IInspectable const&, IInspectable const& args);
 
-		fire_and_forget SettingsWindow::RequestStartup();
+		fire_and_forget RequestStartup();
 
 		void MyComboBox_Loaded(IInspectable const&, IInspectable const& args);
 
@@ -26,7 +26,9 @@ namespace winrt::LlamaRun::implementation
 		void MyProperty(int32_t value);
 
 		static void SaveSetting(const std::string&, const std::string&);
-		static std::wstring LoadSetting(const std::string& key);
+		static void SaveSetting(const std::string&, const hstring&);
+
+		static winrt::hstring LoadSetting(const std::string& key);
 	};
 }
 

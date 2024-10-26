@@ -16,7 +16,7 @@ namespace winrt::LlamaRun::implementation
 		void ShowOllamaDialog();
 		bool IsOllamaAvailable();
 
-		std::vector<std::string> MainWindow::models = std::vector<std::string>();
+		std::vector<std::string> models = std::vector<std::string>();
 
 		HWND hWnd = nullptr;
 
@@ -24,7 +24,7 @@ namespace winrt::LlamaRun::implementation
 
 		void UpdateTextBox(hstring const& text);
 
-		void MainWindow::ShowTrayMenu();
+		void ShowTrayMenu();
 
 		void AddTrayIcon(HWND hWnd);
 
