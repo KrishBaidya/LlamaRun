@@ -84,13 +84,7 @@ namespace winrt::LlamaRun::implementation
 
 		SaveSetting("App Opacity", to_hstring(MainWindowOpacitySlider().Value()));
 
-		if (AutoStartUpCheckBox().IsChecked())
-		{
-			RequestStartup();
-		}
-		else if (!AutoStartUpCheckBox().IsChecked()) {
-
-		}
+		RequestStartupChange(AutoStartUpCheckBox().IsChecked().GetBoolean());
 
 		DataStore::GetInstance().SetAppDimension({ static_cast<float>(AppWidth), static_cast<float>(AppHeight) });
 	}
