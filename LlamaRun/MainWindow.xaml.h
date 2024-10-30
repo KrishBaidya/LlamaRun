@@ -14,7 +14,6 @@ namespace winrt::LlamaRun::implementation
 		void SubclassWndProc(HWND hwnd);
 
 		void CheckandLoadOllama();
-		void ShowOllamaDialog();
 		bool IsOllamaAvailable();
 
 		std::vector<std::string> models = std::vector<std::string>();

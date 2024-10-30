@@ -13,6 +13,8 @@ namespace winrt::LlamaRun::implementation
             Title(L"Get Started - Llama Run");
 
             ExtendsContentIntoTitleBar(true);
+
+            RequestStartup();
         }
 
         int currentStep = 0;
@@ -23,6 +25,8 @@ namespace winrt::LlamaRun::implementation
         void Next_Click(IInspectable const&, IInspectable const&);
 
         void Finish_Click(IInspectable const&, IInspectable const&);
+
+        fire_and_forget RequestStartup();
 
         int32_t MyProperty();
         void MyProperty(int32_t value);

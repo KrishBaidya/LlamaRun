@@ -76,7 +76,31 @@ namespace winrt::LlamaRun::implementation
 		this->Close();
 	}
 
-	void winrt::LlamaRun::implementation::FirstRunWindow::Grid_Loaded(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e)
+	fire_and_forget FirstRunWindow::RequestStartup()
+	{
+		auto& startupTask = co_await winrt::Windows::ApplicationModel::StartupTask::GetAsync(L"LLamaRun Generation");
+
+		switch (startupTask.State())
+		{
+		case winrt::Windows::ApplicationModel::StartupTaskState::Disabled:
+			co_await startupTask.RequestEnableAsync();
+			break;
+
+		case winrt::Windows::ApplicationModel::StartupTaskState::DisabledByUser:
+			co_await startupTask.RequestEnableAsync();
+			break;
+
+		case winrt::Windows::ApplicationModel::StartupTaskState::DisabledByPolicy:
+			// Startup disabled by group policy
+			break;
+
+		case winrt::Windows::ApplicationModel::StartupTaskState::Enabled:
+			// Already enabled
+			break;
+		}
+	}
+
+	void FirstRunWindow::Grid_Loaded(IInspectable const& sender, RoutedEventArgs const& e)
 	{
 		UpdateStep();
 	}

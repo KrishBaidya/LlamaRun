@@ -1,8 +1,6 @@
 #pragma once
 #include "pch.h"
 
-#include "VSCodeConnector.h"
-
 class VSCodeConnector
 {
 public:
@@ -10,7 +8,7 @@ public:
 
 	void SaveLastActiveWindow();
 
-	bool IsVSCodeActive();
+	bool IsVSCodeActive() const;
 
 	std::string sanitizeCodeChunk(const std::string&);
 
@@ -21,8 +19,6 @@ public:
 	bool setupSocket(SOCKET& ConnectSocket);
 
 	void cleanupSocket(SOCKET ConnectSocket);
-
-	bool sendGeneratedCodeToVSCode(const std::string&);
 
 private:
 	HWND previousWindow = NULL;

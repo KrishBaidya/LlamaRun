@@ -15,7 +15,7 @@ void VSCodeConnector::SaveLastActiveWindow() {
 	}
 }
 
-bool VSCodeConnector::IsVSCodeActive()
+bool VSCodeConnector::IsVSCodeActive() const
 {
 	wchar_t windowTitle[256];
 	if (previousWindow != NULL) {

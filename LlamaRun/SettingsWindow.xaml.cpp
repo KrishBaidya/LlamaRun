@@ -17,6 +17,35 @@ using namespace Windows::Storage;
 
 namespace winrt::LlamaRun::implementation
 {
+	void SettingsWindow::rootPanel_Loaded(IInspectable const& sender, RoutedEventArgs const& e)
+	{
+		if (SettingsWindow::LoadSetting("App Width") != L"")
+		{
+			auto appWidth = SettingsWindow::LoadSetting("App Width");
+
+			MainWindowWidth().Value(std::stod(to_string(appWidth)));
+		}
+		else {
+			MainWindowWidth().Value(38);
+		}
+		if (SettingsWindow::LoadSetting("App Height") != L"")
+		{
+			auto appHeight = SettingsWindow::LoadSetting("App Height");
+
+			MainWindowHeight().Value(std::stod(to_string(appHeight)));
+		}
+		else {
+			MainWindowHeight().Value(10);
+		}
+
+		if (SettingsWindow::LoadSetting("App Opacity") != L"")
+		{
+			auto appOpacity = SettingsWindow::LoadSetting("App Opacity");
+
+			MainWindowOpacitySlider().Value(std::stod(to_string(appOpacity)));
+		}
+	}
+
 	void SettingsWindow::MyComboBox_Loaded(IInspectable const&, IInspectable const& args)
 	{
 		auto models = DataStore::GetInstance().GetModels();
@@ -43,17 +72,27 @@ namespace winrt::LlamaRun::implementation
 
 	void SettingsWindow::SaveButtonClicked(IInspectable const&, IInspectable const& args) {
 		auto selectedModelIndex = MyComboBox().SelectedIndex();
-		auto selectedModel = DataStore::GetInstance().GetModels()[selectedModelIndex];
+		std::string selectedModel = DataStore::GetInstance().GetModels()[selectedModelIndex];
 
-		const auto &AppHeight = MainWindowHeight().Value();
-		const auto &AppWidth = MainWindowWidth().Value();
+		const auto& AppHeight = MainWindowHeight().Value();
+		const auto& AppWidth = MainWindowWidth().Value();
 
 		SaveSetting("SelectedModel", selectedModel);
 
 		SaveSetting("App Height", to_hstring(AppHeight));
 		SaveSetting("App Width", to_hstring(AppWidth));
 
-		DataStore::GetInstance().SetAppDimension({static_cast<float>(AppWidth), static_cast<float>(AppHeight)});
+		SaveSetting("App Opacity", to_hstring(MainWindowOpacitySlider().Value()));
+
+		if (AutoStartUpCheckBox().IsChecked())
+		{
+			RequestStartup();
+		}
+		else if (!AutoStartUpCheckBox().IsChecked()) {
+
+		}
+
+		DataStore::GetInstance().SetAppDimension({ static_cast<float>(AppWidth), static_cast<float>(AppHeight) });
 	}
 
 	void SettingsWindow::SaveSetting(const std::string& key, const std::string& value)
@@ -96,27 +135,16 @@ namespace winrt::LlamaRun::implementation
 		return L"";
 	}
 
-	fire_and_forget SettingsWindow::RequestStartup()
+	fire_and_forget SettingsWindow::RequestStartupChange(const bool& Enable)
 	{
 		auto& startupTask = co_await winrt::Windows::ApplicationModel::StartupTask::GetAsync(L"LLamaRun Generation");
-		switch (startupTask.State())
+
+		if (Enable)
 		{
-		case winrt::Windows::ApplicationModel::StartupTaskState::Disabled:
-			// Request user permission to enable startup
 			co_await startupTask.RequestEnableAsync();
-			break;
-
-		case winrt::Windows::ApplicationModel::StartupTaskState::DisabledByUser:
-			co_await startupTask.RequestEnableAsync();
-			break;
-
-		case winrt::Windows::ApplicationModel::StartupTaskState::DisabledByPolicy:
-			// Startup disabled by group policy
-			break;
-
-		case winrt::Windows::ApplicationModel::StartupTaskState::Enabled:
-			// Already enabled
-			break;
+		}
+		else {
+			startupTask.Disable();
 		}
 	}
 

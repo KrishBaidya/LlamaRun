@@ -140,6 +140,7 @@
       <DependentUpon>SettingsWindow.xaml</DependentUpon>
       <SubType>Code</SubType>
     </ClInclude>
+    <ClInclude Include="ShowOllamaUnavaliableWindow.h" />
     <ClInclude Include="VSCodeConnector.h" />
   </ItemGroup>
   <ItemGroup>
@@ -172,6 +173,7 @@
       <DependentUpon>SettingsWindow.xaml</DependentUpon>
       <SubType>Code</SubType>
     </ClCompile>
+    <ClCompile Include="ShowOllamaUnavaliableWindow.cpp" />
     <ClCompile Include="VSCodeConnector.cpp" />
   </ItemGroup>
   <ItemGroup>
