@@ -55,7 +55,7 @@ namespace winrt::LlamaRun::implementation
 			window = make<MainWindow>();
 			window.Activate();
 
-			SettingsWindow::SaveSetting("isFirstRun", to_hstring<bool>(true));
+			//SettingsWindow::SaveSetting("isFirstRun", to_hstring<bool>(true));
 		}
 
 	}

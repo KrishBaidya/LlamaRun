@@ -7,7 +7,7 @@
 #include <BackgroundOllama.hpp>
 #include <future>
 #include <atomic>
-#include <winrt/Microsoft.UI.Composition.SystemBackdrops.h>
+#include <DataStore.cpp>
 
 using namespace winrt;
 using namespace Microsoft::UI;
@@ -25,12 +25,66 @@ using namespace Microsoft::UI::Xaml::Media::Animation;
 // and more about our project templates, see: http://aka.ms/winui-project-info.
 
 #include <iostream>
-#include <DataStore.cpp>
 #include <SettingsWindow.xaml.h>
 #include "VSCodeConnector.h"
+#include <commctrl.h>
 
 namespace winrt::LlamaRun::implementation
 {
+	static WNDPROC originalWndProc;
+
+	static LRESULT CALLBACK CustomWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData)
+	{
+		MainWindow* pThis = reinterpret_cast<MainWindow*>(dwRefData);
+
+		switch (uMsg)
+		{
+		case WM_HOTKEY:
+			if (!IsWindowVisible(hWnd))
+			{
+				VSCodeConnector::GetInstance().SaveLastActiveWindow();
+
+				// Window is hidden, so show it
+				ShowWindow(hWnd, SW_SHOW);
+				SetForegroundWindow(hWnd);
+
+				if (pThis) {
+					pThis->SetFocusOnTextBox();
+
+					auto AppDimension = DataStore::GetInstance().GetAppDimension();
+
+					pThis->MoveAndResizeWindow(AppDimension.X / 100.0, AppDimension.Y / 100.0);
+				}
+			}
+			else
+			{
+				// Window is visible, so hide it
+				ShowWindow(hWnd, SW_HIDE);
+			}
+			break;
+		case WM_CLOSE:
+			ShowWindow(hWnd, SW_HIDE);
+			return 0;
+		case WM_TRAYICON:
+			if (lParam == WM_LBUTTONDOWN) {
+				// Tray icon was clicked
+				OutputDebugString(L"Tray icon clicked\n");
+				if (pThis)
+				{
+					pThis->ShowTrayMenu();
+				}
+			}
+			break;
+		case WM_ACTIVATE:
+			if (LOWORD(wParam) == WA_INACTIVE)
+			{
+				ShowWindow(hWnd, SW_HIDE);
+			}
+			break;
+		}
+		return CallWindowProc(originalWndProc, hWnd, uMsg, wParam, lParam);
+	}
+
 	MainWindow::MainWindow()
 	{
 		Title(L"Llama Run");
@@ -44,11 +98,22 @@ namespace winrt::LlamaRun::implementation
 
 		presenter.IsMaximizable(false);
 		presenter.IsMinimizable(false);
-		presenter.IsResizable(false);
+		presenter.IsResizable(true);
 		presenter.SetBorderAndTitleBar(true, false);
 
 		presenter.IsAlwaysOnTop(true);
 		appWindow.IsShownInSwitchers(false);
+	}
+
+	void MainWindow::SubclassWndProc(HWND hwnd)
+	{
+		// Store the original window procedure
+		originalWndProc = (WNDPROC)GetWindowLongPtr(hwnd, GWLP_WNDPROC);
+
+		SetWindowSubclass(hwnd, CustomWndProc, 0, reinterpret_cast<DWORD_PTR>(this)); // Set user data first
+
+		// Subclass the window procedure
+		//SetWindowLongPtr(hwnd, GWLP_WNDPROC, (LONG_PTR)CustomWndProc);
 	}
 
 	void MainWindow::CheckandLoadOllama() {
@@ -239,19 +304,32 @@ namespace winrt::LlamaRun::implementation
 		LoadingStoryBoard().Stop();
 	}
 
-	void winrt::LlamaRun::implementation::MainWindow::AppTitleBar_Loaded(winrt::Windows::Foundation::IInspectable const& sender, Microsoft::UI::Xaml::RoutedEventArgs const& e)
+	void MainWindow::AppTitleBar_Loaded(IInspectable const&, RoutedEventArgs const&)
 	{
-		MoveAndResizeWindow(0.38f, 0.1f);// 38% of the work area width and 10% of the work area height
+		hstring appHeight = SettingsWindow::LoadSetting("App Height");
+		hstring appWidth = SettingsWindow::LoadSetting("App Width");
+		if (appHeight == to_hstring("") || appWidth == to_hstring(""))
+		{
+			// 38% of the work area width and 10% of the work area height
+			MoveAndResizeWindow(38 / 100.0, 10 / 100.0);
+		}
+		else
+		{
+			MoveAndResizeWindow(std::stoi(to_string(appWidth)) / 100.0, std::stoi(to_string(appHeight)) / 100.0);
+		}
 
-		hWnd = GetActiveWindow();
-		AddTrayIcon(hWnd);
-		SubclassWndProc(hWnd);
-		RegisterGlobalHotkey(hWnd);
+		auto windowNative{ this->m_inner.as<::IWindowNative>() };
+		HWND hwnd{ 0 };
+		windowNative->get_WindowHandle(&hwnd);
+
+		AddTrayIcon(hwnd);
+		SubclassWndProc(hwnd);
+		RegisterGlobalHotkey(hwnd);
 
 		CheckandLoadOllama();
 	}
 
-	void MainWindow::MoveAndResizeWindow(float widthPercentage, float heightPercentage)
+	void MainWindow::MoveAndResizeWindow(float widthPercentage, float heightPercentage) const
 	{
 		// Get the app window and display area
 		auto appWindow = AppWindow();
@@ -267,7 +345,7 @@ namespace winrt::LlamaRun::implementation
 		appWindow.MoveAndResize(Windows::Graphics::RectInt32{ centerX - (windowWidth / 2), centerY - (windowHeight / 2), windowWidth, windowHeight });
 	}
 
-	void winrt::LlamaRun::implementation::MainWindow::TextBoxElement_KeyDown(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const& e)
+	void MainWindow::TextBoxElement_KeyDown(Windows::Foundation::IInspectable const& sender, KeyRoutedEventArgs const& e)
 	{
 		auto textBox = sender.as<Microsoft::UI::Xaml::Controls::TextBox>();
 		if (e.Key() == winrt::Windows::System::VirtualKey::Enter && !textBox.IsReadOnly())
@@ -402,7 +480,7 @@ namespace winrt::LlamaRun::implementation
 		Shell_NotifyIcon(NIM_ADD, &nid);
 	}
 
-	void winrt::LlamaRun::implementation::MainWindow::TextBoxElement_TextChanged(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::Controls::TextChangedEventArgs const& e)
+	void MainWindow::TextBoxElement_TextChanged(Windows::Foundation::IInspectable const&, TextChangedEventArgs const&)
 	{
 		scrollViewer().ChangeView(nullptr, scrollViewer().ScrollableHeight(), nullptr);
 		/*if (sender.as<Microsoft::UI::Xaml::Controls::TextBox>().Text() == L"")

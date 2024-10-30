@@ -16,7 +16,7 @@ public:
 
 	std::string escapeNewlines(const std::string&);
 
-	bool streamCodeToVSCode(const std::string& codeChunk, SOCKET ConnectSocket);
+	bool streamCodeToVSCode(const std::string& codeChunk, const SOCKET& ConnectSocket);
 
 	bool setupSocket(SOCKET& ConnectSocket);
 

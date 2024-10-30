@@ -6,6 +6,7 @@
   <ItemGroup>
     <Page Include="MainWindow.xaml" />
     <Page Include="SettingsWindow.xaml" />
+    <Page Include="FirstRunWindow.xaml" />
   </ItemGroup>
   <ItemGroup>
     <Midl Include="MainWindow.idl" />
@@ -27,16 +28,10 @@
     <Image Include="Assets\Square150x150Logo.scale-200.png">
       <Filter>Assets</Filter>
     </Image>
-    <Image Include="Assets\Square44x44Logo.targetsize-24_altform-unplated.png">
-      <Filter>Assets</Filter>
-    </Image>
     <Image Include="Assets\Square44x44Logo.scale-200.png">
       <Filter>Assets</Filter>
     </Image>
     <Image Include="Assets\SplashScreen.scale-200.png">
-      <Filter>Assets</Filter>
-    </Image>
-    <Image Include="Assets\LockScreenLogo.scale-200.png">
       <Filter>Assets</Filter>
     </Image>
     <Image Include="Assets\LlamaRun.ico">
@@ -156,6 +151,15 @@
     <Image Include="Assets\red_heart_animated.gif">
       <Filter>Assets</Filter>
     </Image>
+    <Image Include="Assets\SplashScreen.scale-100.png" />
+    <Image Include="Assets\SplashScreen.scale-125.png" />
+    <Image Include="Assets\SplashScreen.scale-150.png" />
+    <Image Include="Assets\SplashScreen.scale-400.png" />
+    <Image Include="Assets\Square44x44Logo.altform-unplated_targetsize-24.png" />
+    <Image Include="Assets\Wide310x150Logo.scale-100.png" />
+    <Image Include="Assets\Wide310x150Logo.scale-125.png" />
+    <Image Include="Assets\Wide310x150Logo.scale-150.png" />
+    <Image Include="Assets\Wide310x150Logo.scale-400.png" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Assets">

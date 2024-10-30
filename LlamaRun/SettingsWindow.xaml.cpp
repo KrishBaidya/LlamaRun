@@ -45,7 +45,15 @@ namespace winrt::LlamaRun::implementation
 		auto selectedModelIndex = MyComboBox().SelectedIndex();
 		auto selectedModel = DataStore::GetInstance().GetModels()[selectedModelIndex];
 
+		const auto &AppHeight = MainWindowHeight().Value();
+		const auto &AppWidth = MainWindowWidth().Value();
+
 		SaveSetting("SelectedModel", selectedModel);
+
+		SaveSetting("App Height", to_hstring(AppHeight));
+		SaveSetting("App Width", to_hstring(AppWidth));
+
+		DataStore::GetInstance().SetAppDimension({static_cast<float>(AppWidth), static_cast<float>(AppHeight)});
 	}
 
 	void SettingsWindow::SaveSetting(const std::string& key, const std::string& value)

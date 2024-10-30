@@ -20,11 +20,20 @@ public:
 		selectedModel = data;
 	}
 
-
 	std::string DataStore::GetSelectedModel()
 	{
 		OutputDebugString((L"GetSelectedModel returning: " + std::wstring(selectedModel.begin(), selectedModel.end())).c_str());
 		return selectedModel;
+	}
+
+	Point GetAppDimension() const
+	{
+		return appDimension;
+	}
+
+	void DataStore::SetAppDimension(Point _appDimension)
+	{
+		appDimension = _appDimension;
 	}
 
 	void SetModels(std::vector<std::string> data)
@@ -40,6 +49,8 @@ public:
 private:
 	std::string selectedModel = "";
 	std::vector<std::string> models;
+
+	Point appDimension = {38, 10};
 
 	DataStore() = default;
 	~DataStore() = default;

@@ -57,7 +57,7 @@ std::string VSCodeConnector::escapeNewlines(const std::string& codeChunk) {
 
 using json = nlohmann::json;
 
-bool VSCodeConnector::streamCodeToVSCode(const std::string& codeChunk, SOCKET ConnectSocket) {
+bool VSCodeConnector::streamCodeToVSCode(const std::string& codeChunk, const SOCKET& ConnectSocket) {
 	json jsonData;
 
 	// Ensure codeChunk is a string before assigning it to json
