@@ -16,7 +16,7 @@ namespace winrt::LlamaRun::implementation
 		}
 		void SaveButtonClicked(IInspectable const&, IInspectable const& args);
 
-		fire_and_forget RequestStartupChange(const bool&);
+		fire_and_forget RequestStartupChange(bool);
 
 		void MyComboBox_Loaded(IInspectable const&, IInspectable const& args);
 

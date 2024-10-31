@@ -26,6 +26,14 @@ public:
 		return selectedModel;
 	}
 
+	float DataStore::GetAppOpacity() const {
+		return appOpacity;
+	}
+
+	void DataStore::SetAppOpacity(double opacity) {
+		appOpacity = opacity;
+	}
+
 	Point GetAppDimension() const
 	{
 		return appDimension;
@@ -50,7 +58,9 @@ private:
 	std::string selectedModel = "";
 	std::vector<std::string> models;
 
-	Point appDimension = {38, 10};
+	float appOpacity = 15.0f;
+
+	Point appDimension = { 38, 10 };
 
 	DataStore() = default;
 	~DataStore() = default;

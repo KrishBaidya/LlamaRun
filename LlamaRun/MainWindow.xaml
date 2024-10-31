@@ -17,6 +17,7 @@
         <Grid.Resources>
             <Storyboard x:Name="LoadingStoryBoard">
                 <DoubleAnimation
+                    x:Name="OpacityDoubleAnimation"
                     EnableDependentAnimation="True"
                     Storyboard.TargetName="BackgroundBrush"
                     Storyboard.TargetProperty="Opacity"

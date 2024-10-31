@@ -17,6 +17,29 @@ using namespace Windows::Storage;
 
 namespace winrt::LlamaRun::implementation
 {
+	static IAsyncOperation<bool> CheckStartUp()
+	{
+		auto& startupTask = co_await winrt::Windows::ApplicationModel::StartupTask::GetAsync(L"LLamaRun Generation");
+
+		switch (startupTask.State())
+		{
+		case winrt::Windows::ApplicationModel::StartupTaskState::Disabled:
+			co_return false;
+
+		case winrt::Windows::ApplicationModel::StartupTaskState::DisabledByUser:
+			co_return false;
+
+		case winrt::Windows::ApplicationModel::StartupTaskState::DisabledByPolicy:
+			co_return false;
+
+		case winrt::Windows::ApplicationModel::StartupTaskState::Enabled:
+			co_return true;
+
+		case winrt::Windows::ApplicationModel::StartupTaskState::EnabledByPolicy:
+			co_return true;
+		}
+	}
+
 	void SettingsWindow::rootPanel_Loaded(IInspectable const& sender, RoutedEventArgs const& e)
 	{
 		if (SettingsWindow::LoadSetting("App Width") != L"")
@@ -43,6 +66,23 @@ namespace winrt::LlamaRun::implementation
 			auto appOpacity = SettingsWindow::LoadSetting("App Opacity");
 
 			MainWindowOpacitySlider().Value(std::stod(to_string(appOpacity)));
+		}
+		else {
+			MainWindowOpacitySlider().Value(15);
+		}
+
+		if (SettingsWindow::LoadSetting("Startup Enabled") != L"")
+		{
+			auto StartupEnabled = SettingsWindow::LoadSetting("Startup Enabled");
+			bool _StartUpEnabled = false;
+			std::istringstream(to_string(StartupEnabled)) >> std::boolalpha >> _StartUpEnabled;
+			AutoStartUpCheckBox().IsChecked(_StartUpEnabled);
+		}
+		else {
+			CheckStartUp().Completed([&](auto&& sender, AsyncStatus const  asyncStatus) {
+				bool _StartUpEnabled = sender.GetResults();
+				SettingsWindow::AutoStartUpCheckBox().IsChecked(_StartUpEnabled);
+				});
 		}
 	}
 
@@ -77,15 +117,20 @@ namespace winrt::LlamaRun::implementation
 		const auto& AppHeight = MainWindowHeight().Value();
 		const auto& AppWidth = MainWindowWidth().Value();
 
+		const auto& AppOpacity = MainWindowOpacitySlider().Value();
+
 		SaveSetting("SelectedModel", selectedModel);
 
 		SaveSetting("App Height", to_hstring(AppHeight));
 		SaveSetting("App Width", to_hstring(AppWidth));
 
-		SaveSetting("App Opacity", to_hstring(MainWindowOpacitySlider().Value()));
+		SaveSetting("App Opacity", to_hstring(AppOpacity));
 
 		RequestStartupChange(AutoStartUpCheckBox().IsChecked().GetBoolean());
 
+		SaveSetting("Startup Enabled", to_hstring(AutoStartUpCheckBox().IsChecked().GetBoolean()));
+
+		DataStore::GetInstance().SetAppOpacity(AppOpacity);
 		DataStore::GetInstance().SetAppDimension({ static_cast<float>(AppWidth), static_cast<float>(AppHeight) });
 	}
 
@@ -129,7 +174,7 @@ namespace winrt::LlamaRun::implementation
 		return L"";
 	}
 
-	fire_and_forget SettingsWindow::RequestStartupChange(const bool& Enable)
+	fire_and_forget SettingsWindow::RequestStartupChange(bool Enable)
 	{
 		auto& startupTask = co_await winrt::Windows::ApplicationModel::StartupTask::GetAsync(L"LLamaRun Generation");
 

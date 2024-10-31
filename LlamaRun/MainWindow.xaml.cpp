@@ -53,8 +53,10 @@ namespace winrt::LlamaRun::implementation
 					pThis->SetFocusOnTextBox();
 
 					auto AppDimension = DataStore::GetInstance().GetAppDimension();
-
 					pThis->MoveAndResizeWindow(AppDimension.X / 100.0, AppDimension.Y / 100.0);
+
+					auto AppOpacity= DataStore::GetInstance().GetAppOpacity();
+					pThis->OpacityDoubleAnimation().To(AppOpacity / 100.0);
 				}
 			}
 			else
