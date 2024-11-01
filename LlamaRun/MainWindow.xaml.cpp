@@ -45,10 +45,6 @@ namespace winrt::LlamaRun::implementation
 			{
 				VSCodeConnector::GetInstance().SaveLastActiveWindow();
 
-				// Window is hidden, so show it
-				ShowWindow(hWnd, SW_SHOW);
-				SetForegroundWindow(hWnd);
-
 				if (pThis) {
 					pThis->SetFocusOnTextBox();
 
@@ -58,6 +54,11 @@ namespace winrt::LlamaRun::implementation
 					auto AppOpacity= DataStore::GetInstance().GetAppOpacity();
 					pThis->OpacityDoubleAnimation().To(AppOpacity / 100.0);
 				}
+
+				// Window is hidden, so show it
+				ShowWindow(hWnd, SW_SHOW);
+				SetForegroundWindow(hWnd);
+
 			}
 			else
 			{
@@ -83,6 +84,7 @@ namespace winrt::LlamaRun::implementation
 			{
 				ShowWindow(hWnd, SW_HIDE);
 			}
+
 			break;
 		}
 		return CallWindowProc(originalWndProc, hWnd, uMsg, wParam, lParam);
@@ -94,14 +96,13 @@ namespace winrt::LlamaRun::implementation
 
 		// Extend content into the title bar
 		ExtendsContentIntoTitleBar(true);
-		bool extended = AppWindow().TitleBar().ExtendsContentIntoTitleBar();
 
 		auto appWindow = AppWindow();
 		auto presenter = appWindow.Presenter().as<OverlappedPresenter>();
 
 		presenter.IsMaximizable(false);
 		presenter.IsMinimizable(false);
-		presenter.IsResizable(true);
+		presenter.IsResizable(false);
 		presenter.SetBorderAndTitleBar(true, false);
 
 		presenter.IsAlwaysOnTop(true);
@@ -143,14 +144,15 @@ namespace winrt::LlamaRun::implementation
 				);
 			}
 			while (!ollama::is_running()) {
-				std::this_thread::sleep_for(std::chrono::seconds(2));
+				std::this_thread::sleep_for(std::chrono::seconds(1));
 			}
 
 			// Once server is up, load the models
 			MainWindow::models = ListModel();
 
 			if (models.size() <= 0) {
-				throw std::exception("No Models Downloaded");
+				ShowOllamaUnavaliableWindow::GetInstance().showModelDialog();
+				MainWindow::Close();
 			}
 			DataStore::GetInstance().SetModels(models);
 
@@ -218,8 +220,8 @@ namespace winrt::LlamaRun::implementation
 
 	void MainWindow::AppTitleBar_Loaded(IInspectable const&, RoutedEventArgs const&)
 	{
-		hstring appHeight = SettingsWindow::LoadSetting("App Height");
-		hstring appWidth = SettingsWindow::LoadSetting("App Width");
+		const hstring& appHeight = SettingsWindow::LoadSetting("App Height");
+		const hstring& appWidth = SettingsWindow::LoadSetting("App Width");
 		if (appHeight == to_hstring("") || appWidth == to_hstring(""))
 		{
 			// 38% of the work area width and 10% of the work area height
@@ -244,15 +246,15 @@ namespace winrt::LlamaRun::implementation
 	void MainWindow::MoveAndResizeWindow(float widthPercentage, float heightPercentage) const
 	{
 		// Get the app window and display area
-		auto appWindow = AppWindow();
-		auto displayArea = DisplayArea::GetFromWindowId(appWindow.Id(), DisplayAreaFallback::Primary);
-		auto workArea = displayArea.WorkArea();
+		auto& appWindow = AppWindow();
+		auto& displayArea = DisplayArea::GetFromWindowId(appWindow.Id(), DisplayAreaFallback::Primary);
+		auto& workArea = displayArea.WorkArea();
 
-		int32_t windowWidth = static_cast<int32_t>(workArea.Width * widthPercentage);
-		int32_t windowHeight = static_cast<int32_t>(workArea.Height * heightPercentage);
+		const int32_t& windowWidth = static_cast<int32_t>(workArea.Width * widthPercentage);
+		const int32_t& windowHeight = static_cast<int32_t>(workArea.Height * heightPercentage);
 
-		int32_t centerX = workArea.X + (workArea.Width / 2); // Center the window on the screen Horizontally
-		int32_t centerY = workArea.Y + (workArea.Height * 1 / 3); // Window with 33% Margin from top of the screen 
+		const int32_t& centerX = workArea.X + (workArea.Width / 2); // Center the window on the screen Horizontally
+		const int32_t& centerY = workArea.Y + (workArea.Height * 1 / 3); // Window with 33% Margin from top of the screen 
 
 		appWindow.MoveAndResize(Windows::Graphics::RectInt32{ centerX - (windowWidth / 2), centerY - (windowHeight / 2), windowWidth, windowHeight });
 	}
@@ -356,7 +358,7 @@ namespace winrt::LlamaRun::implementation
 
 	void MainWindow::UpdateTextBox(hstring const& text)
 	{
-		res.append(to_string(text));
+		&res.append(to_string(text));
 		TextBoxElement().Text(to_hstring(res));
 	}
 

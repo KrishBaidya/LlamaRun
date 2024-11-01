@@ -16,7 +16,7 @@ bool generateResponseText(std::string modelname, std::string prompt, std::functi
 	}
 }
 
-bool LoadModelIntoMemory(std::string const name) {
+bool LoadModelIntoMemory(std::string& const name) {
 	bool model_loaded = ollama::load_model(name);
 	return model_loaded;
 }

@@ -14,7 +14,7 @@ public:
 		return instance;
 	}
 
-	void DataStore::SetSelectedModel(std::string data)
+	void DataStore::SetSelectedModel(const std::string& data)
 	{
 		OutputDebugString((L"SetSelectedModel called with: " + std::wstring(data.begin(), data.end())).c_str());
 		selectedModel = data;
@@ -44,7 +44,7 @@ public:
 		appDimension = _appDimension;
 	}
 
-	void SetModels(std::vector<std::string> data)
+	void SetModels(const std::vector<std::string>& data)
 	{
 		models = data;
 	}

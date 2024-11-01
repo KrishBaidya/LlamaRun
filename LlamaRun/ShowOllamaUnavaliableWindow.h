@@ -5,4 +5,5 @@ public:
 	static ShowOllamaUnavaliableWindow& GetInstance();
 
 	void showOllamaDialog();
+	void showModelDialog();
 };
