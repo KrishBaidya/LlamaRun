@@ -8,6 +8,7 @@
 #include <future>
 #include <atomic>
 #include <DataStore.cpp>
+#include <PluginManager.h>
 
 using namespace winrt;
 using namespace Microsoft::UI;
@@ -270,6 +271,8 @@ namespace winrt::LlamaRun::implementation
 
 			res = "";
 
+			PluginManager::GetInstance().BroadcastEvent("beforeTextGeneration");
+
 			std::thread([model, &weakThis, inputText]() {
 				bool isVSCodeActive = VSCodeConnector::GetInstance().IsVSCodeActive();
 
@@ -280,6 +283,8 @@ namespace winrt::LlamaRun::implementation
 							winrt::Microsoft::UI::Dispatching::DispatcherQueuePriority::Normal,
 							[&weakThis, response]() {
 								if (response.as_json()["done"] == true) {
+									PluginManager::GetInstance().BroadcastEvent("afterTextGeneration");
+
 									weakThis.StopSkeletonLoadingAnimation();
 									weakThis.TextBoxElement().IsReadOnly(false);
 								}
