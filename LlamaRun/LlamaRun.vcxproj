@@ -100,7 +100,8 @@
       <MinimalRebuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</MinimalRebuild>
     </ClCompile>
     <Link>
-      <AdditionalDependencies Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Ws2_32.lib;shell32.lib;Comctl32.lib;Comctl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">python313_d.lib;python3_d.lib;Ws2_32.lib;shell32.lib;Comctl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SolutionDir)libs;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
@@ -113,7 +114,8 @@
     <Link>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalDependencies Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Ws2_32.lib;shell32.lib;Comctl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies Condition="'$(Configuration)|$(Platform)'=='Release|x64'">python313.lib;python3.lib;Ws2_32.lib;shell32.lib;Comctl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SolutionDir)libs;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup Condition="'$(WindowsPackageType)'!='None' and Exists('Package.appxmanifest')">
@@ -129,12 +131,21 @@
       <DependentUpon>FirstRunWindow.xaml</DependentUpon>
       <SubType>Code</SubType>
     </ClInclude>
+    <ClInclude Include="HomePage_SettingsWindow.xaml.h">
+      <DependentUpon>HomePage_SettingsWindow.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </ClInclude>
     <ClInclude Include="pch.h" />
     <ClInclude Include="App.xaml.h">
       <DependentUpon>App.xaml</DependentUpon>
     </ClInclude>
     <ClInclude Include="MainWindow.xaml.h">
       <DependentUpon>MainWindow.xaml</DependentUpon>
+    </ClInclude>
+    <ClInclude Include="PluginDef.h" />
+    <ClInclude Include="PluginManager.h" />
+    <ClInclude Include="PluginPage_SettingsWindow.xaml.h">
+      <DependentUpon>PluginPage_SettingsWindow.xaml</DependentUpon>
     </ClInclude>
     <ClInclude Include="SettingsWindow.xaml.h">
       <DependentUpon>SettingsWindow.xaml</DependentUpon>
@@ -148,7 +159,11 @@
     <Page Include="FirstRunWindow.xaml">
       <SubType>Designer</SubType>
     </Page>
+    <Page Include="HomePage_SettingsWindow.xaml">
+      <SubType>Designer</SubType>
+    </Page>
     <Page Include="MainWindow.xaml" />
+    <Page Include="PluginPage_SettingsWindow.xaml" />
     <Page Include="SettingsWindow.xaml">
       <SubType>Designer</SubType>
     </Page>
@@ -157,6 +172,10 @@
     <ClCompile Include="DataStore.cpp" />
     <ClCompile Include="FirstRunWindow.xaml.cpp">
       <DependentUpon>FirstRunWindow.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </ClCompile>
+    <ClCompile Include="HomePage_SettingsWindow.xaml.cpp">
+      <DependentUpon>HomePage_SettingsWindow.xaml</DependentUpon>
       <SubType>Code</SubType>
     </ClCompile>
     <ClCompile Include="pch.cpp">
@@ -169,6 +188,11 @@
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </ClCompile>
     <ClCompile Include="$(GeneratedFilesDir)module.g.cpp" />
+    <ClCompile Include="PluginDef.cpp" />
+    <ClCompile Include="PluginManager.cpp" />
+    <ClCompile Include="PluginPage_SettingsWindow.xaml.cpp">
+      <DependentUpon>PluginPage_SettingsWindow.xaml</DependentUpon>
+    </ClCompile>
     <ClCompile Include="SettingsWindow.xaml.cpp">
       <DependentUpon>SettingsWindow.xaml</DependentUpon>
       <SubType>Code</SubType>
@@ -181,9 +205,17 @@
       <DependentUpon>FirstRunWindow.xaml</DependentUpon>
       <SubType>Code</SubType>
     </Midl>
+    <Midl Include="HomePage_SettingsWindow.idl">
+      <DependentUpon>HomePage_SettingsWindow.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Midl>
     <Midl Include="MainWindow.idl">
       <SubType>Code</SubType>
       <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Midl>
+    <Midl Include="PluginPage_SettingsWindow.idl">
+      <DependentUpon>PluginPage_SettingsWindow.xaml</DependentUpon>
+      <SubType>Code</SubType>
     </Midl>
     <Midl Include="SettingsWindow.idl">
       <DependentUpon>SettingsWindow.xaml</DependentUpon>
@@ -205,6 +237,18 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
+    <None Include="python3.dll">
+      <DeploymentContent Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</DeploymentContent>
+    </None>
+    <None Include="python313.dll">
+      <DeploymentContent Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</DeploymentContent>
+    </None>
+    <None Include="python313_d.dll">
+      <DeploymentContent Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</DeploymentContent>
+    </None>
+    <None Include="python3_d.dll">
+      <DeploymentContent Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</DeploymentContent>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <None Include="Package.StoreAssociation.xml" />
@@ -292,4 +336,11 @@
     <Error Condition="!Exists('..\packages\Microsoft.Windows.SDK.BuildTools.10.0.22621.3233\build\Microsoft.Windows.SDK.BuildTools.props')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\Microsoft.Windows.SDK.BuildTools.10.0.22621.3233\build\Microsoft.Windows.SDK.BuildTools.props'))" />
     <Error Condition="!Exists('..\packages\Microsoft.Windows.SDK.BuildTools.10.0.22621.3233\build\Microsoft.Windows.SDK.BuildTools.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\Microsoft.Windows.SDK.BuildTools.10.0.22621.3233\build\Microsoft.Windows.SDK.BuildTools.targets'))" />
   </Target>
+  <ItemGroup>
+    <Content Include="Lib\**\*">
+      <Visible>false</Visible>
+      <Link>Lib\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
 </Project>
