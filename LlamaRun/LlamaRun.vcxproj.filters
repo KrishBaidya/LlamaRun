@@ -7,9 +7,12 @@
     <Page Include="MainWindow.xaml" />
     <Page Include="SettingsWindow.xaml" />
     <Page Include="FirstRunWindow.xaml" />
+    <Page Include="HomePage_SettingsWindow.xaml" />
+    <Page Include="PluginPage_SettingsWindow.xaml" />
   </ItemGroup>
   <ItemGroup>
     <Midl Include="MainWindow.idl" />
+    <Midl Include="PluginPage_SettingsWindow.idl" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pch.cpp" />
@@ -17,11 +20,15 @@
     <ClCompile Include="DataStore.cpp" />
     <ClCompile Include="VSCodeConnector.cpp" />
     <ClCompile Include="ShowOllamaUnavaliableWindow.cpp" />
+    <ClCompile Include="PluginDef.cpp" />
+    <ClCompile Include="PluginManager.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
     <ClInclude Include="VSCodeConnector.h" />
     <ClInclude Include="ShowOllamaUnavaliableWindow.h" />
+    <ClInclude Include="PluginDef.h" />
+    <ClInclude Include="PluginManager.h" />
   </ItemGroup>
   <ItemGroup>
     <Image Include="Assets\Wide310x150Logo.scale-200.png">
@@ -198,6 +205,10 @@
   <ItemGroup>
     <None Include="packages.config" />
     <None Include="Package.StoreAssociation.xml" />
+    <None Include="python3.dll" />
+    <None Include="python313.dll" />
+    <None Include="python313_d.dll" />
+    <None Include="python3_d.dll" />
   </ItemGroup>
   <ItemGroup>
     <Natvis Include="$(MSBuildThisFileDirectory)..\..\natvis\wil.natvis" />

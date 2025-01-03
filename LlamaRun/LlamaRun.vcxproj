@@ -131,6 +131,10 @@
       <DependentUpon>FirstRunWindow.xaml</DependentUpon>
       <SubType>Code</SubType>
     </ClInclude>
+    <ClInclude Include="HomePage_SettingsWindow.xaml.h">
+      <DependentUpon>HomePage_SettingsWindow.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </ClInclude>
     <ClInclude Include="pch.h" />
     <ClInclude Include="App.xaml.h">
       <DependentUpon>App.xaml</DependentUpon>
@@ -140,6 +144,9 @@
     </ClInclude>
     <ClInclude Include="PluginDef.h" />
     <ClInclude Include="PluginManager.h" />
+    <ClInclude Include="PluginPage_SettingsWindow.xaml.h">
+      <DependentUpon>PluginPage_SettingsWindow.xaml</DependentUpon>
+    </ClInclude>
     <ClInclude Include="SettingsWindow.xaml.h">
       <DependentUpon>SettingsWindow.xaml</DependentUpon>
       <SubType>Code</SubType>
@@ -152,7 +159,11 @@
     <Page Include="FirstRunWindow.xaml">
       <SubType>Designer</SubType>
     </Page>
+    <Page Include="HomePage_SettingsWindow.xaml">
+      <SubType>Designer</SubType>
+    </Page>
     <Page Include="MainWindow.xaml" />
+    <Page Include="PluginPage_SettingsWindow.xaml" />
     <Page Include="SettingsWindow.xaml">
       <SubType>Designer</SubType>
     </Page>
@@ -161,6 +172,10 @@
     <ClCompile Include="DataStore.cpp" />
     <ClCompile Include="FirstRunWindow.xaml.cpp">
       <DependentUpon>FirstRunWindow.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </ClCompile>
+    <ClCompile Include="HomePage_SettingsWindow.xaml.cpp">
+      <DependentUpon>HomePage_SettingsWindow.xaml</DependentUpon>
       <SubType>Code</SubType>
     </ClCompile>
     <ClCompile Include="pch.cpp">
@@ -175,6 +190,9 @@
     <ClCompile Include="$(GeneratedFilesDir)module.g.cpp" />
     <ClCompile Include="PluginDef.cpp" />
     <ClCompile Include="PluginManager.cpp" />
+    <ClCompile Include="PluginPage_SettingsWindow.xaml.cpp">
+      <DependentUpon>PluginPage_SettingsWindow.xaml</DependentUpon>
+    </ClCompile>
     <ClCompile Include="SettingsWindow.xaml.cpp">
       <DependentUpon>SettingsWindow.xaml</DependentUpon>
       <SubType>Code</SubType>
@@ -187,9 +205,17 @@
       <DependentUpon>FirstRunWindow.xaml</DependentUpon>
       <SubType>Code</SubType>
     </Midl>
+    <Midl Include="HomePage_SettingsWindow.idl">
+      <DependentUpon>HomePage_SettingsWindow.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Midl>
     <Midl Include="MainWindow.idl">
       <SubType>Code</SubType>
       <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Midl>
+    <Midl Include="PluginPage_SettingsWindow.idl">
+      <DependentUpon>PluginPage_SettingsWindow.xaml</DependentUpon>
+      <SubType>Code</SubType>
     </Midl>
     <Midl Include="SettingsWindow.idl">
       <DependentUpon>SettingsWindow.xaml</DependentUpon>

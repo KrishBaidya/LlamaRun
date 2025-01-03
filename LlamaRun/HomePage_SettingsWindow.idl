@@ -1,0 +1,9 @@
+namespace LlamaRun
+{
+    [default_interface]
+    runtimeclass HomePage_SettingsWindow : Microsoft.UI.Xaml.Controls.Page
+    {
+        HomePage_SettingsWindow();
+        Int32 MyProperty;
+    }
+}

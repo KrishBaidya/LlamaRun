@@ -5,6 +5,11 @@
 #endif
 #include <DataStore.cpp>
 #include <winrt/Windows.Storage.h>
+#include <winrt/Windows.UI.Xaml.Interop.h>
+
+
+#include <PluginPage_SettingsWindow.xaml.h>
+#include <HomePage_SettingsWindow.xaml.h>
 
 using namespace winrt;
 using namespace Microsoft::UI::Xaml;
@@ -17,123 +22,6 @@ using namespace Windows::Storage;
 
 namespace winrt::LlamaRun::implementation
 {
-	static IAsyncOperation<bool> CheckStartUp()
-	{
-		auto& startupTask = co_await winrt::Windows::ApplicationModel::StartupTask::GetAsync(L"LLamaRun Generation");
-
-		switch (startupTask.State())
-		{
-		case winrt::Windows::ApplicationModel::StartupTaskState::Disabled:
-			co_return false;
-
-		case winrt::Windows::ApplicationModel::StartupTaskState::DisabledByUser:
-			co_return false;
-
-		case winrt::Windows::ApplicationModel::StartupTaskState::DisabledByPolicy:
-			co_return false;
-
-		case winrt::Windows::ApplicationModel::StartupTaskState::Enabled:
-			co_return true;
-
-		case winrt::Windows::ApplicationModel::StartupTaskState::EnabledByPolicy:
-			co_return true;
-		}
-	}
-
-	void SettingsWindow::rootPanel_Loaded(IInspectable const& sender, RoutedEventArgs const& e)
-	{
-		if (SettingsWindow::LoadSetting("App Width") != L"")
-		{
-			auto appWidth = SettingsWindow::LoadSetting("App Width");
-
-			MainWindowWidth().Value(std::stod(to_string(appWidth)));
-		}
-		else {
-			MainWindowWidth().Value(38);
-		}
-		if (SettingsWindow::LoadSetting("App Height") != L"")
-		{
-			auto appHeight = SettingsWindow::LoadSetting("App Height");
-
-			MainWindowHeight().Value(std::stod(to_string(appHeight)));
-		}
-		else {
-			MainWindowHeight().Value(10);
-		}
-
-		if (SettingsWindow::LoadSetting("App Opacity") != L"")
-		{
-			auto appOpacity = SettingsWindow::LoadSetting("App Opacity");
-
-			MainWindowOpacitySlider().Value(std::stod(to_string(appOpacity)));
-		}
-		else {
-			MainWindowOpacitySlider().Value(15);
-		}
-
-		if (SettingsWindow::LoadSetting("Startup Enabled") != L"")
-		{
-			auto StartupEnabled = SettingsWindow::LoadSetting("Startup Enabled");
-			bool _StartUpEnabled = false;
-			std::istringstream(to_string(StartupEnabled)) >> std::boolalpha >> _StartUpEnabled;
-			AutoStartUpCheckBox().IsChecked(_StartUpEnabled);
-		}
-		else {
-			CheckStartUp().Completed([&](auto&& sender, AsyncStatus const  asyncStatus) {
-				bool _StartUpEnabled = sender.GetResults();
-				SettingsWindow::AutoStartUpCheckBox().IsChecked(_StartUpEnabled);
-				});
-		}
-	}
-
-	void SettingsWindow::MyComboBox_Loaded(IInspectable const&, IInspectable const& args)
-	{
-		auto models = DataStore::GetInstance().GetModels();
-
-		if (SettingsWindow::LoadSetting("SelectedModel") != L"")
-		{
-			auto selectedModel = SettingsWindow::LoadSetting("SelectedModel");
-			DataStore::GetInstance().SetSelectedModel(to_string(selectedModel.data()));
-		}
-
-		auto selectedModel = DataStore::GetInstance().GetSelectedModel();
-		for (auto& model : models)
-		{
-			auto newItem = winrt::Microsoft::UI::Xaml::Controls::ComboBoxItem();
-			newItem.Content(winrt::box_value(to_hstring(model)));
-			MyComboBox().Items().Append(newItem);
-
-			if (selectedModel == model)
-			{
-				MyComboBox().SelectedItem(newItem);
-			}
-		}
-	}
-
-	void SettingsWindow::SaveButtonClicked(IInspectable const&, IInspectable const& args) {
-		auto selectedModelIndex = MyComboBox().SelectedIndex();
-		std::string selectedModel = DataStore::GetInstance().GetModels()[selectedModelIndex];
-
-		const auto& AppHeight = MainWindowHeight().Value();
-		const auto& AppWidth = MainWindowWidth().Value();
-
-		const auto& AppOpacity = MainWindowOpacitySlider().Value();
-
-		SaveSetting("SelectedModel", selectedModel);
-
-		SaveSetting("App Height", to_hstring(AppHeight));
-		SaveSetting("App Width", to_hstring(AppWidth));
-
-		SaveSetting("App Opacity", to_hstring(AppOpacity));
-
-		RequestStartupChange(AutoStartUpCheckBox().IsChecked().GetBoolean());
-
-		SaveSetting("Startup Enabled", to_hstring(AutoStartUpCheckBox().IsChecked().GetBoolean()));
-
-		DataStore::GetInstance().SetAppOpacity(AppOpacity);
-		DataStore::GetInstance().SetAppDimension({ static_cast<float>(AppWidth), static_cast<float>(AppHeight) });
-	}
-
 	void SettingsWindow::SaveSetting(const std::string& key, const std::string& value)
 	{
 		ApplicationDataContainer localSettings{ Windows::Storage::ApplicationData::Current().LocalSettings() };
@@ -174,17 +62,25 @@ namespace winrt::LlamaRun::implementation
 		return L"";
 	}
 
-	fire_and_forget SettingsWindow::RequestStartupChange(bool Enable)
+	void SettingsWindow::NavigationView_SelectionChanged(winrt::Microsoft::UI::Xaml::Controls::NavigationView const& sender, winrt::Microsoft::UI::Xaml::Controls::NavigationViewSelectionChangedEventArgs const& args)
 	{
-		auto& startupTask = co_await winrt::Windows::ApplicationModel::StartupTask::GetAsync(L"LLamaRun Generation");
+		auto tag = sender.SelectedItem().as< winrt::Microsoft::UI::Xaml::Controls::NavigationViewItem>().Tag();
+		auto content = sender.Content();
+		//auto tag = sender.Tag();
+		if (unbox_value<winrt::hstring>(tag) == L"Home") {
+			ContentFrame().Navigate(winrt::xaml_typename<LlamaRun::HomePage_SettingsWindow>(), args.RecommendedNavigationTransitionInfo());
+		}
+		else if (unbox_value<winrt::hstring>(tag) == L"Plugins") {
+			ContentFrame().Navigate(winrt::xaml_typename<LlamaRun::PluginPage_SettingsWindow>(), args.RecommendedNavigationTransitionInfo());
+		}
+	}
 
-		if (Enable)
-		{
-			co_await startupTask.RequestEnableAsync();
-		}
-		else {
-			startupTask.Disable();
-		}
+	void SettingsWindow::NavigationView_Loaded(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e)
+	{
+		NavView().SelectedItem(NavView().MenuItems().GetAt(0));
+
+		ContentFrame().Navigate(winrt::xaml_typename<LlamaRun::HomePage_SettingsWindow>());
+
 	}
 
 	int32_t SettingsWindow::MyProperty()
@@ -197,3 +93,4 @@ namespace winrt::LlamaRun::implementation
 		throw hresult_not_implemented();
 	}
 }
+

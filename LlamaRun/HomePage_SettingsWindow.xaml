@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="LlamaRun.HomePage_SettingsWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:LlamaRun"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Grid x:Name="rootPanel" Loaded="rootPanel_Loaded">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel>
+            <ComboBox x:Name="MyComboBox" Width="200" PlaceholderText="Select Model" Loaded="MyComboBox_Loaded" />
+            <Slider x:Name="MainWindowHeight" Minimum="10" Maximum="80" Header="App Height" />
+            <Slider x:Name="MainWindowWidth" Minimum="10" Maximum="80" Header="App Width"/>
+            <Slider x:Name="MainWindowOpacitySlider" Minimum="0" Maximum="100" Header="Animation Opactiy" />
+            <CheckBox x:Name="AutoStartUpCheckBox" Content="Enable Auto Startup" IsChecked="False" />
+
+        </StackPanel>
+    </Grid>
+
+</Page>
