@@ -14,11 +14,6 @@ namespace winrt::LlamaRun::implementation
 			Title(L"Llama Run Settings");
 			ExtendsContentIntoTitleBar(true);
 		}
-		void SaveButtonClicked(IInspectable const&, IInspectable const& args);
-
-		fire_and_forget RequestStartupChange(bool);
-
-		void MyComboBox_Loaded(IInspectable const&, IInspectable const& args);
 
 		int32_t MyProperty();
 		void MyProperty(int32_t value);
@@ -27,7 +22,8 @@ namespace winrt::LlamaRun::implementation
 		static void SaveSetting(const std::string&, const hstring&);
 
 		static winrt::hstring LoadSetting(const std::string& key);
-		void rootPanel_Loaded(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+		void NavigationView_SelectionChanged(winrt::Microsoft::UI::Xaml::Controls::NavigationView const& sender, winrt::Microsoft::UI::Xaml::Controls::NavigationViewSelectionChangedEventArgs const& args);
+		void NavigationView_Loaded(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
 	};
 }
 

@@ -1,0 +1,9 @@
+namespace LlamaRun
+{
+    [default_interface]
+    runtimeclass PluginPage_SettingsWindow : Microsoft.UI.Xaml.Controls.Page
+    {
+        PluginPage_SettingsWindow();
+        Int32 MyProperty;
+    }
+}
