@@ -1,5 +1,5 @@
 #include "pch.h"
-#include "HomePage_SettingsWindow.xaml.h"
+#include "Settings/HomePage_SettingsWindow.xaml.h"
 #if __has_include("HomePage_SettingsWindow.g.cpp")
 #include "HomePage_SettingsWindow.g.cpp"
 #endif

@@ -1,5 +1,5 @@
 #include "pch.h"
-#include "SettingsWindow.xaml.h"
+#include "Settings/SettingsWindow.xaml.h"
 #if __has_include("SettingsWindow.g.cpp")
 #include "SettingsWindow.g.cpp"
 #endif
@@ -8,8 +8,8 @@
 #include <winrt/Windows.UI.Xaml.Interop.h>
 
 
-#include <PluginPage_SettingsWindow.xaml.h>
-#include <HomePage_SettingsWindow.xaml.h>
+#include <Settings/PluginPage_SettingsWindow.xaml.h>
+#include <Settings/HomePage_SettingsWindow.xaml.h>
 
 using namespace winrt;
 using namespace Microsoft::UI::Xaml;
@@ -64,13 +64,12 @@ namespace winrt::LlamaRun::implementation
 
 	void SettingsWindow::NavigationView_SelectionChanged(winrt::Microsoft::UI::Xaml::Controls::NavigationView const& sender, winrt::Microsoft::UI::Xaml::Controls::NavigationViewSelectionChangedEventArgs const& args)
 	{
-		auto tag = sender.SelectedItem().as< winrt::Microsoft::UI::Xaml::Controls::NavigationViewItem>().Tag();
-		auto content = sender.Content();
-		//auto tag = sender.Tag();
-		if (unbox_value<winrt::hstring>(tag) == L"Home") {
+		auto selectedItem = unbox_value<winrt::hstring>(sender.SelectedItem().as<winrt::Microsoft::UI::Xaml::Controls::NavigationViewItem>().Tag());
+
+		if (selectedItem == L"Home") {
 			ContentFrame().Navigate(winrt::xaml_typename<LlamaRun::HomePage_SettingsWindow>(), args.RecommendedNavigationTransitionInfo());
 		}
-		else if (unbox_value<winrt::hstring>(tag) == L"Plugins") {
+		else if (selectedItem == L"Plugins") {
 			ContentFrame().Navigate(winrt::xaml_typename<LlamaRun::PluginPage_SettingsWindow>(), args.RecommendedNavigationTransitionInfo());
 		}
 	}
@@ -78,9 +77,6 @@ namespace winrt::LlamaRun::implementation
 	void SettingsWindow::NavigationView_Loaded(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e)
 	{
 		NavView().SelectedItem(NavView().MenuItems().GetAt(0));
-
-		ContentFrame().Navigate(winrt::xaml_typename<LlamaRun::HomePage_SettingsWindow>());
-
 	}
 
 	int32_t SettingsWindow::MyProperty()

@@ -9,12 +9,8 @@
     mc:Ignorable="d">
 
     <Grid x:Name="rootPanel" Loaded="rootPanel_Loaded">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="auto"/>
-        </Grid.RowDefinitions>
-
-        <StackPanel>
+        
+        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Orientation="Vertical">
             <ComboBox x:Name="MyComboBox" Width="200" PlaceholderText="Select Model" Loaded="MyComboBox_Loaded" />
             <Slider x:Name="MainWindowHeight" Minimum="10" Maximum="80" Header="App Height" />
             <Slider x:Name="MainWindowWidth" Minimum="10" Maximum="80" Header="App Width"/>
