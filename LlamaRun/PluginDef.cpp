@@ -1,7 +1,6 @@
 #include "pch.h"
 #include "PluginDef.h"
 
-
 static PyObject* MyApp_SomeFunction(PyObject* self, PyObject* args) {
     // Parse input arguments
     const char* input_str;
@@ -9,7 +8,7 @@ static PyObject* MyApp_SomeFunction(PyObject* self, PyObject* args) {
         return NULL;
     }
 
-    PyObject* result = Py_BuildValue("s", "Processed: " + std::string(input_str));
+    PyObject* result = Py_BuildValue("s", "Processed: " + *input_str);
     return result;
 }
 

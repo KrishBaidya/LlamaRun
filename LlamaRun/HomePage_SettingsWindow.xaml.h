@@ -3,7 +3,7 @@
 #include "HomePage_SettingsWindow.g.h"
 
 #include <winrt/Windows.Storage.h>
-#include <Settings/SettingsWindow.xaml.h>
+#include <SettingsWindow.xaml.h>
 #include "DataStore.cpp"
 
 using namespace winrt;

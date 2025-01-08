@@ -1,7 +1,6 @@
 #pragma once
 
 #include "pch.h"
-#include <Python/Python.h>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -12,6 +11,10 @@
 #include <winrt/Windows.Storage.h>
 #include <winrt/Windows.Storage.Streams.h>
 
+#include <winrt/Windows.UI.Xaml.Data.h>
+
+#include <Plugin.h>
+
 using namespace winrt;
 using namespace Windows::ApplicationModel::AppService;
 using namespace Windows::Foundation;
@@ -21,30 +24,23 @@ using namespace Microsoft::UI::Xaml;
 using namespace winrt::Microsoft::UI::Xaml::Media;
 
 class PluginManager {
-private:
-	static PluginManager& instance;
-	std::vector<PyObject*> pluginInstances;
-	std::unordered_map<std::string, std::unordered_map<std::string, std::string>> pluginEventMap;
+
+public:
 
 	PluginManager() {
 		Py_Initialize();
 	}
 
 	~PluginManager() {
-		for (auto instance : pluginInstances) {
-			Py_XDECREF(instance);
-		}
 		Py_Finalize();
 	}
 
-public:
-	static PluginManager& GetInstance()
-	{
+	static PluginManager& GetInstance() {
 		static PluginManager instance;
 		return instance;
 	}
 
-	std::unordered_map<std::string, std::string> eventMethodMap;
+	winrt::Windows::Foundation::Collections::IObservableVector<winrt::Windows::Foundation::IInspectable> m_plugins{ winrt::single_threaded_observable_vector<winrt::Windows::Foundation::IInspectable>() };
 
 	fire_and_forget LoadAllPlugins() {
 		try {
@@ -68,11 +64,10 @@ public:
 			// Get all folders
 			auto folders = co_await pluginsFolder.GetFoldersAsync();
 
+
 			for (const auto& entry : folders) {
 				try {
 					auto pluginPath = entry.Path();
-
-					// Load and read plugin.json
 					auto jsonFile = co_await entry.TryGetItemAsync(L"plugin.json");
 					if (!jsonFile) {
 						std::wcerr << L"plugin.json not found in " << entry.Name().c_str() << std::endl;
@@ -80,19 +75,17 @@ public:
 					}
 
 					auto storageFile = jsonFile.try_as<StorageFile>();
-					if (!storageFile) {
-						std::wcerr << L"Failed to access plugin.json in " << entry.Name().c_str() << std::endl;
-						continue;
-					}
 
-					// Read file contents
 					auto fileContent = co_await FileIO::ReadTextAsync(storageFile);
 					std::string jsonData = winrt::to_string(fileContent);
-
-					// Parse JSON
 					nlohmann::json pluginData = nlohmann::json::parse(jsonData);
 
-					// Add to Python path
+					std::string pluginName = pluginData["name"];
+					std::string pluginDescription = pluginData["description"];
+					std::string pluginVersion = pluginData["version"];
+					std::string pluginAuthor = pluginData["author"];
+					std::unordered_map<std::string, std::string> pluginActions = pluginData["actions"].get<std::unordered_map<std::string, std::string>>();
+
 					std::string pluginFolderStr = winrt::to_string(pluginPath);
 					PyGILState_STATE gstate = PyGILState_Ensure();
 
@@ -100,7 +93,6 @@ public:
 						PyRun_SimpleString(("import sys; sys.path.append(r'" + pluginFolderStr + "')").c_str());
 
 						// Import plugin
-						std::string pluginName = pluginData["name"];
 						PyObject* pName = PyUnicode_DecodeFSDefault(pluginName.c_str());
 						if (!pName) {
 							PyErr_Print();
@@ -118,10 +110,8 @@ public:
 						if (pClass && PyCallable_Check(pClass)) {
 							PyObject* pInstance = PyObject_CallObject(pClass, nullptr);
 							if (pInstance) {
-								pluginInstances.emplace_back(pInstance);
-								for (const auto& [event, method] : pluginData["actions"].items()) {
-									eventMethodMap[event] = method;
-								}
+								//winrt::make_self<winrt::LlamaRun::Plugin>(L"PluginName", L"Description", L"1.0", L"Author", pluginActions, nullptr);
+								m_plugins.Append(winrt::make<LlamaRun::implementation::Plugin>(to_hstring(pluginName), to_hstring(pluginDescription), to_hstring(pluginVersion), to_hstring(pluginAuthor), pluginActions, pInstance, true));
 							}
 							else {
 								PyErr_Print();
@@ -130,7 +120,6 @@ public:
 						else {
 							PyErr_Print();
 						}
-
 						// Cleanup
 						Py_XDECREF(pClass);
 						Py_DECREF(pModule);
@@ -141,6 +130,8 @@ public:
 					}
 
 					PyGILState_Release(gstate);
+
+					// Continue cleanup and handling
 				}
 				catch (const winrt::hresult_error& ex) {
 					std::wcerr << L"Error processing folder: " << entry.Name().c_str()
@@ -154,16 +145,35 @@ public:
 	}
 
 	void BroadcastEvent(const std::string& eventName) {
-		// Look up the method name associated with the event
-		auto it = eventMethodMap.find(eventName);
-		if (it != eventMethodMap.end()) {
-			const std::string& methodName = it->second;
-			for (auto& pluginInstance : pluginInstances) {
-				PyObject_CallMethod(pluginInstance, methodName.c_str(), nullptr);  // Call method based on method name
+		PyGILState_STATE gstate = PyGILState_Ensure(); // Acquire GIL
+
+		for (auto& pluginInspectable : m_plugins) {
+			auto const& plugin = pluginInspectable.as<LlamaRun::implementation::Plugin>().get();
+
+			if (!plugin || !plugin->isPluginEnabled()) {
+				continue;
+			}
+
+			auto const& actions = plugin->PluginActions();
+			auto it = actions.find(eventName);
+
+			if (it != actions.end()) {
+				std::string methodName = it->second;
+				if (!methodName.empty()) {
+					PyObject* result = PyObject_CallMethod(plugin->PluginInstance(), methodName.c_str(), nullptr);
+					if (result == nullptr) {
+						PyErr_Print(); // Print any Python errors
+					}
+					else {
+						Py_DECREF(result); // Clean up the result if call was successful
+					}
+				}
+			}
+			else {
+				std::cerr << "Event " << eventName << " not found in plugin " << to_string(plugin->PluginName()) << std::endl;
 			}
 		}
-		else {
-			std::cerr << "Event " << eventName << " not found in eventMethodMap." << std::endl;
-		}
+
+		PyGILState_Release(gstate); // Release GIL
 	}
 };

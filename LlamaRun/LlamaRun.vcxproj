@@ -131,8 +131,12 @@
       <DependentUpon>FirstRunWindow.xaml</DependentUpon>
       <SubType>Code</SubType>
     </ClInclude>
-    <ClInclude Include="Settings/HomePage_SettingsWindow.xaml.h">
-      <DependentUpon>Settings/HomePage_SettingsWindow.xaml</DependentUpon>
+    <ClInclude Include="HomePage_SettingsWindow.xaml.h">
+      <DependentUpon>HomePage_SettingsWindow.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </ClInclude>
+    <ClInclude Include="InstalledPluginsPage.xaml.h">
+      <DependentUpon>InstalledPluginsPage.xaml</DependentUpon>
       <SubType>Code</SubType>
     </ClInclude>
     <ClInclude Include="pch.h" />
@@ -142,13 +146,17 @@
     <ClInclude Include="MainWindow.xaml.h">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </ClInclude>
+    <ClInclude Include="Plugin.h">
+      <DependentUpon>Plugin.cpp</DependentUpon>
+      <SubType>Code</SubType>
+    </ClInclude>
     <ClInclude Include="PluginDef.h" />
     <ClInclude Include="PluginManager.h" />
-    <ClInclude Include="Settings/PluginPage_SettingsWindow.xaml.h">
-      <DependentUpon>Settings/PluginPage_SettingsWindow.xaml</DependentUpon>
+    <ClInclude Include="PluginPage_SettingsWindow.xaml.h">
+      <DependentUpon>PluginPage_SettingsWindow.xaml</DependentUpon>
     </ClInclude>
-    <ClInclude Include="Settings/SettingsWindow.xaml.h">
-      <DependentUpon>Settings/SettingsWindow.xaml</DependentUpon>
+    <ClInclude Include="SettingsWindow.xaml.h">
+      <DependentUpon>SettingsWindow.xaml</DependentUpon>
       <SubType>Code</SubType>
     </ClInclude>
     <ClInclude Include="ShowOllamaUnavaliableWindow.h" />
@@ -159,12 +167,15 @@
     <Page Include="FirstRunWindow.xaml">
       <SubType>Designer</SubType>
     </Page>
-    <Page Include="Settings/HomePage_SettingsWindow.xaml">
+    <Page Include="HomePage_SettingsWindow.xaml">
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="InstalledPluginsPage.xaml">
       <SubType>Designer</SubType>
     </Page>
     <Page Include="MainWindow.xaml" />
-    <Page Include="Settings/PluginPage_SettingsWindow.xaml" />
-    <Page Include="Settings/SettingsWindow.xaml">
+    <Page Include="PluginPage_SettingsWindow.xaml" />
+    <Page Include="SettingsWindow.xaml">
       <SubType>Designer</SubType>
     </Page>
   </ItemGroup>
@@ -174,8 +185,12 @@
       <DependentUpon>FirstRunWindow.xaml</DependentUpon>
       <SubType>Code</SubType>
     </ClCompile>
-    <ClCompile Include="Settings/HomePage_SettingsWindow.xaml.cpp">
-      <DependentUpon>Settings/HomePage_SettingsWindow.xaml</DependentUpon>
+    <ClCompile Include="HomePage_SettingsWindow.xaml.cpp">
+      <DependentUpon>HomePage_SettingsWindow.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </ClCompile>
+    <ClCompile Include="InstalledPluginsPage.xaml.cpp">
+      <DependentUpon>InstalledPluginsPage.xaml</DependentUpon>
       <SubType>Code</SubType>
     </ClCompile>
     <ClCompile Include="pch.cpp">
@@ -188,13 +203,16 @@
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </ClCompile>
     <ClCompile Include="$(GeneratedFilesDir)module.g.cpp" />
+    <ClCompile Include="Plugin.cpp">
+      <SubType>Code</SubType>
+    </ClCompile>
     <ClCompile Include="PluginDef.cpp" />
     <ClCompile Include="PluginManager.cpp" />
-    <ClCompile Include="Settings/PluginPage_SettingsWindow.xaml.cpp">
-      <DependentUpon>Settings/PluginPage_SettingsWindow.xaml</DependentUpon>
+    <ClCompile Include="PluginPage_SettingsWindow.xaml.cpp">
+      <DependentUpon>PluginPage_SettingsWindow.xaml</DependentUpon>
     </ClCompile>
-    <ClCompile Include="Settings/SettingsWindow.xaml.cpp">
-      <DependentUpon>Settings/SettingsWindow.xaml</DependentUpon>
+    <ClCompile Include="SettingsWindow.xaml.cpp">
+      <DependentUpon>SettingsWindow.xaml</DependentUpon>
       <SubType>Code</SubType>
     </ClCompile>
     <ClCompile Include="ShowOllamaUnavaliableWindow.cpp" />
@@ -205,20 +223,28 @@
       <DependentUpon>FirstRunWindow.xaml</DependentUpon>
       <SubType>Code</SubType>
     </Midl>
-    <Midl Include="Settings/HomePage_SettingsWindow.idl">
-      <DependentUpon>Settings/HomePage_SettingsWindow.xaml</DependentUpon>
+    <Midl Include="HomePage_SettingsWindow.idl">
+      <DependentUpon>HomePage_SettingsWindow.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Midl>
+    <Midl Include="InstalledPluginsPage.idl">
+      <DependentUpon>InstalledPluginsPage.xaml</DependentUpon>
       <SubType>Code</SubType>
     </Midl>
     <Midl Include="MainWindow.idl">
       <SubType>Code</SubType>
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Midl>
-    <Midl Include="Settings/PluginPage_SettingsWindow.idl">
-      <DependentUpon>Settings/PluginPage_SettingsWindow.xaml</DependentUpon>
+    <Midl Include="Plugin.idl">
+      <DependentUpon>Plugin.cpp</DependentUpon>
       <SubType>Code</SubType>
     </Midl>
-    <Midl Include="Settings/SettingsWindow.idl">
-      <DependentUpon>Settings/SettingsWindow.xaml</DependentUpon>
+    <Midl Include="PluginPage_SettingsWindow.idl">
+      <DependentUpon>PluginPage_SettingsWindow.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Midl>
+    <Midl Include="SettingsWindow.idl">
+      <DependentUpon>SettingsWindow.xaml</DependentUpon>
       <SubType>Code</SubType>
     </Midl>
   </ItemGroup>

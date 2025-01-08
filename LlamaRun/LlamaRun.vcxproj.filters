@@ -9,6 +9,7 @@
     <Page Include="FirstRunWindow.xaml" />
     <Page Include="HomePage_SettingsWindow.xaml" />
     <Page Include="PluginPage_SettingsWindow.xaml" />
+    <Page Include="InstalledPluginsPage.xaml" />
   </ItemGroup>
   <ItemGroup>
     <Midl Include="MainWindow.idl" />
@@ -22,6 +23,7 @@
     <ClCompile Include="ShowOllamaUnavaliableWindow.cpp" />
     <ClCompile Include="PluginDef.cpp" />
     <ClCompile Include="PluginManager.cpp" />
+    <ClCompile Include="Plugin.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />

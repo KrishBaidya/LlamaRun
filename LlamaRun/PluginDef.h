@@ -1,7 +1,7 @@
 #pragma once
 
 #define PY_SSIZE_T_CLEAN
-#include <Python/Python.h>
+#include "pch.h"
 
 
 static PyObject* MyApp_SomeFunction(PyObject* self, PyObject* args);
