@@ -8,7 +8,28 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
 
-    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
-        <Button x:Name="myButton" Click="myButton_Click">Click Me</Button>
-    </StackPanel>
+    <Grid>
+        <StackPanel Margin="0, 20, 0, 0" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+            <NavigationView x:Name="NavView" IsSettingsVisible="False" PaneDisplayMode="Top" IsBackButtonVisible="Collapsed" Loaded="PluginNavigationView_Loaded" SelectionChanged="PluginNavigationView_SelectionChanged">
+                <NavigationView.MenuItems>
+                    <NavigationViewItem Content="Installed Plugins" Tag="InstalledPlugins">
+                        <NavigationViewItem.Icon>
+                            <FontIcon Glyph="&#xEA86;" />
+                        </NavigationViewItem.Icon>
+                    </NavigationViewItem>
+                    <NavigationViewItem Content="Available Plugins" Tag="AvailablePlugins">
+                        <NavigationViewItem.Icon>
+                            <FontIcon Glyph="&#xEBD3;" />
+                        </NavigationViewItem.Icon>
+                    </NavigationViewItem>
+                    <!--<NavigationViewItem Content="Plugin Settings" Tag="PluginSettings" Icon="Setting"/>-->
+                </NavigationView.MenuItems>
+
+
+                <Frame x:Name="ContentFrame"/>
+            </NavigationView>
+        </StackPanel>
+
+    </Grid>
+
 </Page>

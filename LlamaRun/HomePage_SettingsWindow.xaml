@@ -9,18 +9,21 @@
     mc:Ignorable="d">
 
     <Grid x:Name="rootPanel" Loaded="rootPanel_Loaded">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="auto"/>
-        </Grid.RowDefinitions>
-
-        <StackPanel>
+        
+        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Orientation="Vertical">
             <ComboBox x:Name="MyComboBox" Width="200" PlaceholderText="Select Model" Loaded="MyComboBox_Loaded" />
             <Slider x:Name="MainWindowHeight" Minimum="10" Maximum="80" Header="App Height" />
             <Slider x:Name="MainWindowWidth" Minimum="10" Maximum="80" Header="App Width"/>
             <Slider x:Name="MainWindowOpacitySlider" Minimum="0" Maximum="100" Header="Animation Opactiy" />
             <CheckBox x:Name="AutoStartUpCheckBox" Content="Enable Auto Startup" IsChecked="False" />
+            <Button Content="Save" Click="SaveButtonClicked" HorizontalAlignment="Center" />
+        </StackPanel>
 
+        <StackPanel Margin="0, 0, 0, 20" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Bottom">
+            <TextBlock Margin="0,0,0,0" FontSize="30">Made With</TextBlock>
+            <Image Source="../Assets/red_heart_animated.gif" Margin="0,0,0,-10" Width="50"></Image>
+            <TextBlock FontSize="30">By&#160;</TextBlock>
+            <HyperlinkButton Margin="0,0,0,0" NavigateUri="https://github.com/krishbaidya" FontSize="30" Style="{StaticResource TextBlockStyleHyperlink}">Krish Baidya</HyperlinkButton>
         </StackPanel>
     </Grid>
 

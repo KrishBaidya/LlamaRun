@@ -31,4 +31,5 @@
 #include <winrt/Windows.UI.ViewManagement.h>
 #include <winrt/Windows.ApplicationModel.AppService.h>
 #include <winrt/Windows.ApplicationModel.Background.h>
-#include <winrt/Windows.Foundation.Collections.h>
+
+#include <Python/Python.h>
