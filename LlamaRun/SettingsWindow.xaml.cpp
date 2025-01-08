@@ -1,5 +1,5 @@
 #include "pch.h"
-#include "Settings/SettingsWindow.xaml.h"
+#include "SettingsWindow.xaml.h"
 #if __has_include("SettingsWindow.g.cpp")
 #include "SettingsWindow.g.cpp"
 #endif
@@ -8,8 +8,8 @@
 #include <winrt/Windows.UI.Xaml.Interop.h>
 
 
-#include <Settings/PluginPage_SettingsWindow.xaml.h>
-#include <Settings/HomePage_SettingsWindow.xaml.h>
+#include <PluginPage_SettingsWindow.xaml.h>
+#include <HomePage_SettingsWindow.xaml.h>
 
 using namespace winrt;
 using namespace Microsoft::UI::Xaml;

@@ -21,11 +21,5 @@
 
             <Frame x:Name="ContentFrame"/>
         </NavigationView>
-        <StackPanel Margin="0, 0, 0, 20" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Bottom">
-            <TextBlock Margin="0,0,0,0" FontSize="30">Made With</TextBlock>
-            <Image Source="../Assets/red_heart_animated.gif" Margin="0,0,0,-10" Width="50"></Image>
-            <TextBlock FontSize="30">By&#160;</TextBlock>
-            <HyperlinkButton Margin="0,0,0,0" NavigateUri="https://github.com/krishbaidya" FontSize="30" Style="{StaticResource TextBlockStyleHyperlink}">Krish Baidya</HyperlinkButton>
-        </StackPanel>
     </Grid>
 </Window>

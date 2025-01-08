@@ -1,9 +1,11 @@
 #include "pch.h"
-#include "Settings/PluginPage_SettingsWindow.xaml.h"
+#include "PluginPage_SettingsWindow.xaml.h"
 #if __has_include("PluginPage_SettingsWindow.g.cpp")
 #include "PluginPage_SettingsWindow.g.cpp"
 #endif
 #include <winrt/Windows.UI.Xaml.Interop.h>
+
+#include <InstalledPluginsPage.xaml.h>
 
 using namespace winrt;
 using namespace Microsoft::UI::Xaml;
@@ -13,14 +15,15 @@ using namespace Microsoft::UI::Xaml;
 
 namespace winrt::LlamaRun::implementation
 {
-	void PluginPage_SettingsWindow::PluginNavigationView_SelectionChanged(winrt::Microsoft::UI::Xaml::Controls::NavigationView const& sender, winrt::Microsoft::UI::Xaml::Controls::NavigationViewSelectionChangedEventArgs const& /*args*/)
+	void PluginPage_SettingsWindow::PluginNavigationView_SelectionChanged(winrt::Microsoft::UI::Xaml::Controls::NavigationView const& sender, winrt::Microsoft::UI::Xaml::Controls::NavigationViewSelectionChangedEventArgs const& args)
 	{
 		auto selectedItem = unbox_value<winrt::hstring>(sender.SelectedItem().as<winrt::Microsoft::UI::Xaml::Controls::NavigationViewItem>().Tag());
 
-		/*if (selectedItem == L"InstalledPlugins")
+		if (selectedItem == L"InstalledPlugins")
 		{
-			ContentFrame().Navigate(winrt::xaml_typename<LlamaRun::InstalledPluginsPage>());
+			ContentFrame().Navigate(winrt::xaml_typename<LlamaRun::InstalledPluginsPage>(), args.RecommendedNavigationTransitionInfo());
 		}
+		/*
 		else if (selectedItem == L"AvailablePlugins")
 		{
 			ContentFrame().Navigate(winrt::xaml_typename<LlamaRun::AvailablePluginsPage>());

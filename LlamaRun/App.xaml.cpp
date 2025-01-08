@@ -6,7 +6,6 @@
 #include "SettingsWindow.xaml.h"
 #include <FirstRunWindow.xaml.h>
 
-#include <Python/Python.h>
 #include <PluginDef.h>
 #include <PluginManager.h>
 

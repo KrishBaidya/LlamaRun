@@ -1,7 +1,6 @@
 #include "pch.h"
 #include "PluginDef.h"
 
-
 static PyObject* MyApp_SomeFunction(PyObject* self, PyObject* args) {
     // Parse input arguments
     const char* input_str;
