@@ -4,9 +4,6 @@
 #include "SettingsWindow.g.cpp"
 #endif
 #include <DataStore.cpp>
-#include <winrt/Windows.Storage.h>
-#include <winrt/Windows.UI.Xaml.Interop.h>
-
 
 #include <PluginPage_SettingsWindow.xaml.h>
 #include <HomePage_SettingsWindow.xaml.h>

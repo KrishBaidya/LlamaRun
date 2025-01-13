@@ -3,7 +3,6 @@
 #if __has_include("PluginPage_SettingsWindow.g.cpp")
 #include "PluginPage_SettingsWindow.g.cpp"
 #endif
-#include <winrt/Windows.UI.Xaml.Interop.h>
 
 #include <InstalledPluginsPage.xaml.h>
 

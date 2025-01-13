@@ -1,5 +1,6 @@
 namespace LlamaRun
 {
+    [Windows.UI.Xaml.Data.Bindable]
     [default_interface]
     runtimeclass Plugin : Microsoft.UI.Xaml.Controls.Control
     {

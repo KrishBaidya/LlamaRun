@@ -1,7 +1,6 @@
 #pragma once
 
 #include "pch.h"
-#include <winrt/Windows.Storage.h>
 
 using namespace winrt;
 using namespace Windows::Foundation;

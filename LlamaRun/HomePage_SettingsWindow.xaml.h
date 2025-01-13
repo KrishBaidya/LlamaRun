@@ -1,8 +1,8 @@
 #pragma once
 
 #include "HomePage_SettingsWindow.g.h"
+#include "pch.h"
 
-#include <winrt/Windows.Storage.h>
 #include <SettingsWindow.xaml.h>
 #include "DataStore.cpp"
 

@@ -5,8 +5,6 @@
 #endif
 
 #include <BackgroundOllama.hpp>
-#include <future>
-#include <atomic>
 #include <DataStore.cpp>
 #include <PluginManager.h>
 
@@ -25,10 +23,8 @@ using namespace Microsoft::UI::Xaml::Media::Animation;
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
 
-#include <iostream>
 #include <SettingsWindow.xaml.h>
 #include "VSCodeConnector.h"
-#include <commctrl.h>
 #include <ShowOllamaUnavaliableWindow.h>
 
 namespace winrt::LlamaRun::implementation

@@ -79,12 +79,12 @@ namespace winrt::LlamaRun::implementation
 			m_pluginAuthor = value;
 		}
 
-		bool isPluginEnabled() const 
+		bool isPluginEnabled() const
 		{
 			return m_isPluginEnabled;
 		}
 
-		void isPluginEnabled(bool const& value) 
+		void isPluginEnabled(bool const& value)
 		{
 			m_isPluginEnabled = value;
 		}

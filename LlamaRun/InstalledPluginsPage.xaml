@@ -143,10 +143,9 @@
                             <!-- Toggle Switch -->
                             <ToggleSwitch 
                                     Style="{StaticResource ModernToggleSwitch}"
-                                    IsOn="{x:Bind isPluginEnabled}"
+                                    IsOn="{x:Bind isPluginEnabled, Mode=TwoWay}"
                                     OffContent="Disabled"
-                                    OnContent="Enabled"
-                                    Toggled="ToggleSwitch_Toggled"/>
+                                    OnContent="Enabled"/>
 
                             <!-- Action Menu Button -->
                             <Button
@@ -156,7 +155,7 @@
                                     <MenuFlyout Placement="Bottom">
                                         <MenuFlyoutItem Text="Reload Plugin" Icon="Refresh" />
                                         <MenuFlyoutSeparator/>
-                                        <MenuFlyoutItem Text="Delete Plugin" Icon="Delete" Foreground="Red"/>
+                                        <MenuFlyoutItem Text="Delete Plugin" Click="Delete_Click" Icon="Delete" Foreground="Red" />
                                     </MenuFlyout>
                                 </Button.Flyout>
                                 <FontIcon Glyph="&#xE712;" FontSize="16"/>

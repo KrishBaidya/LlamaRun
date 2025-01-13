@@ -1,17 +1,6 @@
 #pragma once
 
 #include "pch.h"
-#include <string>
-#include <vector>
-#include <unordered_map>
-#include <memory>
-#include <json.hpp>
-#include <future>
-
-#include <winrt/Windows.Storage.h>
-#include <winrt/Windows.Storage.Streams.h>
-
-#include <winrt/Windows.UI.Xaml.Data.h>
 
 #include <Plugin.h>
 

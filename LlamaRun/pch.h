@@ -31,5 +31,24 @@
 #include <winrt/Windows.UI.ViewManagement.h>
 #include <winrt/Windows.ApplicationModel.AppService.h>
 #include <winrt/Windows.ApplicationModel.Background.h>
+#include <winrt/Microsoft.UI.Xaml.Hosting.h>
+
+#include <winrt/Windows.UI.Xaml.Interop.h>
+#include <winrt/Windows.Storage.h>
+#include <winrt/Windows.Storage.Streams.h>
+#include <winrt/Windows.UI.Xaml.Data.h>
+#include <winrt/Microsoft.UI.Xaml.Media.Animation.h>
+#include <winrt/Microsoft.UI.Xaml.Media.h>
 
 #include <Python/Python.h>
+
+#include <string>
+#include <vector>
+#include <atomic>
+#include <unordered_map>
+#include <memory>
+#include <json.hpp>
+#include <future>
+
+#include <iostream>
+#include <commctrl.h>
