@@ -17,7 +17,7 @@ namespace winrt::LlamaRun::implementation
         int32_t MyProperty();
         void MyProperty(int32_t value);
         void InstalledPluginsList_Loaded(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
-        void Delete_Click(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+        fire_and_forget InstalledPluginsPage::Delete_Click(IInspectable const& sender, RoutedEventArgs const& e);
     };
 }
 

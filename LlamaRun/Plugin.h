@@ -17,6 +17,8 @@ namespace winrt::LlamaRun::implementation
 
 		PyObject* m_pluginInstance = nullptr;
 
+		winrt::hstring m_pluginFolderPath;
+
 		bool m_isPluginEnabled = false;
 
 	public:
@@ -28,10 +30,12 @@ namespace winrt::LlamaRun::implementation
 			const winrt::hstring& author,
 			const std::unordered_map<std::string, std::string>& actions,
 			PyObject* instance,
+			const winrt::hstring& pluginFolderPath,
 			bool isEnabled = true)
 			: m_pluginName(name), m_pluginDescription(description),
 			m_pluginVersion(version), m_pluginAuthor(author),
 			m_pluginActions(actions), m_pluginInstance(instance),
+			m_pluginFolderPath(pluginFolderPath),
 			m_isPluginEnabled(isEnabled)
 		{
 		}
@@ -106,6 +110,14 @@ namespace winrt::LlamaRun::implementation
 		void PluginInstance(PyObject* const& value)
 		{
 			m_pluginInstance = value;
+		}
+
+		winrt::hstring PluginFolderPath() const {
+			return m_pluginFolderPath;
+		}
+
+		void PluginFolderPath(winrt::hstring const& value) {
+			m_pluginFolderPath = value;
 		}
 	};
 }

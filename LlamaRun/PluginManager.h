@@ -51,13 +51,13 @@ public:
 			}
 
 			// Get all folders
-			auto folders = co_await pluginsFolder.GetFoldersAsync();
+			const auto& folders = co_await pluginsFolder.GetFoldersAsync();
 
 
 			for (const auto& entry : folders) {
 				try {
 					auto pluginPath = entry.Path();
-					auto jsonFile = co_await entry.TryGetItemAsync(L"plugin.json");
+					const auto& jsonFile = co_await entry.TryGetItemAsync(L"plugin.json");
 					if (!jsonFile) {
 						std::wcerr << L"plugin.json not found in " << entry.Name().c_str() << std::endl;
 						continue;
@@ -65,7 +65,7 @@ public:
 
 					auto storageFile = jsonFile.try_as<StorageFile>();
 
-					auto fileContent = co_await FileIO::ReadTextAsync(storageFile);
+					const auto& fileContent = co_await FileIO::ReadTextAsync(storageFile);
 					std::string jsonData = winrt::to_string(fileContent);
 					nlohmann::json pluginData = nlohmann::json::parse(jsonData);
 
@@ -100,7 +100,7 @@ public:
 							PyObject* pInstance = PyObject_CallObject(pClass, nullptr);
 							if (pInstance) {
 								//winrt::make_self<winrt::LlamaRun::Plugin>(L"PluginName", L"Description", L"1.0", L"Author", pluginActions, nullptr);
-								m_plugins.Append(winrt::make<LlamaRun::implementation::Plugin>(to_hstring(pluginName), to_hstring(pluginDescription), to_hstring(pluginVersion), to_hstring(pluginAuthor), pluginActions, pInstance, true));
+								m_plugins.Append(winrt::make<LlamaRun::implementation::Plugin>(to_hstring(pluginName), to_hstring(pluginDescription), to_hstring(pluginVersion), to_hstring(pluginAuthor), pluginActions, pInstance, pluginPath, true));
 							}
 							else {
 								PyErr_Print();
@@ -133,10 +133,53 @@ public:
 		}
 	}
 
+	struct PluginRemovalException : public winrt::hresult_error
+	{
+		PluginRemovalException(winrt::hresult const& code, winrt::hstring const& message) : winrt::hresult_error(code, message) {} // Constructor for wstring
+	};
+
+	IAsyncAction RemovePlugin(LlamaRun::Plugin plugin)
+	{
+		try
+		{
+			StorageFolder localFolder = co_await StorageFolder::GetFolderFromPathAsync(plugin.PluginFolderPath());
+			co_await localFolder.DeleteAsync(StorageDeleteOption::PermanentDelete);
+		}
+		catch (winrt::hresult_error const& ex)
+		{
+			HRESULT hr = ex.code();
+			winrt::hstring const& hmessage = ex.message();
+			winrt::hstring errorMessage{ hstring(L"HRESULT Error 0x") + hr + hstring(L" : ") + hmessage };
+
+			if (hr == HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND))
+			{
+				OutputDebugStringW(L"Plugin folder not found.\n");
+				co_return;
+			}
+			else if (hr == HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION))
+			{
+				errorMessage = errorMessage + L" (Folder may be in use).";
+			}
+			else if (hr == E_ACCESSDENIED)
+			{
+				errorMessage = errorMessage + L" (Access denied).";
+			}
+
+			OutputDebugStringW(errorMessage.c_str());
+			OutputDebugStringW(L"\n");
+			throw PluginRemovalException(hr, errorMessage); // Throw the detailed message
+		}
+		catch (...)
+		{
+			OutputDebugStringW(L"Unknown Error.\n");
+			throw PluginRemovalException(hresult(0), L"An unknown error occurred.");
+		}
+	}
+
 	void BroadcastEvent(const std::string& eventName) {
 		PyGILState_STATE gstate = PyGILState_Ensure(); // Acquire GIL
 
-		for (auto& pluginInspectable : m_plugins) {
+		for (const auto& pluginInspectable : m_plugins) {
 			auto const& plugin = pluginInspectable.as<LlamaRun::implementation::Plugin>().get();
 
 			if (!plugin || !plugin->isPluginEnabled()) {

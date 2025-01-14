@@ -12,5 +12,7 @@ namespace LlamaRun
         String PluginVersion;
         String PluginAuthor;
         Boolean isPluginEnabled;
+
+        String PluginFolderPath;
     }
 }

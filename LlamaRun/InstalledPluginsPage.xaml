@@ -150,7 +150,8 @@
                             <!-- Action Menu Button -->
                             <Button
                                 Style="{StaticResource ActionButtonStyle}"
-                                Margin="-20,0,0,0">
+                                Margin="-20,0,0,0"
+                                DataContext="{x:Bind}">
                                 <Button.Flyout>
                                     <MenuFlyout Placement="Bottom">
                                         <MenuFlyoutItem Text="Reload Plugin" Icon="Refresh" />
