@@ -48,7 +48,7 @@ namespace winrt::LlamaRun::implementation
 					auto AppDimension = DataStore::GetInstance().GetAppDimension();
 					pThis->MoveAndResizeWindow(AppDimension.X / 100.0, AppDimension.Y / 100.0);
 
-					auto AppOpacity= DataStore::GetInstance().GetAppOpacity();
+					auto AppOpacity = DataStore::GetInstance().GetAppOpacity();
 					pThis->OpacityDoubleAnimation().To(AppOpacity / 100.0);
 				}
 
@@ -365,7 +365,7 @@ namespace winrt::LlamaRun::implementation
 
 	void MainWindow::ShowTrayMenu()
 	{
-		winrt::LlamaRun::SettingsWindow settingsWindow;
+		Window settingsWindow = winrt::make<SettingsWindow>();
 		settingsWindow.Activate();
 	}
 
