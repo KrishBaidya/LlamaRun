@@ -32,6 +32,8 @@ public:
 	winrt::Windows::Foundation::Collections::IObservableVector<winrt::Windows::Foundation::IInspectable> m_plugins{ winrt::single_threaded_observable_vector<winrt::Windows::Foundation::IInspectable>() };
 
 	fire_and_forget LoadAllPlugins() {
+		m_plugins.Clear();
+
 		try {
 			StorageFolder localFolder = ApplicationData::Current().LocalFolder();
 			IStorageItem pluginFolder = co_await localFolder.TryGetItemAsync(L"Plugins");
@@ -99,7 +101,6 @@ public:
 						if (pClass && PyCallable_Check(pClass)) {
 							PyObject* pInstance = PyObject_CallObject(pClass, nullptr);
 							if (pInstance) {
-								//winrt::make_self<winrt::LlamaRun::Plugin>(L"PluginName", L"Description", L"1.0", L"Author", pluginActions, nullptr);
 								m_plugins.Append(winrt::make<LlamaRun::implementation::Plugin>(to_hstring(pluginName), to_hstring(pluginDescription), to_hstring(pluginVersion), to_hstring(pluginAuthor), pluginActions, pInstance, pluginPath, true));
 							}
 							else {
@@ -133,9 +134,9 @@ public:
 		}
 	}
 
-	struct PluginRemovalException : public winrt::hresult_error
+	struct PluginException : public winrt::hresult_error
 	{
-		PluginRemovalException(winrt::hresult const& code, winrt::hstring const& message) : winrt::hresult_error(code, message) {} // Constructor for wstring
+		PluginException(winrt::hresult const& code, winrt::hstring const& message) : winrt::hresult_error(code, message) {} // Constructor for wstring
 	};
 
 	IAsyncAction RemovePlugin(LlamaRun::Plugin plugin)
@@ -167,12 +168,58 @@ public:
 
 			OutputDebugStringW(errorMessage.c_str());
 			OutputDebugStringW(L"\n");
-			throw PluginRemovalException(hr, errorMessage); // Throw the detailed message
+			throw PluginException(hr, errorMessage);
 		}
 		catch (...)
 		{
 			OutputDebugStringW(L"Unknown Error.\n");
-			throw PluginRemovalException(hresult(0), L"An unknown error occurred.");
+			throw PluginException(hresult(0), L"An unknown error occurred.");
+		}
+	}
+
+	IAsyncOperation<hstring> GetPluginsFolderPath() {
+		try {
+			StorageFolder localFolder = ApplicationData::Current().LocalFolder();
+			IStorageItem pluginFolder = co_await localFolder.TryGetItemAsync(L"Plugins");
+
+			StorageFolder pluginsFolder = nullptr;
+			if (pluginFolder == nullptr) {
+				std::wcout << L"Plugins folder not found. Creating it..." << std::endl;
+				pluginsFolder = co_await ApplicationData::Current().LocalFolder().CreateFolderAsync(L"Plugins");
+			}
+			else if (auto folder = pluginFolder.try_as<StorageFolder>()) {
+				pluginsFolder = folder;
+				std::wcout << L"Plugins folder found: " << pluginsFolder.Path().c_str() << std::endl;
+			}
+			else {
+				throw winrt::hresult_error(E_FAIL, L"'Plugins' exists but is not a folder");
+			}
+
+			co_return pluginsFolder.Path();
+		}
+		catch (winrt::hresult_error const& ex)
+		{
+			HRESULT hr = ex.code();
+			winrt::hstring const& hmessage = ex.message();
+			winrt::hstring errorMessage{ hstring(L"HRESULT Error 0x") + hr + hstring(L" : ") + hmessage };
+
+			if (hr == HRESULT_FROM_WIN32(ERROR_PATH_NOT_FOUND))
+			{
+				OutputDebugStringW(L"Plugins folder not found.\n");
+				co_return L"Plugins folder not found.\n";
+			}
+			else if (hr == E_ACCESSDENIED)
+			{
+				OutputDebugStringW(L"Access denied.\n");
+				errorMessage = errorMessage + L" (Access denied).";
+			}
+
+			throw PluginException(hr, errorMessage);
+		}
+		catch (...)
+		{
+			OutputDebugStringW(L"Unknown Error.\n");
+			throw PluginException(hresult(0), L"An unknown error occurred.");
 		}
 	}
 

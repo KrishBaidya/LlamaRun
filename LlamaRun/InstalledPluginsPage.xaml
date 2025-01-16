@@ -59,7 +59,7 @@
             <!-- Install Button -->
             <Button Grid.Column="1" 
                     Style="{StaticResource ActionButtonStyle}"
-                    
+                    Click="Install_From_Disk_Button_Click"
                     VerticalAlignment="Top">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon Glyph="&#xE8E5;" FontSize="16"/>

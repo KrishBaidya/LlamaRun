@@ -20,7 +20,7 @@ namespace winrt::LlamaRun::implementation
 
 		if (selectedItem == L"InstalledPlugins")
 		{
-			ContentFrame().Navigate(winrt::xaml_typename<LlamaRun::InstalledPluginsPage>(), args.RecommendedNavigationTransitionInfo());
+			ContentFrame().Navigate(winrt::xaml_typename<LlamaRun::InstalledPluginsPage>(), nullptr, args.RecommendedNavigationTransitionInfo());
 		}
 		/*
 		else if (selectedItem == L"AvailablePlugins")

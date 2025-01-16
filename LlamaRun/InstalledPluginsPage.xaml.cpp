@@ -3,6 +3,7 @@
 #if __has_include("InstalledPluginsPage.g.cpp")
 #include "InstalledPluginsPage.g.cpp"
 #endif
+#include <SettingsWindow.xaml.h>
 
 using namespace winrt;
 using namespace Microsoft::UI::Xaml;
@@ -45,12 +46,7 @@ namespace winrt::LlamaRun::implementation
 						co_await PluginManager::GetInstance().RemovePlugin(plugin);
 						PluginManager::GetInstance().m_plugins.RemoveAt(i);
 					}
-					catch (const PluginManager::PluginRemovalException& ex) {
-						removePluginDialog.Hide();
-						ContentDialog errorDialog = ContentDialog();
-						errorDialog.XamlRoot(this->XamlRoot());
-						errorDialog.Title(box_value(L"Error Cannot Remove Plugin!! " + ex.message()));
-						errorDialog.CloseButtonText(L"Okay");
+					catch (const PluginManager::PluginException& ex) {
 					}
 
 					});
@@ -60,6 +56,61 @@ namespace winrt::LlamaRun::implementation
 				auto result = co_await removePluginDialog.ShowAsync();
 			}
 		}
+	}
+
+	IAsyncAction InstalledPluginsPage::Install_From_Disk_Button_Click(IInspectable const&, RoutedEventArgs const&)
+	{
+		Windows::Storage::Pickers::FolderPicker folderPicker;
+
+		auto window = Window();
+
+		auto windowNative{ window.as<::IWindowNative>() };
+		HWND hWnd{ 0 };
+		windowNative->get_WindowHandle(&hWnd);
+
+		folderPicker.FileTypeFilter().Append(L"*");
+
+		auto initializeWithWindow{ folderPicker.as<::IInitializeWithWindow>() };
+		initializeWithWindow->Initialize(hWnd);
+
+		StorageFolder sourceFolder = co_await folderPicker.PickSingleFolderAsync();
+		if (sourceFolder == nullptr)
+		{
+			OutputDebugStringW(L"No folder selected.\n");
+			co_return;
+		}
+
+		StorageFolder pluginsFolder = co_await StorageFolder::GetFolderFromPathAsync(co_await PluginManager::GetInstance().GetPluginsFolderPath());
+		if (pluginsFolder == nullptr) {
+			OutputDebugStringW(L"Plugins folder not found.\n");
+			co_return;
+		}
+
+		hstring sourceFolderName = sourceFolder.Name();
+
+		// A clever way to check if Folder Exists
+		try {
+			co_await pluginsFolder.GetFolderAsync(sourceFolderName);
+			OutputDebugStringW((L"A plugin with the name '" + sourceFolderName + L"' is already installed.\n").c_str());
+			co_return;
+		}
+		catch (...) {
+
+		}
+
+		try
+		{
+			StorageFolder newDestinationFolder = co_await pluginsFolder.CreateFolderAsync(sourceFolder.Name(), CreationCollisionOption::ReplaceExisting);
+			co_await SettingsWindow::CopyFolderAsync(sourceFolder, newDestinationFolder);
+		}
+		catch (const PluginManager::PluginException& ex)
+		{
+			//TODO
+		}
+
+		OutputDebugStringW((L"Plugin '" + sourceFolderName + L"' installed successfully.\n").c_str());
+
+		PluginManager::GetInstance().LoadAllPlugins();
 	}
 
 	int32_t InstalledPluginsPage::MyProperty()

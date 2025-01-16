@@ -21,9 +21,11 @@ namespace winrt::LlamaRun::implementation
 		static void SaveSetting(const std::string&, const std::string&);
 		static void SaveSetting(const std::string&, const hstring&);
 
+		static Windows::Foundation::IAsyncAction CopyFolderAsync(const Windows::Storage::StorageFolder&, const Windows::Storage::StorageFolder&);
+
 		static winrt::hstring LoadSetting(const std::string& key);
-		void NavigationView_SelectionChanged(winrt::Microsoft::UI::Xaml::Controls::NavigationView const& sender, winrt::Microsoft::UI::Xaml::Controls::NavigationViewSelectionChangedEventArgs const& args);
-		void NavigationView_Loaded(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::RoutedEventArgs const& e);
+		void NavigationView_SelectionChanged(winrt::Microsoft::UI::Xaml::Controls::NavigationView const&, winrt::Microsoft::UI::Xaml::Controls::NavigationViewSelectionChangedEventArgs const&);
+		void NavigationView_Loaded(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
 	};
 }
 

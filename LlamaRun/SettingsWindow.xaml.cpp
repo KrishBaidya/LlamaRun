@@ -33,6 +33,32 @@ namespace winrt::LlamaRun::implementation
 		localSettings.Values().Insert(to_hstring(key), box_value(value));
 	}
 
+	Windows::Foundation::IAsyncAction SettingsWindow::CopyFolderAsync(const StorageFolder& sourceFolder, const StorageFolder& destinationFolder)
+	{
+		try
+		{
+			// Copy files in the current folder
+			auto files = co_await sourceFolder.GetFilesAsync();
+			for (auto const& file : files)
+			{
+				co_await file.CopyAsync(destinationFolder, file.Name(), NameCollisionOption::ReplaceExisting);
+			}
+
+			// Recursively copy subfolders
+			auto folders = co_await sourceFolder.GetFoldersAsync();
+			for (auto const& folder : folders)
+			{
+				auto newDestinationFolder = co_await destinationFolder.CreateFolderAsync(folder.Name(), CreationCollisionOption::OpenIfExists);
+				co_await CopyFolderAsync(folder, newDestinationFolder); // Recursive call
+			}
+		}
+		catch (winrt::hresult_error const& ex)
+		{
+			winrt::hstring errorMessage = L"Error copying folder: " + ex.message();
+			OutputDebugStringW(errorMessage.c_str());
+		}
+	}
+
 	winrt::hstring SettingsWindow::LoadSetting(const std::string& key)
 	{
 		ApplicationDataContainer localSettings{ Windows::Storage::ApplicationData::Current().LocalSettings() };
@@ -67,7 +93,7 @@ namespace winrt::LlamaRun::implementation
 			ContentFrame().Navigate(winrt::xaml_typename<LlamaRun::HomePage_SettingsWindow>(), args.RecommendedNavigationTransitionInfo());
 		}
 		else if (selectedItem == L"Plugins") {
-			ContentFrame().Navigate(winrt::xaml_typename<LlamaRun::PluginPage_SettingsWindow>(), args.RecommendedNavigationTransitionInfo());
+			ContentFrame().Navigate(winrt::xaml_typename<LlamaRun::PluginPage_SettingsWindow>(), nullptr, args.RecommendedNavigationTransitionInfo());
 		}
 	}
 
