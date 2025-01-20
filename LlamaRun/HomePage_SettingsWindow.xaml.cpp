@@ -4,6 +4,11 @@
 #include "HomePage_SettingsWindow.g.cpp"
 #endif
 
+
+#include <SettingsWindow.xaml.h>
+#include "DataStore.cpp"
+#include <AIServiceManager.h>
+
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
 
@@ -32,22 +37,22 @@ namespace winrt::LlamaRun::implementation
 		}
 	}
 
-    int32_t HomePage_SettingsWindow::MyProperty()
-    {
-        throw hresult_not_implemented();
-    }
+	int32_t HomePage_SettingsWindow::MyProperty()
+	{
+		throw hresult_not_implemented();
+	}
 
-    void HomePage_SettingsWindow::MyProperty(int32_t /* value */)
-    {
-        throw hresult_not_implemented();
-    }
+	void HomePage_SettingsWindow::MyProperty(int32_t /* value */)
+	{
+		throw hresult_not_implemented();
+	}
 
 	void HomePage_SettingsWindow::rootPanel_Loaded(IInspectable const& sender, RoutedEventArgs const& e)
 	{
 		if (SettingsWindow::LoadSetting("App Width") != L"")
 		{
 			auto appWidth = SettingsWindow::LoadSetting("App Width");
-			
+
 			MainWindowHeight().Value(std::stod(to_string(appWidth)));
 		}
 		else {
@@ -88,7 +93,7 @@ namespace winrt::LlamaRun::implementation
 		}
 	}
 
-	void HomePage_SettingsWindow::MyComboBox_Loaded(IInspectable const&, IInspectable const& args)
+	void HomePage_SettingsWindow::Model_ComboBox_Loaded(IInspectable const&, IInspectable const& args)
 	{
 		auto models = DataStore::GetInstance().GetModels();
 
@@ -103,11 +108,32 @@ namespace winrt::LlamaRun::implementation
 		{
 			auto newItem = winrt::Microsoft::UI::Xaml::Controls::ComboBoxItem();
 			newItem.Content(winrt::box_value(to_hstring(model)));
-			MyComboBox().Items().Append(newItem);
+			Model_ComboBox().Items().Append(newItem);
 
 			if (selectedModel == model)
 			{
-				MyComboBox().SelectedItem(newItem);
+				Model_ComboBox().SelectedItem(newItem);
+			}
+		}
+	}
+
+	void HomePage_SettingsWindow::ModelService_ComboBox_SelectionChanged(IInspectable const& sender, winrt::Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const& e)
+	{
+		if (auto const& item = sender.as<winrt::Microsoft::UI::Xaml::Controls::ComboBox>().SelectedValue())
+		{
+			if (auto const& service = item.as<winrt::Microsoft::UI::Xaml::Controls::ComboBoxItem>().Content())
+			{
+				if (service.as<hstring>() == L"Ollama")
+				{
+					AIServiceManager::GetInstance().SetActiveServiceByName("Ollama");
+					AIServiceManager::GetInstance().LoadModels();
+				}
+				else if (service.as<hstring>() == L"Google Gemini")
+				{
+					AIServiceManager::GetInstance().SetActiveServiceByName("Google Gemini");
+					AIServiceManager::GetInstance().LoadModels();
+				}
+				auto const& models = DataStore::GetInstance().GetModels();
 			}
 		}
 	}
@@ -126,26 +152,43 @@ namespace winrt::LlamaRun::implementation
 	}
 
 	void HomePage_SettingsWindow::SaveButtonClicked(IInspectable const&, IInspectable const& args) {
-		auto selectedModelIndex = MyComboBox().SelectedIndex();
-		std::string selectedModel = DataStore::GetInstance().GetModels()[selectedModelIndex];
+		//// Get the selected model index from the ComboBox
+		//auto selectedModelValue = Model_ComboBox().SelectedValue().as<winrt::Microsoft::UI::Xaml::Controls::ComboBoxItem>();
+		//if (selectedModelValue && !selectedModelValue.Content().as<hstring>().empty())
+		//{
+		//	auto selectedModelIndex = Model_ComboBox().SelectedIndex();
 
-		const auto& AppHeight = MainWindowHeight().Value();
-		const auto& AppWidth = MainWindowWidth().Value();
+		//	std::string selectedModel = DataStore::GetInstance().GetModels()[selectedModelIndex];
 
-		const auto& AppOpacity = MainWindowOpacitySlider().Value();
+		//	DataStore::GetInstance().SetSelectedModel(selectedModel).SaveSelectedModel();
+		//}
 
-		winrt::LlamaRun::implementation::SettingsWindow::SaveSetting("SelectedModel", selectedModel);
+		//auto selectedModelServiceValue = ModelService_ComboBox().SelectedValue().as<winrt::Microsoft::UI::Xaml::Controls::ComboBoxItem>();
+		//if (selectedModelServiceValue && !selectedModelServiceValue.Content().as<hstring>().empty())
+		//{
+		//	auto selectedModelServiceIndex = ModelService_ComboBox().SelectedIndex();
 
-		winrt::LlamaRun::implementation::SettingsWindow::SaveSetting("App Height", to_hstring(AppHeight));
-		winrt::LlamaRun::implementation::SettingsWindow::SaveSetting("App Width", to_hstring(AppWidth));
+		//	std::string selectedModelService = DataStore::GetInstance().GetModelService();
 
-		winrt::LlamaRun::implementation::SettingsWindow::SaveSetting("App Opacity", to_hstring(AppOpacity));
+		//	DataStore::GetInstance().SetModelService(selectedModelService).SaveSelectedModel();
+		//}
 
-		RequestStartupChange(AutoStartUpCheckBox().IsChecked().GetBoolean());
+		//// Retrieve the current height, width, and opacity values from the UI elements
+		//const auto& AppHeight = MainWindowHeight().Value();
+		//const auto& AppWidth = MainWindowWidth().Value();
+		//const auto& AppOpacity = MainWindowOpacitySlider().Value();
 
-		winrt::LlamaRun::implementation::SettingsWindow::SaveSetting("Startup Enabled", to_hstring(AutoStartUpCheckBox().IsChecked().GetBoolean()));
+		//// Set and save the new app opacity
+		//DataStore::GetInstance().SetAppOpacity(AppOpacity).SaveAppOpacity();
 
-		DataStore::GetInstance().SetAppOpacity(AppOpacity);
-		DataStore::GetInstance().SetAppDimension({ static_cast<float>(AppWidth), static_cast<float>(AppHeight) });
+		//// Set and save the new app dimensions (height and width)
+		//DataStore::GetInstance().SetAppDimension({ static_cast<float>(AppWidth), static_cast<float>(AppHeight) }).SaveAppDimension();
+
+		//// Handle AutoStartUp check box state
+		//bool autoStartupEnabled = AutoStartUpCheckBox().IsChecked().GetBoolean();
+		//RequestStartupChange(autoStartupEnabled);
+
+		//// Save startup setting state in DataStore
+		//winrt::LlamaRun::implementation::SettingsWindow::SaveSetting("Startup Enabled", to_hstring(autoStartupEnabled));
 	}
 }

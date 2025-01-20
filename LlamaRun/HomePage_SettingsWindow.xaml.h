@@ -1,10 +1,6 @@
 #pragma once
 
 #include "HomePage_SettingsWindow.g.h"
-#include "pch.h"
-
-#include <SettingsWindow.xaml.h>
-#include "DataStore.cpp"
 
 using namespace winrt;
 using namespace Microsoft::UI::Xaml;
@@ -25,13 +21,14 @@ namespace winrt::LlamaRun::implementation
         int32_t MyProperty();
         void MyProperty(int32_t value);
 
-        void rootPanel_Loaded(IInspectable const& sender, RoutedEventArgs const& e);
+        void rootPanel_Loaded(IInspectable const&, RoutedEventArgs const&);
 
-        void MyComboBox_Loaded(IInspectable const&, IInspectable const& args);
+        void Model_ComboBox_Loaded(IInspectable const&, IInspectable const&);
 
         fire_and_forget RequestStartupChange(bool Enable);
 
-        void SaveButtonClicked(IInspectable const&, IInspectable const& args);
+        void SaveButtonClicked(IInspectable const&, IInspectable const&);
+        void ModelService_ComboBox_SelectionChanged(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const&);
     };
 }
 
