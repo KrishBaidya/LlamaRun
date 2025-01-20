@@ -24,6 +24,9 @@
     <ClCompile Include="PluginDef.cpp" />
     <ClCompile Include="PluginManager.cpp" />
     <ClCompile Include="Plugin.cpp" />
+    <ClCompile Include="AIServiceManager.cpp">
+      <Filter>LLM Services</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
@@ -31,6 +34,12 @@
     <ClInclude Include="ShowOllamaUnavaliableWindow.h" />
     <ClInclude Include="PluginDef.h" />
     <ClInclude Include="PluginManager.h" />
+    <ClInclude Include="AIServiceManager.h">
+      <Filter>LLM Services</Filter>
+    </ClInclude>
+    <ClInclude Include="AIService.h">
+      <Filter>LLM Services</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Image Include="Assets\Wide310x150Logo.scale-200.png">
@@ -193,6 +202,9 @@
   <ItemGroup>
     <Filter Include="Assets">
       <UniqueIdentifier>{b39c4892-f150-4ecb-8354-9256caa66368}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="LLM Services">
+      <UniqueIdentifier>{986f061e-ff52-458d-b900-d3372dc1db60}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>

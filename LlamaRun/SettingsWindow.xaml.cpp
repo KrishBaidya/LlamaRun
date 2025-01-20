@@ -33,6 +33,13 @@ namespace winrt::LlamaRun::implementation
 		localSettings.Values().Insert(to_hstring(key), box_value(value));
 	}
 
+	void SettingsWindow::SaveSetting(const std::string& key, const IInspectable& value)
+	{
+		ApplicationDataContainer localSettings{ Windows::Storage::ApplicationData::Current().LocalSettings() };
+
+		localSettings.Values().Insert(to_hstring(key), value);
+	}
+
 	Windows::Foundation::IAsyncAction SettingsWindow::CopyFolderAsync(const StorageFolder& sourceFolder, const StorageFolder& destinationFolder)
 	{
 		try

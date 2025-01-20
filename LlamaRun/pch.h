@@ -39,7 +39,7 @@
 #include <winrt/Windows.Storage.Streams.h>
 #include <winrt/Windows.UI.Xaml.Data.h>
 #include <winrt/Microsoft.UI.Xaml.Media.Animation.h>
-#include <winrt/Microsoft.UI.Xaml.Media.h>
+#include <winrt/Windows.Web.Http.Headers.h>
 #include <Shobjidl.h>
 
 #include <Python/Python.h>

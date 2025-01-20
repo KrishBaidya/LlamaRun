@@ -20,6 +20,7 @@ namespace winrt::LlamaRun::implementation
 
 		static void SaveSetting(const std::string&, const std::string&);
 		static void SaveSetting(const std::string&, const hstring&);
+		static void SaveSetting(const std::string&, const IInspectable&);
 
 		static Windows::Foundation::IAsyncAction CopyFolderAsync(const Windows::Storage::StorageFolder&, const Windows::Storage::StorageFolder&);
 

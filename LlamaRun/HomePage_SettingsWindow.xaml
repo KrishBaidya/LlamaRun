@@ -11,7 +11,12 @@
     <Grid x:Name="rootPanel" Loaded="rootPanel_Loaded">
         
         <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Orientation="Vertical">
-            <ComboBox x:Name="MyComboBox" Width="200" PlaceholderText="Select Model" Loaded="MyComboBox_Loaded" />
+            <ComboBox x:Name="ModelService_ComboBox" HorizontalAlignment="Stretch" SelectionChanged="ModelService_ComboBox_SelectionChanged">
+                <ComboBoxItem>Ollama</ComboBoxItem>
+                <ComboBoxItem>Google Gemini</ComboBoxItem>
+            </ComboBox>
+            <ComboBox x:Name="Model_ComboBox" Width="200" PlaceholderText="Select Model" Loaded="Model_ComboBox_Loaded" />
+            <TextBox x:Name="ApiKey" PlaceholderText="API Key" />
             <Slider x:Name="MainWindowHeight" Minimum="10" Maximum="80" Header="App Height" />
             <Slider x:Name="MainWindowWidth" Minimum="10" Maximum="80" Header="App Width"/>
             <Slider x:Name="MainWindowOpacitySlider" Minimum="0" Maximum="100" Header="Animation Opactiy" />

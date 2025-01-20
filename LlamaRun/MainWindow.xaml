@@ -74,7 +74,7 @@
             </LinearGradientBrush>
         </Grid.Background>
 
-        <ScrollViewer x:Name="scrollViewer" VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Hidden">
+        <ScrollViewer x:Name="scrollViewer" VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled">
             <TextBox
                x:Name="TextBoxElement"
                PlaceholderText="Ask Anything!" 

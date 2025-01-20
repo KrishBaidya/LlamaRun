@@ -4,9 +4,9 @@
 #include "MainWindow.g.cpp"
 #endif
 
-#include <BackgroundOllama.hpp>
 #include <DataStore.cpp>
 #include <PluginManager.h>
+#include <AIServiceManager.h>
 
 using namespace winrt;
 using namespace Microsoft::UI;
@@ -94,8 +94,8 @@ namespace winrt::LlamaRun::implementation
 		// Extend content into the title bar
 		ExtendsContentIntoTitleBar(true);
 
-		auto appWindow = AppWindow();
-		auto presenter = appWindow.Presenter().as<OverlappedPresenter>();
+		auto const& appWindow = AppWindow();
+		auto const& presenter = appWindow.Presenter().as<OverlappedPresenter>();
 
 		presenter.IsMaximizable(false);
 		presenter.IsMinimizable(false);
@@ -106,7 +106,7 @@ namespace winrt::LlamaRun::implementation
 		appWindow.IsShownInSwitchers(false);
 	}
 
-	void MainWindow::SubclassWndProc(HWND hwnd)
+	void MainWindow::SubclassWndProc(HWND const& hwnd)
 	{
 		// Store the original window procedure
 		originalWndProc = (WNDPROC)GetWindowLongPtr(hwnd, GWLP_WNDPROC);
@@ -115,83 +115,6 @@ namespace winrt::LlamaRun::implementation
 
 		// Subclass the window procedure
 		//SetWindowLongPtr(hwnd, GWLP_WNDPROC, (LONG_PTR)CustomWndProc);
-	}
-
-	void MainWindow::CheckandLoadOllama() {
-		if (IsOllamaAvailable())
-		{
-			OutputDebugString(L"Ollama Avaliable");
-		}
-		else
-		{
-			ShowOllamaUnavaliableWindow::GetInstance().showOllamaDialog();
-			MainWindow::Close();
-		}
-
-
-		auto& weakThis = *this;
-		std::thread serverCheckThread([&]() {
-			if (weakThis && weakThis.DispatcherQueue()) { // Check for both 'this' and DispatcherQueue
-				weakThis.DispatcherQueue().TryEnqueue(
-					winrt::Microsoft::UI::Dispatching::DispatcherQueuePriority::Normal,
-					[&weakThis]() {
-						weakThis.TextBoxElement().PlaceholderText(L"Waiting for Ollama server!");
-						weakThis.TextBoxElement().IsReadOnly(true);
-					}
-				);
-			}
-			while (!ollama::is_running()) {
-				std::this_thread::sleep_for(std::chrono::seconds(1));
-			}
-
-			// Once server is up, load the models
-			MainWindow::models = ListModel();
-
-			if (models.size() <= 0) {
-				ShowOllamaUnavaliableWindow::GetInstance().showModelDialog();
-				MainWindow::Close();
-			}
-			DataStore::GetInstance().SetModels(models);
-
-			if (SettingsWindow::LoadSetting("SelectedModel") != L"")
-			{
-				auto selectedModel = SettingsWindow::LoadSetting("SelectedModel");
-				DataStore::GetInstance().SetSelectedModel(to_string(selectedModel));
-			}
-
-			if (DataStore::GetInstance().GetSelectedModel() != "")
-			{
-				LoadModelIntoMemory(DataStore::GetInstance().GetSelectedModel());
-			}
-			else
-			{
-				DataStore::GetInstance().SetSelectedModel(models[0]);
-				LoadModelIntoMemory(models[0]);
-
-				SettingsWindow::SaveSetting("SelectedModel", DataStore::GetInstance().GetSelectedModel());
-			}
-
-			if (weakThis && weakThis.DispatcherQueue()) { // Check for both 'this' and DispatcherQueue
-				weakThis.DispatcherQueue().TryEnqueue(
-					winrt::Microsoft::UI::Dispatching::DispatcherQueuePriority::Normal,
-					[&weakThis]() {
-						weakThis.TextBoxElement().PlaceholderText(L"Ask Anything!");
-						weakThis.TextBoxElement().IsReadOnly(false);
-					}
-				);
-			}
-			});
-
-		serverCheckThread.detach();
-	}
-
-	bool MainWindow::IsOllamaAvailable()
-	{
-		// Try running the Ollama command using system()
-		int result = system("ollama --version");
-
-		// Check the result, if the command fails, Ollama is not installed
-		return result == 0;
 	}
 
 	int32_t MainWindow::MyProperty()
@@ -229,7 +152,7 @@ namespace winrt::LlamaRun::implementation
 			MoveAndResizeWindow(std::stoi(to_string(appWidth)) / 100.0, std::stoi(to_string(appHeight)) / 100.0);
 		}
 
-		auto windowNative{ this->m_inner.as<::IWindowNative>() };
+		auto& windowNative{ this->m_inner.as<::IWindowNative>() };
 		HWND hwnd{ 0 };
 		windowNative->get_WindowHandle(&hwnd);
 
@@ -237,7 +160,15 @@ namespace winrt::LlamaRun::implementation
 		SubclassWndProc(hwnd);
 		RegisterGlobalHotkey(hwnd);
 
-		CheckandLoadOllama();
+		AIServiceManager::GetInstance().SetMainWindowPtr(this);
+		DataStore::GetInstance().LoadModelService();
+		if (DataStore::GetInstance().GetModelService() == "Ollama" || DataStore::GetInstance().GetModelService() == "") {
+			AIServiceManager::GetInstance().LoadModels();
+		}
+		else if (DataStore::GetInstance().GetModelService() == "Google Gemini") {
+			AIServiceManager::GetInstance().LoadModels();
+			std::cout << "Google Gemini" << std::endl;
+		}
 	}
 
 	void MainWindow::MoveAndResizeWindow(float widthPercentage, float heightPercentage) const
@@ -258,84 +189,31 @@ namespace winrt::LlamaRun::implementation
 
 	void MainWindow::TextBoxElement_KeyDown(Windows::Foundation::IInspectable const& sender, KeyRoutedEventArgs const& e)
 	{
-		auto textBox = sender.as<Microsoft::UI::Xaml::Controls::TextBox>();
+		auto& textBox = sender.as<Microsoft::UI::Xaml::Controls::TextBox>();
 		if (e.Key() == winrt::Windows::System::VirtualKey::Enter && !textBox.IsReadOnly())
 		{
-			std::string inputText = to_string(textBox.Text());
-			std::string model = DataStore::GetInstance().GetSelectedModel();
-			auto& weakThis = *this;
+			std::string const& inputText = to_string(textBox.Text());
+			std::string const& model = DataStore::GetInstance().GetSelectedModel();
 
 			res = "";
 
 			PluginManager::GetInstance().BroadcastEvent("beforeTextGeneration");
 
-			std::thread([model, &weakThis, inputText]() {
-				bool isVSCodeActive = VSCodeConnector::GetInstance().IsVSCodeActive();
-
-				using ResponseCallback = winrt::delegate<void(ollama::response const&)>;
-				ResponseCallback callback_textbox = [&weakThis](ollama::response const& response) {
-					if (weakThis && weakThis.DispatcherQueue()) { // Check for both 'this' and DispatcherQueue
-						weakThis.DispatcherQueue().TryEnqueue(
-							winrt::Microsoft::UI::Dispatching::DispatcherQueuePriority::Normal,
-							[&weakThis, response]() {
-								if (response.as_json()["done"] == true) {
-									PluginManager::GetInstance().BroadcastEvent("afterTextGeneration");
-
-									weakThis.StopSkeletonLoadingAnimation();
-									weakThis.TextBoxElement().IsReadOnly(false);
-								}
-								weakThis.UpdateTextBox(to_hstring(response.as_simple_string()));
-							}
-						);
-					}
-					else {
-						// Handle case where 'this' or DispatcherQueue is null
-						// (e.g., log a message, display an error)
-					}
-					};
+			std::thread([model, this, inputText]() {
 
 				try {
-					if (isVSCodeActive)
-					{
-						SOCKET ConnectSocket = INVALID_SOCKET;
-
-						if (!VSCodeConnector::GetInstance().setupSocket(ConnectSocket)) {
-							OutputDebugString(L"Failed to set up socket connection to VS Code.");
-							throw std::runtime_error("Failed to set up socket connection to VS Code.");
-						}
-
-						ResponseCallback callback_vscode = [&weakThis, isVSCodeActive, ConnectSocket](ollama::response const& response) {
-							if (weakThis && weakThis.DispatcherQueue()) { // Check for both 'this' and DispatcherQueue
-								weakThis.DispatcherQueue().TryEnqueue(
-									winrt::Microsoft::UI::Dispatching::DispatcherQueuePriority::Normal,
-									[&weakThis, response, ConnectSocket]() {
-										if (response.as_json()["done"] == true) {
-											weakThis.StopSkeletonLoadingAnimation();
-											weakThis.TextBoxElement().IsReadOnly(false);
-										}
-										// Send the current chunk to VS Code
-										if (!VSCodeConnector::GetInstance().streamCodeToVSCode(response, ConnectSocket)) {
-											OutputDebugString(L"Failed to send code chunk to VS Code.");
-										}
-									}
-								);
-							}
-							else {
-								// Handle case where 'this' or DispatcherQueue is null
-								// (e.g., log a message, display an error)
-							}
-							};
-
-						ollama::generate(model, inputText, callback_vscode);
-
-						VSCodeConnector::GetInstance().cleanupSocket(ConnectSocket);
-
-						return 0;
+					/*if (DataStore::GetInstance().) {
+						ollama::generate(model, inputText, OllamaService::GetInstance().TextGeneration());
 					}
-					ollama::generate(model, inputText, callback_textbox);
+					else if (SettingsWindow::LoadSetting("Selected Service") == L"Google Gemini") {
+						GoogleGeminiService::GetInstance().TextGeneration(inputText);
+						std::cout << "Google Gemini" << std::endl;
+					}*/
+
+					AIServiceManager::GetInstance().TextGeneration(DataStore::GetInstance().GetSelectedModel(), inputText);
 				}
 				catch (const winrt::hresult_error& ex) {
-					// Handle exceptions from ollama::generate
+					// Handle exceptions from Response Generation
 				}
 				}).detach();
 
@@ -397,7 +275,7 @@ namespace winrt::LlamaRun::implementation
 
 	void MainWindow::TextBoxElement_TextChanged(Windows::Foundation::IInspectable const&, TextChangedEventArgs const&)
 	{
-		scrollViewer().ChangeView(nullptr, scrollViewer().ScrollableHeight(), nullptr);
+		scrollViewer().ChangeView(nullptr, scrollViewer().ScrollableHeight(), nullptr, false);
 		/*if (sender.as<Microsoft::UI::Xaml::Controls::TextBox>().Text() == L"")
 		{
 			MoveAndResizeWindow(0.3f, 0.08f);

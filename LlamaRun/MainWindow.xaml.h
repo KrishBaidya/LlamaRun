@@ -1,9 +1,9 @@
 #pragma once
 #include "MainWindow.g.h"
 
-#define ID_TRAYICON_RESTORE 1001
-#define ID_TRAYICON_EXIT 1002
-#define WM_TRAYICON (WM_USER + 1)
+constexpr auto ID_TRAYICON_RESTORE = 1001;
+constexpr auto ID_TRAYICON_EXIT = 1002;
+constexpr auto WM_TRAYICON = (WM_USER + 1);
 
 namespace winrt::LlamaRun::implementation
 {
@@ -11,12 +11,7 @@ namespace winrt::LlamaRun::implementation
 	{
 		MainWindow();
 
-		void SubclassWndProc(HWND hwnd);
-
-		void CheckandLoadOllama();
-		bool IsOllamaAvailable();
-
-		std::vector<std::string> models = std::vector<std::string>();
+		void SubclassWndProc(HWND const& hwnd);
 
 		std::string res = "";
 
@@ -57,7 +52,6 @@ namespace winrt::LlamaRun::implementation
 
 		void SetFocusOnTextBox()
 		{
-			auto state = TextBoxElement().FocusState();
 			winrt::Microsoft::UI::Xaml::FocusState key = winrt::Microsoft::UI::Xaml::FocusState::Keyboard;
 			TextBoxElement().Focus(key);
 		}

@@ -127,6 +127,8 @@
     <Manifest Include="app.manifest" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="AIService.h" />
+    <ClInclude Include="AIServiceManager.h" />
     <ClInclude Include="FirstRunWindow.xaml.h">
       <DependentUpon>FirstRunWindow.xaml</DependentUpon>
       <SubType>Code</SubType>
@@ -180,6 +182,7 @@
     </Page>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="AIServiceManager.cpp" />
     <ClCompile Include="DataStore.cpp" />
     <ClCompile Include="FirstRunWindow.xaml.cpp">
       <DependentUpon>FirstRunWindow.xaml</DependentUpon>
