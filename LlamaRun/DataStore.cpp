@@ -82,14 +82,14 @@ public:
 		this->appDimension = point;
 	}
 
-	DataStore& SetModels(const std::vector<std::string>& data)
+	DataStore& SetModels(const winrt::Windows::Foundation::Collections::IVector<winrt::hstring>& data)
 	{
 		models = data;
 
 		return *this;
 	}
 
-	std::vector<std::string> GetModels()
+	winrt::Windows::Foundation::Collections::IVector<winrt::hstring> GetModels()
 	{
 		return models;
 	}
@@ -148,7 +148,7 @@ public:
 
 private:
 	std::string selectedModel = "";
-	std::vector<std::string> models;
+	winrt::Windows::Foundation::Collections::IVector<winrt::hstring> models{ nullptr };
 
 	float appOpacity = 15.0f;
 
