@@ -10,31 +10,28 @@ class AIServiceManager
 public:
 	static AIServiceManager& GetInstance();
 
-	void SetActiveService(AIService*);
+	void SetActiveService(std::unique_ptr<AIService>);
 
 	void SetActiveServiceByName(std::string const&);
 
-	AIService* GetActiveService();
+	AIService* GetActiveService() const&;
 
 	IAsyncOperation<bool> CheckandLoad();
 
-	winrt::fire_and_forget LoadModels();
+	IAsyncAction LoadModels();
 
 	IAsyncOperation<bool> TextGeneration(std::string const&, std::string const&);
 
-	void SetMainWindowPtr(winrt::LlamaRun::implementation::MainWindow* const& mainWindowPtr) {
+	void SetMainWindowPtr(winrt::weak_ref<winrt::LlamaRun::implementation::MainWindow> mainWindowPtr) {
 		this->mainWindowPtr = mainWindowPtr;
 	}
 
-	winrt::LlamaRun::implementation::MainWindow* GetMainWindowPtr() const {
+	winrt::weak_ref<winrt::LlamaRun::implementation::MainWindow> GetMainWindowPtr() const {
 		return this->mainWindowPtr;
 	}
 
 private:
-	AIService* activeService{ nullptr };
+	std::unique_ptr<AIService> activeService;
 
-	winrt::LlamaRun::implementation::MainWindow* mainWindowPtr;
+	winrt::weak_ref<winrt::LlamaRun::implementation::MainWindow> mainWindowPtr{ nullptr };
 };
-
-
-

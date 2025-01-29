@@ -19,6 +19,9 @@ using namespace winrt::Windows::Foundation::Collections;
 using namespace Microsoft::UI::Xaml::Controls;
 using namespace Microsoft::UI::Xaml::Media;
 using namespace Microsoft::UI::Xaml::Media::Animation;
+using namespace winrt::Windows::Web::Http;
+using namespace winrt::Windows::Data::Json;
+using namespace winrt::Windows::Storage::Streams;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -138,7 +141,7 @@ namespace winrt::LlamaRun::implementation
 		LoadingStoryBoard().Stop();
 	}
 
-	void MainWindow::AppTitleBar_Loaded(IInspectable const&, RoutedEventArgs const&)
+	fire_and_forget MainWindow::AppTitleBar_Loaded(IInspectable const&, RoutedEventArgs const&)
 	{
 		const hstring& appHeight = SettingsWindow::LoadSetting("App Height");
 		const hstring& appWidth = SettingsWindow::LoadSetting("App Width");
@@ -160,13 +163,15 @@ namespace winrt::LlamaRun::implementation
 		SubclassWndProc(hwnd);
 		RegisterGlobalHotkey(hwnd);
 
-		AIServiceManager::GetInstance().SetMainWindowPtr(this);
+		AIServiceManager::GetInstance().SetMainWindowPtr(this->get_weak());
 		DataStore::GetInstance().LoadModelService();
 		if (DataStore::GetInstance().GetModelService() == "Ollama" || DataStore::GetInstance().GetModelService() == "") {
-			AIServiceManager::GetInstance().LoadModels();
+			AIServiceManager::GetInstance().SetActiveServiceByName("Ollama");
+			co_await AIServiceManager::GetInstance().LoadModels();
 		}
 		else if (DataStore::GetInstance().GetModelService() == "Google Gemini") {
-			AIServiceManager::GetInstance().LoadModels();
+			AIServiceManager::GetInstance().SetActiveServiceByName("Google Gemini");
+			co_await AIServiceManager::GetInstance().LoadModels();
 			std::cout << "Google Gemini" << std::endl;
 		}
 	}
@@ -199,7 +204,7 @@ namespace winrt::LlamaRun::implementation
 
 			PluginManager::GetInstance().BroadcastEvent("beforeTextGeneration");
 
-			std::thread([model, this, inputText]() {
+			std::thread([model, this, inputText]() -> IAsyncAction {
 
 				try {
 					/*if (DataStore::GetInstance().) {
@@ -210,7 +215,7 @@ namespace winrt::LlamaRun::implementation
 						std::cout << "Google Gemini" << std::endl;
 					}*/
 
-					AIServiceManager::GetInstance().TextGeneration(DataStore::GetInstance().GetSelectedModel(), inputText);
+					co_await AIServiceManager::GetInstance().TextGeneration(DataStore::GetInstance().GetSelectedModel(), inputText);
 				}
 				catch (const winrt::hresult_error& ex) {
 					// Handle exceptions from Response Generation

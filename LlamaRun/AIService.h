@@ -14,7 +14,7 @@ public:
 	virtual ~AIService() = default;
 
 	// Abstract methods that must be implemented by derived classes
-	virtual fire_and_forget TextGeneration(std::string model, std::string inputText) = 0;
+	virtual IAsyncAction TextGeneration(std::string model, std::string inputText) = 0;
 
 	virtual std::vector<std::string> GetModels() = 0;
 	virtual winrt::Windows::Foundation::IAsyncOperation<bool> LoadModels() = 0;

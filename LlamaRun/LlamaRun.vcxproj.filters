@@ -27,6 +27,12 @@
     <ClCompile Include="AIServiceManager.cpp">
       <Filter>LLM Services</Filter>
     </ClCompile>
+    <ClCompile Include="OllamaService.cpp">
+      <Filter>LLM Services</Filter>
+    </ClCompile>
+    <ClCompile Include="CloudLLMService.cpp">
+      <Filter>LLM Services</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
@@ -38,6 +44,12 @@
       <Filter>LLM Services</Filter>
     </ClInclude>
     <ClInclude Include="AIService.h">
+      <Filter>LLM Services</Filter>
+    </ClInclude>
+    <ClInclude Include="OllamaService.h">
+      <Filter>LLM Services</Filter>
+    </ClInclude>
+    <ClInclude Include="CloudLLMService.h">
       <Filter>LLM Services</Filter>
     </ClInclude>
   </ItemGroup>

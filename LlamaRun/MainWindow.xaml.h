@@ -29,7 +29,7 @@ namespace winrt::LlamaRun::implementation
 
 		void MoveAndResizeWindow(float widthPercentage, float heightPercentage) const;
 
-		void AppTitleBar_Loaded(winrt::Windows::Foundation::IInspectable const& sender, Microsoft::UI::Xaml::RoutedEventArgs const& e);
+		fire_and_forget AppTitleBar_Loaded(winrt::Windows::Foundation::IInspectable const& sender, Microsoft::UI::Xaml::RoutedEventArgs const& e);
 		void TextBoxElement_KeyDown(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const& e);
 
 		void RegisterGlobalHotkey(HWND hwnd)

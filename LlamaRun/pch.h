@@ -33,6 +33,7 @@
 #include <winrt/Windows.ApplicationModel.Background.h>
 #include <winrt/Microsoft.UI.Xaml.Hosting.h>
 #include <winrt/Windows.Storage.Pickers.h>
+#include <winrt/Windows.Data.Json.h>
 
 #include <winrt/Windows.UI.Xaml.Interop.h>
 #include <winrt/Windows.Storage.h>

@@ -3,6 +3,10 @@
 #include "AIServiceManager.h"
 
 #include <DataStore.cpp>
+#include "CloudLLMService.h"
+#include <OllamaService.h>
+
+#include <winrt/Windows.Foundation.h>
 
 AIServiceManager& AIServiceManager::GetInstance()
 {
@@ -10,102 +14,134 @@ AIServiceManager& AIServiceManager::GetInstance()
 	return instance;
 }
 
-void AIServiceManager::SetActiveService(AIService* service)
+void AIServiceManager::SetActiveService(std::unique_ptr<AIService> service)
 {
-	activeService = service;
+	activeService = std::move(service);
 }
 
 void AIServiceManager::SetActiveServiceByName(std::string const& service)
 {
-	/*if (service == "Ollama")
+	if (service == "Ollama")
 	{
-		AIServiceManager::GetInstance().SetActiveService(&OllamaService());
+		AIServiceManager::GetInstance().SetActiveService(std::make_unique<OllamaService>());
 	}
 	else if (service == "Google Gemini")
 	{
-		AIServiceManager::GetInstance().SetActiveService(&GoogleGeminiService());
-	}*/
+		AIServiceManager::GetInstance().SetActiveService(std::make_unique<CloudLLMService>());
+	}
 }
 
-AIService* AIServiceManager::GetActiveService()
+AIService* AIServiceManager::GetActiveService() const&
 {
-	return activeService;
+	return activeService.get();
 }
 
 IAsyncOperation<bool> AIServiceManager::CheckandLoad()
 {
 	if (activeService)
 	{
-		/*auto ollamaService = dynamic_cast<OllamaService*>(activeService);
-		if (ollamaService)
-		{
-			bool modelLoaded = co_await ollamaService->CheckandLoadOllama();
-			DataStore::GetInstance().SetModels(ollamaService->GetModels());
-			std::cout << "Ollama model loaded: " << std::boolalpha << modelLoaded << std::endl;
-		}
-		else
-		{
-			bool modelLoaded = co_await activeService->LoadModels();
-			DataStore::GetInstance().SetModels(activeService->GetModels());
-			std::cout << "Model loaded: " << std::boolalpha << modelLoaded << std::endl;
-		}*/
+		// Check if activeService is valid *before* dereferencing
+		if (activeService != nullptr) { // Redundant but good practice
+			try {
+				if (activeService->isApiKeySet())
+				{
+					bool modelLoaded = co_await activeService->LoadModels();
 
-		co_return true;
+					auto models = activeService->GetModels();
+					winrt::Windows::Foundation::Collections::IVector<hstring> VectorModels = winrt::single_threaded_vector<hstring>();
+
+					for (const auto& item : models)
+					{
+						VectorModels.Append(to_hstring(item));
+					}
+
+					DataStore::GetInstance().SetModels(VectorModels);
+
+					std::cout << "Model loaded: " << std::boolalpha << modelLoaded << std::endl;
+					co_return modelLoaded; // Return the actual result of LoadModels
+				}
+				else
+				{
+					co_return false;
+				}
+			}
+			catch (const std::exception& ex) {
+				std::cerr << "Exception in CheckandLoadAsync: " << ex.what() << std::endl;
+				co_return false; // Return false on error
+			}
+		}
+		else {
+			std::cerr << "activeService is null (after initial check)!" << std::endl;
+			co_return false;
+		}
 	}
 	else
 	{
 		std::cerr << "No AI service selected!" << std::endl;
-
 		co_return false;
 	}
 }
 
-winrt::fire_and_forget AIServiceManager::LoadModels()
+IAsyncAction AIServiceManager::LoadModels()
 {
-	if (auto& weakThis = *mainWindowPtr)
+	if (auto strongThis = mainWindowPtr.get())
 	{
-		std::thread serverCheckThread([&]() -> IAsyncAction {
-			if (weakThis && weakThis.DispatcherQueue()) { // Check for both 'this' and DispatcherQueue
-				weakThis.DispatcherQueue().TryEnqueue(
-					winrt::Microsoft::UI::Dispatching::DispatcherQueuePriority::Normal,
-					[&weakThis]() {
-						weakThis.TextBoxElement().PlaceholderText(L"Waiting for Ollama server!");
-						weakThis.TextBoxElement().IsReadOnly(true);
-					}
-				);
-			}
-			while (!ollama::is_running()) {
-				std::this_thread::sleep_for(std::chrono::seconds(1));
-			}
+		if (!strongThis->DispatcherQueue()) {
+			std::cerr << "Error: DispatcherQueue is null." << std::endl;
+			co_return;
+		}
 
-			co_await CheckandLoad();
-
-			if (weakThis && weakThis.DispatcherQueue()) { // Check for both 'this' and DispatcherQueue
-				weakThis.DispatcherQueue().TryEnqueue(
-					winrt::Microsoft::UI::Dispatching::DispatcherQueuePriority::Normal,
-					[&weakThis]() {
-						weakThis.TextBoxElement().PlaceholderText(L"Ask Anything!");
-						weakThis.TextBoxElement().IsReadOnly(false);
-					}
-				);
-			}
+		// Update UI to indicate loading (on UI thread)
+		strongThis->DispatcherQueue().TryEnqueue([strongThis]() {
+			strongThis->TextBoxElement().PlaceholderText(L"Waiting for your AI buddy to connect!");
+			strongThis->TextBoxElement().IsReadOnly(true);
 			});
 
-		serverCheckThread.detach();
+		try {
+			// Perform the background operation using co_await
+			co_await winrt::resume_background(); // Switch to a background thread
+			co_await CheckandLoad(); // Now CheckandLoad runs in the background
+
+			auto action = [strongThis]() {
+				strongThis->TextBoxElement().PlaceholderText(L"Ask Anything!");
+				strongThis->TextBoxElement().IsReadOnly(false);
+				};
+
+			auto asyncAction = strongThis->DispatcherQueue().TryEnqueue(winrt::Microsoft::UI::Dispatching::DispatcherQueuePriority::Normal, action);
+		}
+		catch (const std::exception& ex)
+		{
+			std::cerr << "Error during CheckandLoad: " << ex.what() << std::endl;
+			strongThis->DispatcherQueue().TryEnqueue([strongThis, message = winrt::to_hstring(ex.what())]() {
+				strongThis->TextBoxElement().PlaceholderText(L"Error: " + message);
+				strongThis->TextBoxElement().IsReadOnly(true);
+				});
+			co_return;
+		}
+
+
+		// Update UI after loading (on UI thread)
+		strongThis->DispatcherQueue().TryEnqueue([strongThis]() {
+			strongThis->TextBoxElement().PlaceholderText(L"Ask Anything!");
+			strongThis->TextBoxElement().IsReadOnly(false);
+			});
+	}
+	else {
+		std::cerr << "Error: Could not get strong reference to MainWindow." << std::endl;
 	}
 
 	co_return;
 }
 
 IAsyncOperation<bool> AIServiceManager::TextGeneration(std::string const& model, std::string const& inputText) {
-	/*if (auto ollamaService = dynamic_cast<OllamaService*>(activeService))
+	if (auto ollamaService = dynamic_cast<OllamaService*>(activeService.get()))
 	{
 
 	}
-	else if (auto googleGeminiService = dynamic_cast<GoogleGeminiService*>(activeService))
+	else if (auto googleGeminiService = dynamic_cast<CloudLLMService*>(activeService.get()))
 	{
 		googleGeminiService->TextGeneration(model, inputText);
-	}*/
+	}
 
 	co_return true;
 }

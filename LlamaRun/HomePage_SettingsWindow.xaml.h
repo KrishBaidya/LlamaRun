@@ -27,8 +27,11 @@ namespace winrt::LlamaRun::implementation
 
         fire_and_forget RequestStartupChange(bool Enable);
 
+        void Update_Model_ComboBox();
+
         void SaveButtonClicked(IInspectable const&, IInspectable const&);
-        void ModelService_ComboBox_SelectionChanged(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const&);
+        fire_and_forget ModelService_ComboBox_SelectionChanged(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const&);
+        fire_and_forget ApiKey_TextChanged(winrt::Windows::Foundation::IInspectable const& sender, winrt::Microsoft::UI::Xaml::Controls::TextChangedEventArgs const& e);
     };
 }
 
