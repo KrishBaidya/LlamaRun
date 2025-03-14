@@ -1,0 +1,11 @@
+{
+  "profiles": {
+    "LlamaRun (Package)": {
+      "commandName": "MsixPackage",
+      "nativeDebugging": false
+    },
+    "LlamaRun (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

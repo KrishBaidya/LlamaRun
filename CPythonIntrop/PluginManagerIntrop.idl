@@ -1,0 +1,11 @@
+namespace CPythonIntrop
+{
+    [default_interface]
+    runtimeclass PluginManagerIntrop : Microsoft.UI.Xaml.Controls.Control
+    {
+        PluginManagerIntrop();
+        Int32 MyProperty;
+
+        void BroadcastEvent(String eventName);
+    }
+}

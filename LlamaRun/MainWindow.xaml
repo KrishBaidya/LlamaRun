@@ -74,16 +74,17 @@
             </LinearGradientBrush>
         </Grid.Background>
 
-        <ScrollViewer x:Name="scrollViewer" VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled">
+        <ScrollViewer x:Name="scrollViewer" IsScrollInertiaEnabled="True" VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled">
             <TextBox
                x:Name="TextBoxElement"
+               x:FieldModifier="public"
                PlaceholderText="Ask Anything!" 
                VerticalAlignment="Center"
                HorizontalAlignment="Stretch" 
                TextWrapping="Wrap"
-               AcceptsReturn="False"
+               AcceptsReturn="True"
                IsSpellCheckEnabled="True"
-               KeyDown="TextBoxElement_KeyDown"
+               PreviewKeyDown="TextBoxElement_PreviewKeyDown"
                TextChanged="TextBoxElement_TextChanged"
                Style="{StaticResource EditableTextBlockStyle}"
             />
