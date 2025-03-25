@@ -9,7 +9,7 @@
 ## Getting Started 🛠
 ### Prerequisites
 
-* Window application Development workload with C++ WinUI app development tools (For Building from Source)
+* Window application Development workload with C# WinUI app development tools (For Building from Source)
 * Ollama for AI model support (you can install Ollama from [here](https://ollama.com/)).
 
 Make sure you have these installed and configured properly before running the project.
@@ -23,9 +23,9 @@ Once installed, open the app and follow the on-screen instructions to start auto
 Plugin support is currently in progress. Soon, you'll be able to create and share Python plugins to extend Llama Run's functionality. Stay tuned for updates!
 
 ## Contributing 🤝
-Contributions are welcome! If you'd like to help improve Llama Run, here’s how you can contribute:
+Contributions are welcome! If you'd like to help improve Llama Run, here's how you can contribute:
 
-1. Install Window application Development workload with C++ WinUI app development tools for Visual Studio
+1. Install Window application Development workload with C# WinUI app development tools for Visual Studio
 
 2. Fork the repository: Click on the "Fork" button at the top-right of the page to create your own copy of the project.
 

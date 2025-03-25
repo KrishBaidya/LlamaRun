@@ -1,0 +1,18 @@
+namespace CPythonIntrop
+{
+    [Windows.UI.Xaml.Data.Bindable]
+    [default_interface]
+    runtimeclass Plugin : Microsoft.UI.Xaml.Controls.Control
+    {
+        Plugin();
+        Int32 MyProperty;
+
+        String PluginName;
+        String PluginDescription;
+        String PluginVersion;
+        String PluginAuthor;
+        Boolean isPluginEnabled;
+
+        String PluginFolderPath;
+    }
+}

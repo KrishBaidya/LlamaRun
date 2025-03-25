@@ -1,0 +1,17 @@
+import "Plugin.idl";
+
+namespace CPythonIntrop
+{
+	[default_interface]
+	runtimeclass PluginManagerIntrop : Microsoft.UI.Xaml.Controls.Control
+	{
+		PluginManagerIntrop();
+		Int32 MyProperty;
+
+		static Windows.Foundation.IAsyncAction BroadcastEvent(String eventName);
+		static Windows.Foundation.Collections.IObservableVector<Object> Plugins();
+		static Windows.Foundation.IAsyncAction RemovePlugin(Plugin plugin);
+		static Windows.Foundation.IAsyncOperation<String> GetPluginsFolderPath();
+		static Windows.Foundation.IAsyncAction LoadAllPlugins();
+	}
+}

@@ -11,7 +11,7 @@
   <Identity
     Name="KrishBaidya.231573AB78801"
     Publisher="CN=B809A085-F142-48AC-BF92-46A116A84F96"
-    Version="0.2.2.0" />
+    Version="0.3.0.0" />
 
   <mp:PhoneIdentity PhoneProductId="4aa169a8-2d91-44f4-aa96-3b99ddbb2150" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
 
@@ -45,8 +45,13 @@
       </uap:VisualElements>
       <Extensions>
         <uap5:Extension Category="windows.startupTask">
-          <uap5:StartupTask TaskId="LLamaRun Generation" Enabled="false" DisplayName="Llama Run" />
+          <uap5:StartupTask TaskId="LlamaRun Generation" Enabled="false" DisplayName="Llama Run" />
         </uap5:Extension>
+        <uap:Extension Category="windows.protocol">
+          <uap:Protocol Name="llama-run">
+            <uap:DisplayName>Llama Run</uap:DisplayName>
+          </uap:Protocol>
+        </uap:Extension>
       </Extensions>
     </Application>
   </Applications>
