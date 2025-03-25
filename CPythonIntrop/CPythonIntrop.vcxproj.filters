@@ -23,9 +23,6 @@
     <ClInclude Include="PluginDef.h" />
   </ItemGroup>
   <ItemGroup>
-    <Midl Include="Class.idl" />
-  </ItemGroup>
-  <ItemGroup>
     <None Include="CPythonIntrop.def" />
     <None Include="packages.config" />
   </ItemGroup>

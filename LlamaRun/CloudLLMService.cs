@@ -1,21 +1,13 @@
-﻿// CloudLLMService.cs
-using Microsoft.UI.Dispatching;
-using Newtonsoft.Json;
+﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using OllamaSharp.Models;
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
-using System.Runtime.CompilerServices;
 using System.Runtime.Serialization;
 using System.Text;
-using System.Threading;
 using System.Threading.Tasks;
-using Windows.Foundation;
 
 namespace LlamaRun
 {

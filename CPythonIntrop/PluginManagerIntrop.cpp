@@ -1,10 +1,10 @@
-#include "pch.h"
+#include <pch.h>
+
 #include "PluginManagerIntrop.h"
 #if __has_include("PluginManagerIntrop.g.cpp")
 #include "PluginManagerIntrop.g.cpp"
 #endif
 
-#include <PluginManager.h>
 
 using namespace winrt;
 using namespace Microsoft::UI::Xaml;
@@ -14,20 +14,34 @@ using namespace Microsoft::UI::Xaml;
 
 namespace winrt::CPythonIntrop::implementation
 {
-    void PluginManagerIntrop::BroadcastEvent(hstring eventName) {
-		OutputDebugString(L"Broadcasting event... ");
-		OutputDebugString(eventName.c_str());
-		PluginManager::GetInstance().LoadAllPlugins();
-        PluginManager::GetInstance().BroadcastEvent(to_string(eventName));
-    }
+	IAsyncAction PluginManagerIntrop::BroadcastEvent(hstring eventName) {
+		return PluginManager::GetInstance().BroadcastEvent(to_string(eventName));
+	}
 
-    int32_t PluginManagerIntrop::MyProperty()
-    {
-        throw hresult_not_implemented();
-    }
+	Windows::Foundation::Collections::IObservableVector<winrt::Windows::Foundation::IInspectable> PluginManagerIntrop::Plugins()
+	{
+		return PluginManager::GetInstance().m_plugins;
+	}
 
-    void PluginManagerIntrop::MyProperty(int32_t /* value */)
-    {
-        throw hresult_not_implemented();
-    }
+	IAsyncAction PluginManagerIntrop::RemovePlugin(CPythonIntrop::Plugin plugin) {
+		return PluginManager::GetInstance().RemovePlugin(plugin);
+	}
+
+	IAsyncOperation<hstring> PluginManagerIntrop::GetPluginsFolderPath() {
+		return PluginManager::GetInstance().GetPluginsFolderPath();
+	}
+
+	IAsyncAction PluginManagerIntrop::LoadAllPlugins() {
+		return PluginManager::GetInstance().LoadAllPlugins();
+	}
+
+	int32_t PluginManagerIntrop::MyProperty()
+	{
+		throw hresult_not_implemented();
+	}
+
+	void PluginManagerIntrop::MyProperty(int32_t /* value */)
+	{
+		throw hresult_not_implemented();
+	}
 }
