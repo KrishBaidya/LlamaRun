@@ -19,6 +19,37 @@
                 <NavigationViewItem Content="Plugins" Tag="Plugins" Icon="Repair"/>
             </NavigationView.MenuItems>
 
+            <NavigationView.PaneFooter>
+                <StackPanel x:Name="UserPanel" Orientation="Vertical" Spacing="8" Margin="8">
+                    <PersonPicture x:Name="UserPicture" 
+                                 Width="60" 
+                                 Height="60"
+                                 Visibility="Collapsed"/>
+                    <TextBlock x:Name="UserNameText" 
+                             Visibility="Collapsed"
+                             FontSize="20"
+                             Style="{ThemeResource CaptionTextBlockStyle}"
+                             TextAlignment="Center"/>
+                    <Button x:Name="SignInButton" 
+                            Click="SignInButton_Click"
+                            HorizontalAlignment="Stretch">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE77B;"/>
+                            <TextBlock Text="Sign In"/>
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="SignOutButton" 
+                            Click="SignOutButton_Click"
+                            Visibility="Collapsed"
+                            HorizontalAlignment="Stretch">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE7E8;"/>
+                            <TextBlock Text="Sign Out"/>
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+            </NavigationView.PaneFooter>
+
             <Frame x:Name="ContentFrame"/>
         </NavigationView>
     </Grid>
