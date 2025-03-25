@@ -1,12 +1,9 @@
-﻿using System;
+﻿using OllamaSharp;
+using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using Windows.Foundation;
-using OllamaSharp;
 using System.Diagnostics;
-using System.Collections.Immutable;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace LlamaRun
 {

@@ -1,27 +1,12 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Controls.Primitives;
-using Microsoft.UI.Xaml.Data;
-using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
-using Microsoft.UI.Xaml.Navigation;
-using Microsoft.Windows.AppLifecycle;
 using Newtonsoft.Json;
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
-using System.Linq;
-using System.Net.Http;
-using System.Runtime.InteropServices.WindowsRuntime;
 using System.Threading.Tasks;
-using Windows.ApplicationModel.Activation;
-using Windows.Foundation;
-using Windows.Foundation.Collections;
 using Windows.Storage;
 using Windows.System;
-using Windows.Web.Http;
 using WinRT;
 
 // To learn more about WinUI, the WinUI project structure,
@@ -276,7 +261,7 @@ namespace LlamaRun
             }
             else if (selectedItem == "Plugins")
             {
-                //ContentFrame.Navigate(LlamaRun.PluginPage_SettingsWindow, null, args.RecommendedNavigationTransitionInfo);
+                ContentFrame.Navigate(typeof(PluginPage_SettingsWindow), args.RecommendedNavigationTransitionInfo);
             }
         }
 
@@ -289,18 +274,18 @@ namespace LlamaRun
     public class Profile
     {
         [JsonProperty("displayName")]
-        public string DisplayName { get; set; }
+        public string? DisplayName { get; set; }
 
         [JsonProperty("email")]
-        public string Email { get; set; }
+        public string? Email { get; set; }
 
         [JsonProperty("photoURL")]
-        public string PhotoURL { get; set; }
+        public string? PhotoURL { get; set; }
     }
 
     public class UserInfo
     {
         [JsonProperty("profile")]
-        public Profile Profile { get; set; }
+        public required Profile Profile { get; set; }
     }
 }
