@@ -1,8 +1,7 @@
 #pragma once
 
-#include "pch.h"
-
 #include <Plugin.h>
+#include <PluginDef.h>
 
 using namespace winrt;
 using namespace Windows::ApplicationModel::AppService;
@@ -17,7 +16,10 @@ class PluginManager {
 public:
 
 	PluginManager() {
+		PyImport_AppendInittab("myapp", PyInit_myapp);
 		Py_Initialize();
+
+		LoadAllPlugins();
 	}
 
 	~PluginManager() {
@@ -31,7 +33,23 @@ public:
 
 	winrt::Windows::Foundation::Collections::IObservableVector<winrt::Windows::Foundation::IInspectable> m_plugins{ winrt::single_threaded_observable_vector<winrt::Windows::Foundation::IInspectable>() };
 
-	winrt::fire_and_forget LoadAllPlugins() {
+	void PrintPythonError()
+	{
+		PyObject* ptype, * pvalue, * ptraceback;
+		PyErr_Fetch(&ptype, &pvalue, &ptraceback); // Fetch the error
+
+		PyObject* strValue = PyObject_Str(pvalue);
+		const char* errorMsg = PyUnicode_AsUTF8(strValue);
+		OutputDebugStringA(errorMsg); // Output the error to Debug window
+
+		Py_XDECREF(ptype);
+		Py_XDECREF(pvalue);
+		Py_XDECREF(ptraceback);
+		Py_XDECREF(strValue);
+	}
+
+
+	IAsyncAction LoadAllPlugins() {
 		m_plugins.Clear();
 
 		try {
@@ -54,7 +72,6 @@ public:
 
 			// Get all folders
 			const auto& folders = co_await pluginsFolder.GetFoldersAsync();
-
 
 			for (const auto& entry : folders) {
 				try {
@@ -86,13 +103,13 @@ public:
 						// Import plugin
 						PyObject* pName = PyUnicode_DecodeFSDefault(pluginName.c_str());
 						if (!pName) {
-							PyErr_Print();
+							PrintPythonError();
 							continue;
 						}
 
 						PyObject* pModule = PyImport_Import(pName);
 						if (!pModule) {
-							PyErr_Print();
+							PrintPythonError();
 							Py_DECREF(pName);
 							continue;
 						}
@@ -124,19 +141,18 @@ public:
 					// Continue cleanup and handling
 				}
 				catch (const winrt::hresult_error& ex) {
-					std::wcerr << L"Error processing folder: " << entry.Name().c_str()
-						<< L" - " << ex.message().c_str() << std::endl;
+					OutputDebugString((L"Error processing folder: " + entry.Name() + L" - " + ex.message()).c_str());
 				}
 			}
 		}
 		catch (const winrt::hresult_error& ex) {
-			std::wcerr << L"Critical error in LoadAllPlugins: " << ex.message().c_str() << std::endl;
+			OutputDebugString((L"Critical error in LoadAllPlugins: " + ex.message()).c_str());
 		}
 	}
 
 	struct PluginException : public winrt::hresult_error
 	{
-		PluginException(winrt::hresult const& code, winrt::hstring const& message) : winrt::hresult_error(code, message) {} // Constructor for wstring
+		PluginException(winrt::hresult const& Code, winrt::hstring const& Message) : winrt::hresult_error(Code, Message) {}
 	};
 
 	IAsyncAction RemovePlugin(CPythonIntrop::Plugin plugin)
@@ -223,7 +239,7 @@ public:
 		}
 	}
 
-	void BroadcastEvent(const std::string& eventName) {
+	IAsyncAction BroadcastEvent(const std::string& eventName) {
 		PyGILState_STATE gstate = PyGILState_Ensure(); // Acquire GIL
 
 		for (const auto& pluginInspectable : m_plugins) {
@@ -254,5 +270,7 @@ public:
 		}
 
 		PyGILState_Release(gstate); // Release GIL
+
+		co_return;
 	}
 };
