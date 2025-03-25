@@ -16,7 +16,7 @@
         <NavigationView x:Name="NavView" IsBackButtonVisible="Collapsed" IsSettingsVisible="False" Loaded="NavigationView_Loaded" SelectionChanged="NavigationView_SelectionChanged">
             <NavigationView.MenuItems>
                 <NavigationViewItem Content="Home" Tag="Home" Icon="Home"/>
-                <NavigationViewItem Content="Plugins" Tag="Plugins" Icon="Repair"/>
+                <!--<NavigationViewItem Content="Plugins" Tag="Plugins" Icon="Repair"/>-->
             </NavigationView.MenuItems>
 
             <NavigationView.PaneFooter>

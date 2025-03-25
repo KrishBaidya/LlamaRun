@@ -54,3 +54,5 @@
 
 #include <iostream>
 #include <commctrl.h>
+#include "Plugin.h"
+#include "PluginManagerIntrop.h"
