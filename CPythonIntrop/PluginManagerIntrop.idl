@@ -1,4 +1,5 @@
 import "Plugin.idl";
+import "IAppDataProvider.idl";
 
 namespace CPythonIntrop
 {
@@ -13,5 +14,7 @@ namespace CPythonIntrop
 		static Windows.Foundation.IAsyncAction RemovePlugin(Plugin plugin);
 		static Windows.Foundation.IAsyncOperation<String> GetPluginsFolderPath();
 		static Windows.Foundation.IAsyncAction LoadAllPlugins();
+
+		static void SetAppDataProvider(IAppDataProvider provider);
 	}
 }

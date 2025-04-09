@@ -1,3 +1,4 @@
+using CPythonIntrop;
 using Microsoft.UI;
 using Microsoft.UI.Input;
 using Microsoft.UI.Windowing;
@@ -5,9 +6,12 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
+using Windows.Foundation;
 using Windows.Graphics;
 using Windows.System;
 using Windows.UI.Core;
@@ -21,11 +25,22 @@ namespace LlamaRun
     /// <summary>
     /// An empty window that can be used on its own or navigated to within a Frame.
     /// </summary>
-    public sealed partial class MainWindow : Window
+    public sealed partial class MainWindow : Window, IAppDataProvider
     {
         public MainWindow()
         {
             this.InitializeComponent();
+
+            try
+            {
+                // Pass 'this' window instance, which implements the interface
+                PluginManagerIntrop.SetAppDataProvider(this);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"FATAL: Failed to set AppDataProvider in CPythonIntrop: {ex.Message}");
+            }
+
 
             ExtendsContentIntoTitleBar = true;
             //SetTitleBar(AppTitleBar);  //Assuming you have a XAML element named AppTitleBar
@@ -221,6 +236,65 @@ namespace LlamaRun
             Microsoft.UI.Xaml.FocusState key = FocusState.Keyboard;
             TextBoxElement.Focus(key);
         }
+
+        #region CPythonIntrop.IAppDataProvider Implementation
+
+        public string GetSelectedModel()
+        {
+            // Assumes DataStore is safe to call from any thread here
+            return DataStore.GetInstance().LoadSelectedModel().GetSelectedModel() ?? "";
+        }
+
+        public string GetSelectedService()
+        {
+            // Assumes DataStore is safe to call from any thread here
+            return DataStore.GetInstance().LoadModelService().GetModelService() ?? "";
+        }
+
+        public IList<string> GetAvailableModels()
+        {
+            // Assumes AIServiceManager is safe to call from any thread here
+            var service = AIServiceManager.GetInstance().GetActiveService();
+            return service?.GetModels().ToArray().ToList() ?? new List<string>();
+        }
+
+        public bool IsAuthenticated()
+        {
+            // Assumes DataStore is safe to call from any thread here
+            return !string.IsNullOrEmpty(DataStore.GetInstance().LoadJWT().GetJWT());
+        }
+
+        public string GetInputText()
+        {
+            // Called synchronously by C++. Check thread access.
+            if (this.DispatcherQueue.HasThreadAccess)
+            {
+                return this.TextBoxElement?.Text ?? "";
+            }
+            else
+            {
+                // Cannot block here. Return empty or throw specific exception.
+                // Throwing might be better as it signals the error clearly to C++/Python.
+                Debug.WriteLine("ERROR: GetInputText called from non-UI thread!");
+                throw new InvalidOperationException("GetInputText cannot be called from a background thread.");
+                // Or return "";
+            }
+        }
+
+        public IAsyncAction SetInputTextAsync(string text)
+        {
+            Task task = new(() => this.DispatcherQueue.TryEnqueue(() =>
+            {
+                if (this.TextBoxElement != null)
+                {
+                    this.TextBoxElement.Text = text ?? "";
+                }
+            }));
+            return task.AsAsyncAction();
+        }
+
+        #endregion
+
 
         #region TrayIcon
 

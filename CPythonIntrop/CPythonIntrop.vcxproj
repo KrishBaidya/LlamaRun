@@ -193,6 +193,7 @@
     </Content>
   </ItemGroup>
   <ItemGroup>
+    <Midl Include="IAppDataProvider.idl" />
     <Midl Include="Plugin.idl">
       <DependentUpon>Plugin.cpp</DependentUpon>
       <SubType>Code</SubType>

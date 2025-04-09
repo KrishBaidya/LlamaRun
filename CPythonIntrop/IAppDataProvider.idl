@@ -1,0 +1,13 @@
+namespace CPythonIntrop
+{
+	interface IAppDataProvider
+	{
+		Windows.Foundation.IAsyncAction SetInputTextAsync(String text);
+		String GetSelectedModel();
+		String GetSelectedService();
+		Windows.Foundation.Collections.IVector<String> GetAvailableModels();
+		Boolean IsAuthenticated();
+
+		String GetInputText();
+	}
+}

@@ -5,7 +5,6 @@
 #include "PluginManagerIntrop.g.cpp"
 #endif
 
-
 using namespace winrt;
 using namespace Microsoft::UI::Xaml;
 
@@ -14,6 +13,15 @@ using namespace Microsoft::UI::Xaml;
 
 namespace winrt::CPythonIntrop::implementation
 {
+	winrt::CPythonIntrop::IAppDataProvider PluginManagerIntrop::m_appDataProvider{ nullptr };
+
+	void PluginManagerIntrop::SetAppDataProvider(winrt::CPythonIntrop::IAppDataProvider const& provider)
+	{
+		m_appDataProvider = provider; // Store the provided interface implementation
+		// Optional: Add logging
+		OutputDebugString(L"CPythonIntrop: AppDataProvider has been set.\n");
+	}
+
 	IAsyncAction PluginManagerIntrop::BroadcastEvent(hstring eventName) {
 		return PluginManager::GetInstance().BroadcastEvent(to_string(eventName));
 	}
