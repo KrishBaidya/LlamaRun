@@ -9,8 +9,6 @@ namespace LlamaRun
 {
     internal class AIServiceManager
     {
-        IAIService? activeService;
-
         public MainWindow? MainWindow { get; private set; } = null;
 
         private static AIServiceManager? instance = null;
@@ -25,79 +23,16 @@ namespace LlamaRun
             this.MainWindow = mainWindowPtr;
         }
 
-        public void SetActiveService(IAIService service)
+        public Task LoadModels()
         {
-            activeService = service;
-        }
+            DataStore.GetInstance().SetModels(CloudLLMService.GetModels());
 
-        public void SetActiveServiceByName(string service)
-        {
-            if (service == "Ollama")
-            {
-                AIServiceManager.GetInstance().SetActiveService(new OllamaService());
-            }
-            else if (service == "Google Gemini")
-            {
-                AIServiceManager.GetInstance().SetActiveService(new CloudLLMService());
-            }
-
-            DataStore.GetInstance().SetModelService(service);
-        }
-
-        public IAIService GetActiveService()
-        {
-            return activeService!;
-        }
-
-        async Task<bool> CheckandLoad()
-        {
-            if (activeService != null)
-            {
-                try
-                {
-                    if (activeService.IsApiKeySet())
-                    {
-                        bool modelLoaded = await activeService.LoadModels();
-
-                        var models = activeService.GetModels().ToArray();
-                        List<string> VectorModels = [];
-
-                        foreach (var item in models)
-                        {
-                            VectorModels.Add(item);
-                        }
-
-                        DataStore.GetInstance().SetModels(VectorModels);
-
-                        Debug.WriteLine("Model loaded: " + modelLoaded);
-                        return modelLoaded; // Return the actual result of LoadModels
-                    }
-                    else
-                    {
-                        return false;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine("Exception in CheckandLoadAsync: " + ex.Message);
-                    return false; // Return false on error
-                }
-            }
-            else
-            {
-                Debug.WriteLine("No AI service selected!");
-                return false;
-            }
-        }
-
-        public async Task LoadModels()
-        {
             if (MainWindow != null)
             {
                 if (MainWindow.DispatcherQueue == null)
                 {
                     Debug.WriteLine("Error: DispatcherQueue is null.");
-                    return;
+                    return Task.CompletedTask;
                 }
 
                 // Update UI to indicate loading (on UI thread)
@@ -110,17 +45,6 @@ namespace LlamaRun
 
                 try
                 {
-                    if (GetActiveService().GetServiceName() == "Ollama")
-                    {
-                        bool loaded = false;
-                        while (!loaded)
-                        {
-                            loaded = await CheckandLoad(); // Now CheckandLoad runs in the background
-                            await Task.Delay(5000); //Sleep 5 Sec Before checking Again
-                        }
-
-                    }
-
                     DispatcherQueueHandler action = () =>
                     {
                         MainWindow.TextBoxElement.PlaceholderText = "Ask Anything!";
@@ -140,7 +64,7 @@ namespace LlamaRun
                         MainWindow.TextBoxElement.IsReadOnly = false;
                         MainWindow.StopSkeletonLoadingAnimation();
                     });
-                    return;
+                    return Task.CompletedTask;
                 }
 
 
@@ -158,26 +82,14 @@ namespace LlamaRun
                 Debug.WriteLine("Error: Could not get strong reference to MainWindow.");
             }
 
-            DataStore.GetInstance().SetModels(AIServiceManager.GetInstance().GetModels().ToImmutableArray());
+            DataStore.GetInstance().SetModels(CloudLLMService.GetModels());
 
-            return;
-        }
-
-        public Span<String> GetModels()
-        {
-            return GetActiveService().GetModels();
+            return Task.CompletedTask;
         }
 
         public async Task<bool> TextGeneration(string model, string inputText)
         {
-            if (activeService == null || activeService?.GetType() == typeof(OllamaService))
-            {
-                await activeService!.TextGeneration(model, inputText);
-            }
-            else if (activeService != null && activeService.GetType() == typeof(CloudLLMService))
-            {
-                await activeService.TextGeneration(model, inputText);
-            }
+            await CloudLLMService.TextGeneration(model, inputText);
 
             MainWindow!.DispatcherQueue.TryEnqueue(() =>
             {

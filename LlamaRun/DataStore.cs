@@ -94,78 +94,16 @@ namespace LlamaRun
         //    return this;
         //}
 
-        public DataStore SetModels(IList<String> data)
+        public DataStore SetModels(Dictionary<string, string> data)
         {
             models = data;
 
             return this;
         }
 
-        public IList<String> GetModels()
+        public Dictionary<string, string> GetModels()
         {
             return models!;
-        }
-
-        public DataStore SetModelService(string service)
-        {
-            if (service == null)
-            {
-
-            }
-            else
-            {
-                selectedService = service;
-            }
-
-            return this;
-        }
-
-        public String GetModelService()
-        {
-            return selectedService;
-        }
-
-        public void SaveModelService()
-        {
-            LlamaRun.SettingsWindow.SaveSetting("ModelService", selectedService);
-        }
-
-        public DataStore LoadModelService()
-        {
-            selectedService = LlamaRun.SettingsWindow.LoadSetting("ModelService");
-
-            return this;
-        }
-
-        public DataStore SetAPIKeyForProvider(String provider, String apiKey)
-        {
-            providerAPIKeys![provider] = apiKey;
-
-            return this;
-        }
-
-        public String GetAPIKeyForProvider(String provider)
-        {
-            return providerAPIKeys![provider];
-        }
-
-        public void SaveAPIKeys()
-        {
-            var map = new Dictionary<String, String>();
-
-            foreach (var pair in providerAPIKeys!)
-            {
-                map.Add(pair.Key, pair.Value);
-            }
-
-            LlamaRun.SettingsWindow.SaveSetting("APIKeys", WinRT.MarshalInspectable<Dictionary<String, String>>.FromManaged(map));
-        }
-
-        public DataStore LoadAPIKeys()
-        {
-            selectedService = LlamaRun.SettingsWindow.LoadSetting("APIKeys");
-
-            return this;
         }
 
         public DataStore SetJWT(String? _jwt)
@@ -193,14 +131,11 @@ namespace LlamaRun
         }
 
         private string selectedModel = "";
-        private IList<String>? models = null;
+        private Dictionary<string, string>? models = null;
 
         private float appOpacity = 15.0f;
 
         //private Point appDimension = new(38, 10);
-
-        private string selectedService = "";
-        private Dictionary<string, string>? providerAPIKeys = null;
 
         private string? JWT;
     }

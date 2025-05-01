@@ -28,7 +28,7 @@ namespace LlamaRun
             this.InitializeComponent();
 
             ExtendsContentIntoTitleBar = true;
-            //SetTitleBar(AppTitleBar);  //Assuming you have a XAML element named AppTitleBar
+            //SetTitleBar(AppTitleBar); 
 
             // AppWindow configuration
             var appWindow = GetAppWindowForCurrentWindow();
@@ -41,17 +41,17 @@ namespace LlamaRun
             appWindow.IsShownInSwitchers = false;
 
             // Initial size/positioning
-            MoveAndResizeWindow(0.38, 0.10); // Default values
+            MoveAndResizeWindow(0.38, 0.30);
         }
 
-        public async void AppTitleBar_Loaded(Object _, RoutedEventArgs e)
+        public void AppTitleBar_Loaded(Object _, RoutedEventArgs e)
         {
             String appHeight = SettingsWindow.LoadSetting("Height");
             String appWidth = SettingsWindow.LoadSetting("Width");
             if (appHeight == "" || appWidth == "")
             {
-                // 38% of the work area width and 10% of the work area height
-                MoveAndResizeWindow(38 / 100.0, 10 / 100.0);
+                // 38% of the work area width and 30% of the work area height
+                MoveAndResizeWindow(38 / 100.0, 30 / 100.0);
             }
             else
             {
@@ -65,18 +65,7 @@ namespace LlamaRun
             RegisterGlobalHotkey(hwnd);
 
             AIServiceManager.GetInstance().SetMainWindowPtr(this);
-            DataStore.GetInstance().LoadModelService();
-            if (DataStore.GetInstance().GetModelService() == "Ollama" || DataStore.GetInstance().GetModelService() == "")
-            {
-                AIServiceManager.GetInstance().SetActiveServiceByName("Ollama");
-                await AIServiceManager.GetInstance().LoadModels();
-            }
-            else if (DataStore.GetInstance().GetModelService() == "Google Gemini")
-            {
-                AIServiceManager.GetInstance().SetActiveServiceByName("Google Gemini");
-                await AIServiceManager.GetInstance().LoadModels();
-                Debug.WriteLine("Google Gemini");
-            }
+            AIServiceManager.GetInstance().LoadModels();
         }
 
         private AppWindow GetAppWindowForCurrentWindow()
@@ -103,7 +92,6 @@ namespace LlamaRun
 
         public void StartSkeletonLoadingAnimation()
         {
-
             LoadingStoryBoard.Begin();
         }
 
@@ -168,7 +156,10 @@ namespace LlamaRun
                         {
                             try
                             {
-                                await AIServiceManager.GetInstance().TextGeneration(DataStore.GetInstance().LoadSelectedModel().GetSelectedModel(), inputText);
+                                await AIServiceManager.GetInstance().TextGeneration(
+                                        CloudLLMService.GetModels()[DataStore.GetInstance().LoadSelectedModel().GetSelectedModel()],
+                                        inputText
+                                    );
                             }
                             catch (Exception ex)
                             {
@@ -193,16 +184,17 @@ namespace LlamaRun
         public void UpdateTextBox(String text)
         {
             res += text;
-            TextBoxElement.Text = res;
+            MarkdownTextBlock1.Text = res;
+            MarkdownTextBlock1.UpdateLayout();
         }
 
         void TextBoxElement_TextChanged(Object _, TextChangedEventArgs __)
         {
             //scrollViewer.ChangeView(null, scrollViewer.ScrollableHeight, null, true);
             /*if (sender.as<Microsoft::UI::Xaml::Controls::TextBox>().Text() == L"")
-            {
-                MoveAndResizeWindow(0.3f, 0.08f);
-            }*/
+			{
+				MoveAndResizeWindow(0.3f, 0.08f);
+			}*/
 
             //scrollViewer.DispatcherQueue.TryEnqueue(() =>
             //{
