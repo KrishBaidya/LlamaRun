@@ -108,26 +108,6 @@ namespace LlamaRun
 
         public void Model_ComboBox_Loaded(Object _, Object __)
         {
-            var models = DataStore.GetInstance().GetModels();
-
-            Update_Model_ComboBox();
-        }
-
-        public async void ModelService_ComboBox_SelectionChanged(Object sender, SelectionChangedEventArgs e)
-        {
-            if (sender.As<ComboBox>().SelectedValue.As<ComboBoxItem>().Content as String == "Ollama")
-            {
-                AIServiceManager.GetInstance().SetActiveServiceByName("Ollama");
-            }
-            else if (sender.As<ComboBox>().SelectedValue.As<ComboBoxItem>().Content as String == "Google Gemini")
-            {
-                AIServiceManager.GetInstance().SetActiveServiceByName("Google Gemini");
-            }
-
-            Model_ComboBox.Items.Clear();
-
-            await AIServiceManager.GetInstance().LoadModels();
-
             Update_Model_ComboBox();
         }
 
@@ -155,7 +135,7 @@ namespace LlamaRun
                 {
                     var comboBoxItem = new ComboBoxItem
                     {
-                        Content = model
+                        Content = model.Key
                     };
                     Model_ComboBox.Items.Add(comboBoxItem);
                 }
@@ -165,8 +145,17 @@ namespace LlamaRun
             {
                 var _selectedModel = DataStore.GetInstance().LoadSelectedModel().GetSelectedModel();
                 DataStore.GetInstance().SetSelectedModel(_selectedModel);
-                var item = Model_ComboBox.Items.OfType<ComboBoxItem>().FirstOrDefault(item => string.Equals(item.Content.ToString(), _selectedModel));
-                Model_ComboBox.SelectedItem = item;
+                ComboBoxItem? comboBoxItem = null;
+                _ = Model_ComboBox.Items.OfType<ComboBoxItem>().All(item =>
+                {
+                    if (string.Equals(item.Content.ToString(), _selectedModel))
+                    {
+                        comboBoxItem = item;
+                        return false;
+                    }
+                    return true;
+                });
+                Model_ComboBox.SelectedItem = comboBoxItem;
             }
             else
             {
@@ -183,16 +172,9 @@ namespace LlamaRun
             {
                 var selectedModelIndex = Model_ComboBox.SelectedIndex;
 
-                String selectedModel = DataStore.GetInstance().GetModels().ElementAt(selectedModelIndex);
+                String selectedModel = DataStore.GetInstance().GetModels().ElementAt(selectedModelIndex).Key;
 
                 DataStore.GetInstance().SetSelectedModel(selectedModel).SaveSelectedModel();
-            }
-
-            var selectedModelServiceValue = ModelService_ComboBox.SelectedValue?.As<ComboBoxItem?>();
-            if (selectedModelServiceValue != null && selectedModelServiceValue.Content.As<String>().Length > 0)
-            {
-                var service = selectedModelServiceValue.Content.As<String>();
-                DataStore.GetInstance().SetModelService(service).SaveModelService();
             }
 
             // Retrieve the current height, width, and opacity values from the UI elements
@@ -212,25 +194,6 @@ namespace LlamaRun
 
             // Save startup setting state in DataStore
             SettingsWindow.SaveSetting("Startup Enabled", autoStartupEnabled);
-        }
-
-        private void ModelService_ComboBox_Loaded(object sender, RoutedEventArgs e)
-        {
-            var modelService = DataStore.GetInstance().GetModelService();
-
-            if (!String.IsNullOrEmpty(DataStore.GetInstance().LoadModelService().GetModelService()))
-            {
-                var _selectedModelService = DataStore.GetInstance().LoadModelService().GetModelService();
-                DataStore.GetInstance().SetModelService(_selectedModelService);
-
-                var item = ModelService_ComboBox.Items.OfType<ComboBoxItem>().FirstOrDefault(item => string.Equals(item.Content.ToString(), _selectedModelService));
-                ModelService_ComboBox.SelectedItem = item;
-            }
-            else
-            {
-                var item = ModelService_ComboBox.Items.OfType<ComboBoxItem>().FirstOrDefault(item => string.Equals(item.Content.ToString(), "Ollama"));
-                ModelService_ComboBox.SelectedItem = item;
-            }
         }
     }
 }

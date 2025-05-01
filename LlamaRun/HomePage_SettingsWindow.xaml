@@ -11,13 +11,6 @@
     <Grid x:Name="rootPanel" Loaded="rootPanel_Loaded">
 
         <StackPanel HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Margin="200,100" Orientation="Vertical">
-            <ComboBox x:Name="ModelService_ComboBox" Loaded="ModelService_ComboBox_Loaded" HorizontalAlignment="Stretch" SelectionChanged="ModelService_ComboBox_SelectionChanged">
-                <ComboBoxItem>Ollama</ComboBoxItem>
-                <ComboBoxItem IsEnabled="False">
-                    <NavigationViewItemSeparator IsEnabled="False"></NavigationViewItemSeparator>
-                </ComboBoxItem>
-                <ComboBoxItem>Google Gemini</ComboBoxItem>
-            </ComboBox>
             <ComboBox x:Name="Model_ComboBox" HorizontalAlignment="Stretch" PlaceholderText="Select Model" Loaded="Model_ComboBox_Loaded" />
             <!--<Slider x:Name="MainWindowHeight" Minimum="10" Maximum="80" Header="App Height" />
             <Slider x:Name="MainWindowWidth" Minimum="10" Maximum="80" Header="App Width"/>-->

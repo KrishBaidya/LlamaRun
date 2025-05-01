@@ -72,6 +72,7 @@ namespace LlamaRun
         public void Finish_Click(Object _, Object __)
         {
             var window = new LlamaRun.MainWindow();
+            App.m_window = window;
             window.Activate();
 
             this.Close();

@@ -2,7 +2,8 @@
   "profiles": {
     "LlamaRun (Package)": {
       "commandName": "MsixPackage",
-      "nativeDebugging": true
+      "nativeDebugging": false,
+      "alwaysReinstallApp": false
     },
     "LlamaRun (Unpackaged)": {
       "commandName": "Project"

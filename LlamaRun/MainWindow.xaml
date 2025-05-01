@@ -1,39 +1,46 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Window
-    x:Class="LlamaRun.MainWindow"
-    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:local="using:LlamaRun"
-    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
-    xmlns:animatedvisuals="using:Microsoft.UI.Xaml.Controls.AnimatedVisuals"
-    mc:Ignorable="d">
+	x:Class="LlamaRun.MainWindow"
+	xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+	xmlns:local="using:LlamaRun"
+	xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+	xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+	xmlns:controls="using:CommunityToolkit.WinUI.UI.Controls"
+	xmlns:animatedvisuals="using:Microsoft.UI.Xaml.Controls.AnimatedVisuals"
+	mc:Ignorable="d">
 
     <Window.SystemBackdrop>
         <DesktopAcrylicBackdrop />
     </Window.SystemBackdrop>
 
     <Grid x:Name="AppTitleBar" Loaded="AppTitleBar_Loaded" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="80"></RowDefinition>
+            <RowDefinition Height="10"></RowDefinition>
+            <RowDefinition Height="*"></RowDefinition>
+        </Grid.RowDefinitions>
+
         <Grid.Resources>
             <Storyboard x:Name="LoadingStoryBoard">
                 <DoubleAnimation
-                    x:Name="OpacityDoubleAnimation"
-                    EnableDependentAnimation="True"
-                    Storyboard.TargetName="BackgroundBrush"
-                    Storyboard.TargetProperty="Opacity"
-                    From="0.0"
-                    To="0.15"
-                    Duration="0:0:3"/>
+					x:Name="OpacityDoubleAnimation"
+					EnableDependentAnimation="True"
+					Storyboard.TargetName="BackgroundBrush"
+					Storyboard.TargetProperty="Opacity"
+					From="0.0"
+					To="0.15"
+					Duration="0:0:3"/>
                 <!-- Animate the first gradient stop's color -->
                 <ColorAnimation
-                    EnableDependentAnimation="True"
-                    RepeatBehavior="Forever"
-                    AutoReverse="True"
-                    Storyboard.TargetName="Stop1"
-                    Storyboard.TargetProperty="Color"
-                    From="#ff00cc"
-                    To="#333399"
-                    Duration="0:0:3">
+					EnableDependentAnimation="True"
+					RepeatBehavior="Forever"
+					AutoReverse="True"
+					Storyboard.TargetName="Stop1"
+					Storyboard.TargetProperty="Color"
+					From="#ff00cc"
+					To="#333399"
+					Duration="0:0:3">
                     <ColorAnimation.EasingFunction>
                         <SineEase EasingMode="EaseIn"/>
                     </ColorAnimation.EasingFunction>
@@ -41,14 +48,14 @@
 
                 <!-- Animate the third gradient stop's color -->
                 <ColorAnimation
-                    EnableDependentAnimation="True"
-                    RepeatBehavior="Forever"
-                    AutoReverse="True"
-                    Storyboard.TargetName="Stop2"
-                    Storyboard.TargetProperty="Color"
-                    From="#333399"
-                    To="#ff00cc"
-                    Duration="0:0:3" >
+					EnableDependentAnimation="True"
+					RepeatBehavior="Forever"
+					AutoReverse="True"
+					Storyboard.TargetName="Stop2"
+					Storyboard.TargetProperty="Color"
+					From="#333399"
+					To="#ff00cc"
+					Duration="0:0:3" >
                     <ColorAnimation.EasingFunction>
                         <SineEase EasingMode="EaseIn"/>
                     </ColorAnimation.EasingFunction>
@@ -56,13 +63,13 @@
 
                 <!-- Animate the offset of the third gradient stop -->
                 <!--<DoubleAnimation
-                    EnableDependentAnimation="True"
-                    RepeatBehavior="Forever"
-                    Storyboard.TargetName="Stop2"
-                    Storyboard.TargetProperty="Offset"
-                    From="0.0"
-                    To="0.0"
-                    Duration="2:0:6" />-->
+					EnableDependentAnimation="True"
+					RepeatBehavior="Forever"
+					Storyboard.TargetName="Stop2"
+					Storyboard.TargetProperty="Offset"
+					From="0.0"
+					To="0.0"
+					Duration="2:0:6" />-->
             </Storyboard>
         </Grid.Resources>
 
@@ -74,29 +81,39 @@
             </LinearGradientBrush>
         </Grid.Background>
 
-        <ScrollViewer x:Name="scrollViewer" IsScrollInertiaEnabled="True" VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled">
+        <ScrollViewer x:Name="scrollViewer" Grid.Row="0" IsScrollInertiaEnabled="True" VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled">
             <TextBox
-               x:Name="TextBoxElement"
-               x:FieldModifier="public"
-               PlaceholderText="Ask Anything!" 
-               VerticalAlignment="Center"
-               HorizontalAlignment="Stretch" 
-               TextWrapping="Wrap"
-               AcceptsReturn="True"
-               IsSpellCheckEnabled="True"
-               PreviewKeyDown="TextBoxElement_PreviewKeyDown"
-               TextChanged="TextBoxElement_TextChanged"
-               Style="{StaticResource EditableTextBlockStyle}"
-            />
+			   x:Name="TextBoxElement"
+			   x:FieldModifier="public"
+			   PlaceholderText="Ask Anything!"
+			   VerticalAlignment="Center"
+			   HorizontalAlignment="Stretch" 
+			   TextWrapping="Wrap"
+			   AcceptsReturn="True"
+			   IsSpellCheckEnabled="True"
+			   PreviewKeyDown="TextBoxElement_PreviewKeyDown"
+			   TextChanged="TextBoxElement_TextChanged"
+			   Style="{StaticResource EditableTextBlockStyle}"
+			/>
+        </ScrollViewer>
+        <NavigationViewItemSeparator Grid.Row="1" Margin="10,-15,10,0"/>
+        <ScrollViewer Grid.Row="2" IsScrollInertiaEnabled="True" VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled">
+            <controls:MarkdownTextBlock 
+				x:Name="MarkdownTextBlock1"
+				Margin="20,0"
+				HorizontalAlignment="Stretch"
+				VerticalAlignment="Top"
+                CodeBackground="#10FFFFFF"
+				Background="Transparent"/>
         </ScrollViewer>
 
         <!--<AnimatedIcon x:Name="SearchAnimatedIcon">
-            <AnimatedIcon.Source>
-                <animatedvisuals:AnimatedFindVisualSource/>
-            </AnimatedIcon.Source>
-            <AnimatedIcon.FallbackIconSource>
-                <SymbolIconSource Symbol="Find"/>
-            </AnimatedIcon.FallbackIconSource>
-        </AnimatedIcon>-->
+			<AnimatedIcon.Source>
+				<animatedvisuals:AnimatedFindVisualSource/>
+			</AnimatedIcon.Source>
+			<AnimatedIcon.FallbackIconSource>
+				<SymbolIconSource Symbol="Find"/>
+			</AnimatedIcon.FallbackIconSource>
+		</AnimatedIcon>-->
     </Grid>
 </Window>
