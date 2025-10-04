@@ -1,7 +1,7 @@
 ﻿using Microsoft.UI.Dispatching;
+using ModelContextProtocol.Client;
 using System;
 using System.Collections.Generic;
-using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Threading.Tasks;
 
@@ -87,9 +87,9 @@ namespace LlamaRun
             return Task.CompletedTask;
         }
 
-        public async Task<bool> TextGeneration(string model, string inputText)
+        public async Task<bool> TextGeneration(Model model, string inputText, IList<McpClientTool>? tools)
         {
-            await CloudLLMService.TextGeneration(model, inputText);
+            await CloudLLMService.TextGeneration(model, inputText, tools);
 
             MainWindow!.DispatcherQueue.TryEnqueue(() =>
             {

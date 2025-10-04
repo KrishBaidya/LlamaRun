@@ -242,4 +242,7 @@
       <SubType>Code</SubType>
     </Midl>
   </ItemGroup>
+	<!--<PropertyGroup Label="Globals">
+		<AppxPackage>false</AppxPackage>
+	</PropertyGroup>-->
 </Project>

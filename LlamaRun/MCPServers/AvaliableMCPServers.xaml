@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="LlamaRun.MCPServers.AvaliableMCPServers"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:LlamaRun.MCPServers"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Page.Resources>
+        <ResourceDictionary>
+            <Style x:Key="ModernCardStyle" TargetType="Grid">
+                <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}"/>
+                <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="CornerRadius" Value="12"/>
+            </Style>
+
+            <Style x:Key="ModernToggleSwitch" TargetType="ToggleSwitch">
+                <Setter Property="Margin" Value="0"/>
+                <Setter Property="MinWidth" Value="0"/>
+                <Setter Property="FontSize" Value="14"/>
+                <Setter Property="FontWeight" Value="Medium" />
+            </Style>
+
+            <Style x:Key="ActionButtonStyle" TargetType="Button">
+                <Setter Property="Padding" Value="12,8"/>
+                <Setter Property="CornerRadius" Value="6"/>
+                <Setter Property="FontSize" Value="14"/>
+            </Style>
+        </ResourceDictionary>
+    </Page.Resources>
+
+    <Grid Padding="24,32">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header with Install Button -->
+        <Grid Grid.Row="0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <!--<ColumnDefinition Width="Auto"/>-->
+            </Grid.ColumnDefinitions>
+
+            <!-- Header Text -->
+            <StackPanel Grid.Column="0" Spacing="8">
+                <TextBlock Text="Avaliable MCP Servers" 
+                         FontSize="32" 
+                         FontWeight="SemiBold"/>
+                <TextBlock Text="Discover and Install MCP Servers" 
+                         Opacity="0.7" 
+                         FontSize="14"/>
+            </StackPanel>
+
+            <!-- Install Button -->
+            <!--<Button Grid.Column="1" 
+                    Style="{StaticResource ActionButtonStyle}"
+                    Click="Install_From_Disk_Button_Click"
+                    VerticalAlignment="Top">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon Glyph="&#xE8E5;" FontSize="16"/>
+                    <TextBlock Text="Install from Disk"/>
+                </StackPanel>
+            </Button>-->
+        </Grid>
+
+        <!-- Search Box -->
+        <AutoSuggestBox Grid.Row="1"
+                        Margin="0,24"
+                        TextChanged="MCPSearchBox_TextChanged"
+                        PlaceholderText="Search MCP Servers..."
+                        QueryIcon="Find"/>
+
+        <!-- Modern MCP List -->
+        <ListView Grid.Row="2" 
+                Background="Transparent" 
+                x:Name="AvaliableMCPList"
+                Loaded="AvaliableMCPList_Loaded"
+                IsItemClickEnabled="True"
+                ItemClick="AvaliableMCPList_ItemClick"
+                ItemsSource="{x:Bind MCPServers}">
+            <ListView.Resources>
+                <Style TargetType="ListViewItem">
+                    <Setter Property="Background" Value="Transparent"/>
+                    <Setter Property="BorderThickness" Value="0"/>
+                    <Setter Property="Padding" Value="0,0"/>
+                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="ListViewItem">
+                                <ContentPresenter />
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                </Style>
+            </ListView.Resources>
+
+            <ListView.ItemContainerTransitions>
+                <TransitionCollection>
+                    <EntranceThemeTransition/>
+                    <AddDeleteThemeTransition/>
+                </TransitionCollection>
+            </ListView.ItemContainerTransitions>
+
+            <!-- MCP Servers List -->
+            <ListView.ItemTemplate>
+                <DataTemplate x:DataType="local:MCPServerInfo">
+                    <UserControl PointerEntered="Card_PointerEntered" 
+                                PointerExited="Card_PointerExited">
+                        <Border x:Name="CardBorder"
+                                Margin="15,6"
+                                Padding="12"
+                                CornerRadius="12"
+                                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1">
+                            <Border.BackgroundTransition>
+                                <BrushTransition Duration="0:0:0.2"/>
+                            </Border.BackgroundTransition>
+                            <StackPanel Spacing="6">
+                                <TextBlock Text="{x:Bind name}" 
+                                          FontSize="18" 
+                                          FontWeight="SemiBold"/>
+                                <TextBlock Text="{x:Bind description}" 
+                                          FontSize="14"
+                                          TextTrimming="CharacterEllipsis"
+                                          MaxLines="1"
+                                          TextWrapping="WrapWholeWords"
+                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <TextBlock Text="{x:Bind author}" 
+                                              FontSize="12" 
+                                              Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                    <TextBlock Text="•" FontSize="12"/>
+                                    <TextBlock Text="{x:Bind category}" 
+                                              FontSize="12" 
+                                              Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                    </UserControl>
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ListView>
+
+
+        <!-- Bottom loading spinner (for infinite scroll) -->
+        <StackPanel Grid.Row="3" HorizontalAlignment="Center" Orientation="Horizontal" Margin="0,16">
+            <ProgressRing 
+                x:Name="LoadingSpinnerBottom" 
+                Width="32" Height="32" 
+                IsActive="True"
+                Visibility="Collapsed"/>
+            <TextBlock Text="Loading more servers..."
+               Margin="20,8,0,0"
+               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+               Visibility="{x:Bind LoadingSpinnerBottom.Visibility, Mode=OneWay}"/>
+        </StackPanel>
+
+        <!-- Full-page centered spinner (for first load) -->
+        <Grid x:Name="InitialLoadingOverlay"
+                Grid.Row="0"
+                Grid.RowSpan="4"
+                Canvas.ZIndex="99"
+                Visibility="Collapsed"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Stretch"
+                Background="Transparent">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
+                <ProgressRing Width="48" Height="48" IsActive="True"/>
+                <TextBlock Text="Loading servers..."
+                   FontSize="16"
+                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                   HorizontalAlignment="Center"/>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Page>

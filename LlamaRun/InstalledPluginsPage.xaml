@@ -6,8 +6,8 @@
     xmlns:local="using:LlamaRun"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
-    xmlns:CPython="using:CPythonIntrop"
     mc:Ignorable="d">
+    <!--xmlns:CPython="using:CPythonIntrop"-->
 
     <Page.Resources>
         <ResourceDictionary>
@@ -96,7 +96,7 @@
                 </TransitionCollection>
             </ListView.ItemContainerTransitions>
 
-            <ListView.ItemTemplate>
+            <!--<ListView.ItemTemplate>
                 <DataTemplate x:DataType="CPython:Plugin">
                     <Grid Style="{StaticResource ModernCardStyle}"
                           Padding="20">
@@ -106,7 +106,7 @@
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
 
-                        <!-- Plugin Icon -->
+                        --><!-- Plugin Icon --><!--
                         <Grid Grid.Column="0" 
                               Width="40" Height="40" 
                               CornerRadius="20"
@@ -117,7 +117,7 @@
                                     Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"/>
                         </Grid>
 
-                        <!-- Plugin Information -->
+                        --><!-- Plugin Information --><!--
                         <StackPanel Grid.Column="1" 
                                   VerticalAlignment="Center"
                                   Spacing="4">
@@ -141,14 +141,14 @@
                         </StackPanel>
 
                         <StackPanel Grid.Column="2" HorizontalAlignment="Stretch" Orientation="Horizontal">
-                            <!-- Toggle Switch -->
+                            --><!-- Toggle Switch --><!--
                             <ToggleSwitch 
                                     Style="{StaticResource ModernToggleSwitch}"
                                     IsOn="{x:Bind isPluginEnabled, Mode=TwoWay}"
                                     OffContent="Disabled"
                                     OnContent="Enabled"/>
 
-                            <!-- Action Menu Button -->
+                            --><!-- Action Menu Button --><!--
                             <Button
                                 Style="{StaticResource ActionButtonStyle}"
                                 Margin="-20,0,0,0"
@@ -164,8 +164,8 @@
                             </Button>
                         </StackPanel>
                     </Grid>
-                </DataTemplate>
-            </ListView.ItemTemplate>
+                </>
+            </ListView.ItemTemplate>-->
         </ListView>
     </Grid>
 </Page>

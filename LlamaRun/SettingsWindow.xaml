@@ -13,42 +13,178 @@
     </Window.SystemBackdrop>
 
     <Grid x:Name="rootPanel">
-        <NavigationView x:Name="NavView" IsBackButtonVisible="Collapsed" IsSettingsVisible="False" Loaded="NavigationView_Loaded" SelectionChanged="NavigationView_SelectionChanged">
+        <NavigationView x:Name="NavView" 
+                        IsBackButtonVisible="Collapsed" 
+                        IsSettingsVisible="False" 
+                        PaneDisplayMode="Left"
+                        OpenPaneLength="280"
+                        CompactPaneLength="48"
+                        IsPaneToggleButtonVisible="False"
+                        DisplayModeChanged="NavigationView_DisplayModeChanged"
+                        Loaded="NavigationView_Loaded" 
+                        SelectionChanged="NavigationView_SelectionChanged">
+
+            <!-- Custom Pane Header -->
+            <NavigationView.PaneHeader>
+                <Grid Height="60" Margin="16,8">
+                    <StackPanel Orientation="Horizontal" 
+                               VerticalAlignment="Center"
+                               Spacing="12">
+                        <FontIcon FontFamily="{StaticResource SymbolThemeFontFamily}" 
+                                     Glyph="&#xE713;" 
+                                     FontSize="24"
+                                     HorizontalAlignment="Center"
+                                     VerticalAlignment="Center"/>
+                        <TextBlock Text="LlamaRun" 
+                                   FontSize="24"
+                                  Style="{StaticResource BodyStrongTextBlockStyle}"
+                                  VerticalAlignment="Center"
+                                  Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                    </StackPanel>
+                </Grid>
+            </NavigationView.PaneHeader>
+
+            <!-- Navigation Menu Items -->
             <NavigationView.MenuItems>
                 <NavigationViewItem Content="Home" Tag="Home" Icon="Home"/>
-                <NavigationViewItem Content="Plugins" Tag="Plugins" Icon="Repair"/>
+                <!--<NavigationViewItem Content="Plugins" Tag="Plugins" Icon="Repair"/>-->
+                <NavigationViewItem Content="MCP Servers" Tag="MCP_Servers" Icon="Link"/>
             </NavigationView.MenuItems>
 
+            <!-- Modern User Panel Footer -->
             <NavigationView.PaneFooter>
-                <StackPanel x:Name="UserPanel" Orientation="Vertical" Spacing="8" Margin="8">
-                    <PersonPicture x:Name="UserPicture" 
-                                 Width="60" 
-                                 Height="60"
-                                 Visibility="Collapsed"/>
-                    <TextBlock x:Name="UserNameText" 
-                             Visibility="Collapsed"
-                             FontSize="20"
-                             Style="{ThemeResource CaptionTextBlockStyle}"
-                             TextAlignment="Center"/>
-                    <Button x:Name="SignInButton" 
-                            Click="SignInButton_Click"
-                            HorizontalAlignment="Stretch">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE77B;"/>
-                            <TextBlock Text="Sign In"/>
+                <StackPanel>
+                    <!-- Expanded Pane View -->
+                    <Border x:Name="ExpandedUserPanel"
+                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1"
+                        CornerRadius="12"
+                        Margin="12,8,12,16">
+
+                        <StackPanel Spacing="12" Margin="16">
+
+                            <!-- User Info - Visible when signed in -->
+                            <Grid x:Name="UserInfoPanel" 
+                              Visibility="Collapsed">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+
+                                <PersonPicture x:Name="UserPicture" 
+                                          Grid.Column="0"
+                                          Height="36" 
+                                          Width="36"
+                                          VerticalAlignment="Center"/>
+
+                                <StackPanel Grid.Column="1" 
+                                       Margin="12,0,0,0"
+                                       VerticalAlignment="Center">
+                                    <TextBlock x:Name="UserNameText" 
+                                          Style="{StaticResource BodyStrongTextBlockStyle}"
+                                          Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                                          TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text="Signed in" 
+                                          Style="{StaticResource CaptionTextBlockStyle}"
+                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                </StackPanel>
+
+                                <Button Grid.Column="2"
+                                   Background="Transparent"
+                                   BorderThickness="0"
+                                   Width="28"
+                                   Height="28"
+                                   CornerRadius="6"
+                                   VerticalAlignment="Center"
+                                   ToolTipService.ToolTip="Account options">
+                                    <FontIcon FontFamily="{StaticResource SymbolThemeFontFamily}" 
+                                         Glyph="&#xE712;" 
+                                         FontSize="12"/>
+                                </Button>
+                            </Grid>
+
+                            <!-- Sign In Button - Visible when signed out -->
+                            <Button x:Name="SignInButton" 
+                               Click="SignInButton_Click" 
+                               HorizontalAlignment="Stretch"
+                               Background="{ThemeResource AccentFillColorDefaultBrush}"
+                               Foreground="White"
+                               BorderThickness="0"
+                               CornerRadius="8"
+                               Height="36"
+                               FontWeight="SemiBold">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <FontIcon FontFamily="{StaticResource SymbolThemeFontFamily}" 
+                                         Glyph="&#xE77B;" 
+                                         FontSize="14"/>
+                                    <TextBlock Text="Sign In"/>
+                                </StackPanel>
+                            </Button>
+
+                            <!-- Sign Out Button - Visible when signed in -->
+                            <Button x:Name="SignOutButton" 
+                               Click="SignOutButton_Click"
+                               Visibility="Collapsed"
+                               HorizontalAlignment="Stretch"
+                               Background="{ThemeResource ControlFillColorDefaultBrush}"
+                               Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                               BorderBrush="{ThemeResource ControlElevationBorderBrush}"
+                               BorderThickness="1"
+                               CornerRadius="8"
+                               Height="36">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <FontIcon FontFamily="{StaticResource SymbolThemeFontFamily}" 
+                                         Glyph="&#xE7E8;" 
+                                         FontSize="14"/>
+                                    <TextBlock Text="Sign Out"/>
+                                </StackPanel>
+                            </Button>
                         </StackPanel>
-                    </Button>
-                    <Button x:Name="SignOutButton" 
-                            Click="SignOutButton_Click"
-                            Visibility="Collapsed"
-                            HorizontalAlignment="Stretch">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE7E8;"/>
-                            <TextBlock Text="Sign Out"/>
-                        </StackPanel>
-                    </Button>
+                    </Border>
+
+                    <!-- Compact Pane View -->
+                    <StackPanel x:Name="CompactUserPanel" 
+                           Visibility="Collapsed"
+                           Margin="4,8,4,16"
+                           Spacing="8">
+
+                        <!-- Compact User Avatar - When signed in -->
+                        <Button x:Name="CompactUserButton"
+                           Background="Transparent"
+                           BorderThickness="0"
+                           Width="40"
+                           Height="40"
+                           CornerRadius="20"
+                           Visibility="Collapsed"
+                           HorizontalAlignment="Center"
+                           ToolTipService.ToolTip="Account">
+                            <PersonPicture x:Name="CompactUserPicture" 
+                                      Height="32" 
+                                      Width="32"/>
+                        </Button>
+
+                        <!-- Compact Sign In Button - When signed out -->
+                        <Button x:Name="CompactSignInButton" 
+                           Click="SignInButton_Click"
+                           Background="{ThemeResource AccentFillColorDefaultBrush}"
+                           Foreground="White"
+                           BorderThickness="0"
+                           Width="40"
+                           Height="40"
+                           CornerRadius="8"
+                           HorizontalAlignment="Center"
+                           ToolTipService.ToolTip="Sign In">
+                            <FontIcon FontFamily="{StaticResource SymbolThemeFontFamily}" 
+                                 Glyph="&#xE77B;" 
+                                 FontSize="16"/>
+                        </Button>
+                    </StackPanel>
                 </StackPanel>
             </NavigationView.PaneFooter>
+
+            <!-- Content Frame with subtle styling -->
 
             <Frame x:Name="ContentFrame"/>
         </NavigationView>

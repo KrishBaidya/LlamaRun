@@ -1,9 +1,14 @@
-using Microsoft.UI.Xaml;
+﻿using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Newtonsoft.Json;
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using Windows.Storage;
 using Windows.System;
@@ -19,11 +24,6 @@ namespace LlamaRun
     /// </summary>
     public sealed partial class SettingsWindow : Window
     {
-#if DEBUG
-        private const string BackendUrl = "http://localhost:3000"; // Your Next.js Backend URL
-#else
-        private const string BackendUrl = "https://llamarun.vercel.app"; // Your Next.js Backend URL
-#endif
         private const string REDIRECT_URI = "llama-run://auth";
         private static readonly ApplicationDataContainer localSettings = ApplicationData.Current.LocalSettings;
         private static readonly Windows.Web.Http.HttpClient httpClient = new();
@@ -69,7 +69,7 @@ namespace LlamaRun
                 throw new InvalidOperationException("Not authenticated.");
             }
             httpClient.DefaultRequestHeaders.Authorization = new Windows.Web.Http.Headers.HttpCredentialsHeaderValue("Bearer", _jwt);
-            Windows.Web.Http.HttpResponseMessage response = await httpClient.GetAsync(new Uri($"{BackendUrl}{endpoint}"));
+            Windows.Web.Http.HttpResponseMessage response = await httpClient.GetAsync(new Uri($"{Constants.BaseServerUrl}{endpoint}"));
             response.EnsureSuccessStatusCode();
             return await response.Content.ReadAsStringAsync();
         }
@@ -89,9 +89,20 @@ namespace LlamaRun
 
                 if (isAuthenticated)
                 {
+                    // Expanded panel
                     UserPicture.Visibility = Visibility.Visible;
                     UserNameText.Visibility = Visibility.Visible;
+                    UserInfoPanel.Visibility = Visibility.Visible;
+                    SignInButton.Visibility = Visibility.Collapsed;
+                    SignOutButton.Visibility = Visibility.Visible;
                     UserNameText.Text = localSettings.Values["UserName"] as string ?? "User";
+
+
+                    // Compact panel
+                    CompactUserButton.Visibility = Visibility.Visible;
+                    CompactSignInButton.Visibility = Visibility.Collapsed;
+                    CompactUserPicture.DisplayName = localSettings.Values["UserName"] as string ?? "User";
+
 
                     string? photoUrl = localSettings.Values["PhotoURL"] as string;
                     if (!string.IsNullOrEmpty(photoUrl))
@@ -101,8 +112,16 @@ namespace LlamaRun
                 }
                 else
                 {
+                    // Expanded panel
                     UserPicture.Visibility = Visibility.Collapsed;
                     UserNameText.Visibility = Visibility.Collapsed;
+                    UserInfoPanel.Visibility = Visibility.Collapsed;
+                    SignInButton.Visibility = Visibility.Visible;
+                    SignOutButton.Visibility = Visibility.Collapsed;
+
+                    // Compact panel
+                    CompactUserButton.Visibility = Visibility.Collapsed;
+                    CompactSignInButton.Visibility = Visibility.Visible;
                 }
             });
         }
@@ -111,7 +130,7 @@ namespace LlamaRun
         {
             try
             {
-                await Launcher.LaunchUriAsync(new Uri(BackendUrl + "/login"));
+                await Launcher.LaunchUriAsync(new Uri(Constants.BaseServerUrl + "/login"));
             }
             catch (Exception ex)
             {
@@ -152,7 +171,7 @@ namespace LlamaRun
             }
             catch (Exception ex)
             {
-                ContentDialog dialog = new ContentDialog
+                ContentDialog dialog = new()
                 {
                     Title = "Error",
                     Content = $"Error during sign-out: {ex.Message}",
@@ -170,12 +189,12 @@ namespace LlamaRun
                 httpClient.DefaultRequestHeaders.Authorization =
                     new Windows.Web.Http.Headers.HttpCredentialsHeaderValue("Bearer", token);
 
-                var response = await httpClient.GetAsync(new Uri(BackendUrl + "/api/auth/get-profile"));
+                var response = await httpClient.GetAsync(new Uri(Constants.BaseServerUrl + "/api/auth/get-profile"));
                 if (response.IsSuccessStatusCode)
                 {
                     var userInfo = await response.Content.ReadAsStringAsync();
                     // Parse user info and save
-                    var user = JsonConvert.DeserializeObject<UserInfo>(userInfo);
+                    var user = System.Text.Json.JsonSerializer.Deserialize<UserInfo>(userInfo, AppJsonContext.Default.UserInfo);
                     localSettings.Values["UserName"] = user!.Profile.DisplayName;
                     localSettings.Values["PhotoURL"] = user!.Profile.PhotoURL;
                 }
@@ -248,7 +267,51 @@ namespace LlamaRun
                 }
             }
 
-            return "";
+            return String.Empty;
+        }
+
+        public static async Task SaveMCPServerData(List<MCP_Server> config)
+        {
+            var folder = ApplicationData.Current.LocalFolder;
+            var file = await folder.CreateFileAsync("mcp.json", CreationCollisionOption.OpenIfExists);
+
+            var mcpServers = config.Distinct(new MCPServerObjectComparer()).ToArray();
+
+            var json = System.Text.Json.JsonSerializer.Serialize(mcpServers);
+            await FileIO.WriteTextAsync(file, json);
+        }
+
+        public static async Task<List<MCP_Server>> LoadMCPServerData()
+        {
+            try
+            {
+                var folder = ApplicationData.Current.LocalFolder;
+                var path = Path.Combine(folder.Path, "mcp.json");
+                Debug.WriteLine("Trying to read MCP config from: " + path);
+
+                if (await folder.TryGetItemAsync("mcp.json") is not null)
+                {
+                    var file = await folder.GetFileAsync("mcp.json");
+                    var json = await FileIO.ReadTextAsync(file);
+                    Debug.WriteLine("MCP Raw JSON: " + json);
+
+                    var result = System.Text.Json.JsonSerializer.Deserialize<List<MCP_Server>>(json, AppJsonContext.Default.ListMCP_Server);
+                    if (result == null)
+                        Debug.WriteLine("Deserialization returned null");
+                    else
+                        Debug.WriteLine("Deserialized MCP servers count: " + result.Count);
+
+                    return result ?? [];
+                }
+
+                Debug.WriteLine("MCP settings File Not Found");
+                return [];
+            }
+            catch (Exception e)
+            {
+                Debug.WriteLine("❌ Error in Loading MCP settings: " + e.Message);
+                return [];
+            }
         }
 
         public void NavigationView_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
@@ -259,9 +322,13 @@ namespace LlamaRun
             {
                 ContentFrame.Navigate(typeof(HomePage_SettingsWindow), args.RecommendedNavigationTransitionInfo);
             }
-            else if (selectedItem == "Plugins")
+            //else if (selectedItem == "Plugins")
+            //{
+            //    ContentFrame.Navigate(typeof(PluginPage_SettingsWindow), args.RecommendedNavigationTransitionInfo);
+            //}
+            else if (selectedItem == "MCP_Servers")
             {
-                ContentFrame.Navigate(typeof(PluginPage_SettingsWindow), args.RecommendedNavigationTransitionInfo);
+                ContentFrame.Navigate(typeof(MCPServerPage_SettingsWindow), args.RecommendedNavigationTransitionInfo);
             }
         }
 
@@ -269,6 +336,32 @@ namespace LlamaRun
         {
             NavView.SelectedItem = NavView.MenuItems[0];
         }
+
+        private void NavigationView_DisplayModeChanged(NavigationView sender, NavigationViewDisplayModeChangedEventArgs args)
+        {
+            UpdateUserPanelForDisplayMode(sender.DisplayMode);
+        }
+
+        private void UpdateUserPanelForDisplayMode(NavigationViewDisplayMode displayMode)
+        {
+            bool isCompact = displayMode == NavigationViewDisplayMode.Compact ||
+                             displayMode == NavigationViewDisplayMode.Minimal;
+
+            ExpandedUserPanel.Visibility = isCompact ? Visibility.Collapsed : Visibility.Visible;
+            CompactUserPanel.Visibility = isCompact ? Visibility.Visible : Visibility.Collapsed;
+        }
+    }
+
+    [JsonSerializable(typeof(UserInfo))]
+    [JsonSerializable(typeof(List<MCP_Server>))]
+    [JsonSerializable(typeof(MCP_Server))]
+    [JsonSourceGenerationOptions(
+        WriteIndented = true,
+        PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true
+    )]
+    public partial class AppJsonContext : JsonSerializerContext
+    {
     }
 
     public class Profile

@@ -1,11 +1,17 @@
+//using CPythonIntrop;
 using Microsoft.UI;
 using Microsoft.UI.Input;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using ModelContextProtocol;
+using ModelContextProtocol.Client;
 using System;
+using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using Windows.Graphics;
@@ -41,17 +47,19 @@ namespace LlamaRun
             appWindow.IsShownInSwitchers = false;
 
             // Initial size/positioning
-            MoveAndResizeWindow(0.38, 0.30);
+            MoveAndResizeWindow(0.5, 0.5);
+
+            //PopulateServerComboBox();
         }
 
-        public void AppTitleBar_Loaded(Object _, RoutedEventArgs e)
+        public async void AppTitleBar_Loaded(Object _, RoutedEventArgs e)
         {
             String appHeight = SettingsWindow.LoadSetting("Height");
             String appWidth = SettingsWindow.LoadSetting("Width");
-            if (appHeight == "" || appWidth == "")
+            if (appHeight == String.Empty || appWidth == String.Empty)
             {
-                // 38% of the work area width and 30% of the work area height
-                MoveAndResizeWindow(38 / 100.0, 30 / 100.0);
+                // 50% of the work area width and 50% of the work area height
+                MoveAndResizeWindow(50 / 100.0, 50 / 100.0);
             }
             else
             {
@@ -60,12 +68,14 @@ namespace LlamaRun
 
             var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
 
-            AddTrayIcon(hwnd);
-            SubclassWndProc(hwnd);
+
             RegisterGlobalHotkey(hwnd);
 
+            AddTrayIcon(hwnd);
+            SubclassWndProc(hwnd);
+
             AIServiceManager.GetInstance().SetMainWindowPtr(this);
-            AIServiceManager.GetInstance().LoadModels();
+            await AIServiceManager.GetInstance().LoadModels();
         }
 
         private AppWindow GetAppWindowForCurrentWindow()
@@ -85,7 +95,7 @@ namespace LlamaRun
             int windowHeight = (int)(workArea.Height * heightPercentage);
 
             int centerX = workArea.X + (workArea.Width / 2);
-            int centerY = workArea.Y + (workArea.Height * 1 / 3);
+            int centerY = workArea.Y + (workArea.Height * 1 / 2);
 
             appWindow.MoveAndResize(new RectInt32(centerX - (windowWidth / 2), centerY - (windowHeight / 2), windowWidth, windowHeight));
         }
@@ -128,10 +138,7 @@ namespace LlamaRun
                     textBox.DispatcherQueue.TryEnqueue(() =>
                     {
                         int caretPosition = textBox.SelectionStart;
-                        // string currentText = textBox.Text ?? ""; // Not needed with SelectedText
-                        // caretPosition = Math.Min(caretPosition, currentText.Length); // Not needed
 
-                        // textBox.Text = currentText.Insert(caretPosition, Environment.NewLine); // OLD
                         // Use SelectedText instead of Text.Insert()
                         textBox.SelectedText = Environment.NewLine;
 
@@ -144,57 +151,130 @@ namespace LlamaRun
                     string inputText = textBox.Text;
                     string model = DataStore.GetInstance().GetSelectedModel();
 
-                    res = "";
+                    MarkdownTextBlock1.Text = null;
 
-                    //PluginManager.GetInstance().BroadcastEvent("beforeTextGeneration");
+                    //await PluginManagerIntrop.BroadcastEvent("beforeTextGeneration");
 
                     TextBoxElement.IsReadOnly = true;
                     StartSkeletonLoadingAnimation();
 
-                    await Task.Run(
-                        async () =>
+                    // MCP Client
+                    try
+                    {
+                        var getTools = await SettingsWindow.LoadMCPServerData();
+                        DataStore.GetInstance().SetMCPServers(getTools);
+                        //TODO: Should Parse at App Startup, but will work for now.
+                        IList<McpClientTool> tools = [];
+                        foreach (var item in DataStore.GetInstance().GetMCPServers())
                         {
                             try
                             {
-                                await AIServiceManager.GetInstance().TextGeneration(
-                                        CloudLLMService.GetModels()[DataStore.GetInstance().LoadSelectedModel().GetSelectedModel()],
-                                        inputText
-                                    );
+                                var tool = await (await McpClientFactory.CreateAsync(
+                                    new StdioClientTransport(new StdioClientTransportOptions
+                                    {
+                                        Name = item.Name,
+                                        Command = item.Data.Command ?? String.Empty,
+                                        Arguments = item.Data.Arguments,
+                                        EnvironmentVariables = item.Data.EnvironmentVariables
+                                    }))).ListToolsAsync();
+                                tools = [.. tools, .. tool.ToList()];
+                            }
+                            //Continue with other Servers
+                            catch (McpException ex)
+                            {
+                                Debug.WriteLine(ex.Message + " Link = " + ex.HelpLink);
+                                continue;
                             }
                             catch (Exception ex)
                             {
-                                // Handle exceptions from Response Generation
-                                Debug.WriteLine(ex);
-                                DispatcherQueue.TryEnqueue(() =>
-                                {
-                                    TextBoxElement.Text = null;
-                                    TextBoxElement.PlaceholderText = ("Error: " + ex.Message);
-                                    TextBoxElement.IsReadOnly = false;
-                                    StopSkeletonLoadingAnimation();
-                                });
+                                Debug.WriteLine(ex.Message + " Link = " + ex.HelpLink);
+                                continue;
                             }
                         }
-                    );
 
+                        await Task.Run(
+                            async () =>
+                            {
+                                try
+                                {
+                                    await AIServiceManager.GetInstance().TextGeneration(
+                                            CloudLLMService.GetModels()[DataStore.GetInstance().LoadSelectedModel().GetSelectedModel()],
+                                            inputText,
+                                            [.. tools]
+                                        );
+                                }
+                                catch (Exception ex)
+                                {
+                                    // Handle exceptions from Response Generation
+                                    Debug.WriteLine(ex);
+                                    DispatcherQueue.TryEnqueue(() =>
+                                    {
+                                        TextBoxElement.Text = null;
+                                        TextBoxElement.PlaceholderText = ("Error: " + ex.Message);
+                                        TextBoxElement.IsReadOnly = false;
+                                        StopSkeletonLoadingAnimation();
+                                    });
+                                }
+                            }
+                        );
+
+                    }
+                    catch (McpException ex)
+                    {
+                        Debug.WriteLine(ex.Message + " Link = " + ex.HelpLink);
+                        StopSkeletonLoadingAnimation();
+                        textBox.IsReadOnly = false;
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine(ex.Message + " Link = " + ex.HelpLink);
+
+                        StopSkeletonLoadingAnimation();
+                        textBox.IsReadOnly = false;
+                    }
                     //PluginManager.GetInstance().BroadcastEvent("afterTextGeneration");
                 }
             }
         }
 
-        public void UpdateTextBox(String text)
+        public void UpdateTextBox(string text)
         {
-            res += text;
-            MarkdownTextBlock1.Text = res;
-            MarkdownTextBlock1.UpdateLayout();
+            try
+            {
+                // No need to check for null text, the calling code now sends an empty string.
+
+                // TryEnqueue returns false if the UI thread is shutting down or unavailable.
+                bool successfullyEnqueued = DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.High, () =>
+                {
+                    // Add a final check here. The control could have become null
+                    // by the time this code runs on the UI thread.
+                    if (MarkdownTextBlock1 != null)
+                    {
+                        MarkdownTextBlock1.Text += text;
+                    }
+                });
+
+                if (!successfullyEnqueued)
+                {
+                    // Use a logging mechanism that works in Release mode to see this error.
+                    System.Diagnostics.Trace.WriteLine("Failed to enqueue UI update. The dispatcher queue may be shutting down.");
+                }
+            }
+            catch (Exception ex)
+            {
+                // IMPORTANT: Use Trace.WriteLine or a proper logging library (e.g., Serilog).
+                // This will now show up in your Release build's output window.
+                System.Diagnostics.Trace.WriteLine($"Exception in UpdateTextBox: {ex.Message}");
+            }
         }
 
         void TextBoxElement_TextChanged(Object _, TextChangedEventArgs __)
         {
             //scrollViewer.ChangeView(null, scrollViewer.ScrollableHeight, null, true);
             /*if (sender.as<Microsoft::UI::Xaml::Controls::TextBox>().Text() == L"")
-			{
-				MoveAndResizeWindow(0.3f, 0.08f);
-			}*/
+            {
+                MoveAndResizeWindow(0.3f, 0.08f);
+            }*/
 
             //scrollViewer.DispatcherQueue.TryEnqueue(() =>
             //{
@@ -213,6 +293,65 @@ namespace LlamaRun
             Microsoft.UI.Xaml.FocusState key = FocusState.Keyboard;
             TextBoxElement.Focus(key);
         }
+
+        //private void PopulateServerComboBox()
+        //{
+        //    // In a real application, you would load this list dynamically
+        //    // from a configuration file, a network request, etc.
+        //    List<string> servers =
+        //    [
+        //        "mcp.example.com:25565",
+        //        "anothermcp.server.net",
+        //        "local.server:12345"
+        //    ];
+
+        //    foreach (var serverName in servers)
+        //    {
+        //        var menuItem = new MenuFlyoutItem
+        //        {
+        //            Text = serverName,
+        //            Tag = serverName
+        //        };
+
+        //        ServerComboBox.Items.Add(menuItem);
+        //    }
+
+        //    // Optionally set a default selected item
+        //    //if (servers.Count > 0)
+        //    //{
+        //    //    ServerComboBox.Items = 0;
+        //    //}
+        //}
+
+        //private string? _selectedMcpServer;
+        //public string? SelectedMcpServer
+        //{
+        //    get => _selectedMcpServer;
+        //    set
+        //    {
+        //        if (_selectedMcpServer != value)
+        //        {
+        //            _selectedMcpServer = value;
+        //            // TODO: Add logic here to connect to the new server
+        //            // This is where you would initiate the connection based on the selection.
+        //            MarkdownTextBlock1.Text = $"Selected MCP Server: {_selectedMcpServer}";
+        //            System.Diagnostics.Debug.WriteLine($"Selected MCP Server: {_selectedMcpServer}");
+        //        }
+        //    }
+        //}
+
+        //// Event handler for when the selected server in the ComboBox changes
+        //private void ServerComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        //{
+        //    if (ServerComboBox.SelectedItem != null)
+        //    {
+        //        SelectedMcpServer = ServerComboBox.SelectedItem.ToString()!;
+        //    }
+        //    else
+        //    {
+        //        SelectedMcpServer = null;
+        //    }
+        //}
 
         #region TrayIcon
 
@@ -273,7 +412,6 @@ namespace LlamaRun
 
         #region Window SubClass
         private static nint originalWndProc;
-        public string? res = "";
 
         [DllImport("user32.dll", SetLastError = true)]
         private static extern IntPtr CallWindowProc(IntPtr lpPrevWndFunc, IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
@@ -283,6 +421,9 @@ namespace LlamaRun
 
         [DllImport("comctl32.dll", SetLastError = true)]
         private static extern bool SetWindowSubclass(IntPtr hWnd, SUBCLASSPROC pfnSubclass, IntPtr uIdSubclass, IntPtr dwRefData);
+
+        [DllImport("comctl32.dll", SetLastError = true)]
+        private static extern IntPtr DefSubclassProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
 
         private delegate IntPtr SUBCLASSPROC(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam, IntPtr uIdSubclass, IntPtr dwRefData);
 
@@ -299,55 +440,67 @@ namespace LlamaRun
         // Custom WndProc function to handle messages
         private static IntPtr CustomWndProc(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam, IntPtr uIdSubclass, IntPtr dwRefData)
         {
-            GCHandle handle = GCHandle.FromIntPtr(dwRefData);
-            MainWindow? pThis = (MainWindow?)handle.Target;
-
-            switch (uMsg)
+            try
             {
-                case WM_HOTKEY:
-                    if (pThis != null)
-                    {
-                        if (!pThis.Visible)
+                GCHandle handle = GCHandle.FromIntPtr(dwRefData);
+                MainWindow? pThis = (MainWindow?)handle.Target;
+
+                switch (uMsg)
+                {
+                    case WM_HOTKEY:
+                        if (pThis != null)
                         {
-                            pThis.SetFocusOnTextBox();
+                            if (!pThis.Visible)
+                            {
+                                pThis.SetFocusOnTextBox();
 
-                            //var AppDimension = DataStore.GetInstance().GetAppDimension();
-                            //pThis.MoveAndResizeWindow(AppDimension.X / 100.0, AppDimension.Y / 100.0);
+                                //var AppDimension = DataStore.GetInstance().GetAppDimension();
+                                //pThis.MoveAndResizeWindow(AppDimension.X / 100.0, AppDimension.Y / 100.0);
 
-                            var AppOpacity = DataStore.GetInstance().GetAppOpacity();
-                            pThis.OpacityDoubleAnimation.To = (AppOpacity / 100.0);
-                            // Window is hidden, so show it
-                            ShowWindow(hWnd, SW_SHOW);
-                            SetForegroundWindow(hWnd);
+                                var AppOpacity = DataStore.GetInstance().GetAppOpacity();
+                                pThis.OpacityDoubleAnimation.To = (AppOpacity / 100.0);
+                                // Window is hidden, so show it
+                                ShowWindow(hWnd, SW_SHOW);
+                                SetForegroundWindow(hWnd);
+                            }
+                            else
+                            {
+                                // Window is visible, so hide it
+                                ShowWindow(hWnd, SW_HIDE);
+                            }
                         }
-                        else
+                        break;
+                    case WM_CLOSE:
+                        ShowWindow(hWnd, SW_HIDE);
+                        return 0;
+                    case WM_TRAYICON:
+                        if (lParam == WM_LBUTTONDOWN)
                         {
-                            // Window is visible, so hide it
+                            // Tray icon was clicked
+                            Debug.WriteLine("Tray icon clicked\n");
+                            pThis?.ShowTrayMenu();
+                        }
+                        break;
+                    case WM_ACTIVATE:
+                        if (wParam == WA_INACTIVE)
+                        {
                             ShowWindow(hWnd, SW_HIDE);
                         }
-                    }
-                    break;
-                case WM_CLOSE:
-                    ShowWindow(hWnd, SW_HIDE);
-                    return 0;
-                case WM_TRAYICON:
-                    if (lParam == WM_LBUTTONDOWN)
-                    {
-                        // Tray icon was clicked
-                        Debug.WriteLine("Tray icon clicked\n");
-                        pThis?.ShowTrayMenu();
-                    }
-                    break;
-                case WM_ACTIVATE:
-                    if (wParam == WA_INACTIVE)
-                    {
-                        ShowWindow(hWnd, SW_HIDE);
-                    }
 
-                    break;
+                        break;
+                }
+            }
+            catch (Win32Exception w)
+            {
+                Console.WriteLine(w.Message);
+                Console.WriteLine(w.ErrorCode.ToString());
+                Console.WriteLine(w.NativeErrorCode.ToString());
+                Console.WriteLine(w.StackTrace);
+                Console.WriteLine(w.Source);
+                Exception e = w.GetBaseException();
+                Console.WriteLine(e.Message);
             }
             return CallWindowProc(originalWndProc, hWnd, uMsg, wParam, lParam);
-
         }
 
         // Subclass the WndProc

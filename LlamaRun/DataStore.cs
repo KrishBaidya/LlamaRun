@@ -94,14 +94,14 @@ namespace LlamaRun
         //    return this;
         //}
 
-        public DataStore SetModels(Dictionary<string, string> data)
+        public DataStore SetModels(Dictionary<string, Model> data)
         {
             models = data;
 
             return this;
         }
 
-        public Dictionary<string, string> GetModels()
+        public Dictionary<string, Model> GetModels()
         {
             return models!;
         }
@@ -130,10 +130,31 @@ namespace LlamaRun
             return this;
         }
 
-        private string selectedModel = "";
-        private Dictionary<string, string>? models = null;
+        public List<MCP_Server> GetMCPServers()
+        {
+            return MCP_Servers;
+        }
+
+        public void SetMCPServers(List<MCP_Server> _Servers)
+        {
+            MCP_Servers = _Servers;
+        }
+
+        public void AddMCPServers(MCP_Server _Servers)
+        {
+            MCP_Servers.Add(_Servers);
+        }
+
+        public void RemoveMCPServers(MCP_Server _Servers)
+        {
+            MCP_Servers.Remove(_Servers);
+        }
+
+        private string selectedModel = String.Empty;
+        private Dictionary<string, Model>? models = null;
 
         private float appOpacity = 15.0f;
+        private List<MCP_Server> MCP_Servers = [];
 
         //private Point appDimension = new(38, 10);
 

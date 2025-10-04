@@ -46,7 +46,7 @@
 
             <Style x:Key="EditableTextBlockStyle" TargetType="TextBox">
                 <Setter Property="BorderThickness" Value="0"/>
-                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="Background" Value="#00000000" />
                 <Setter Property="Margin" Value="20,2,20,2"/>
                 <Setter Property="Foreground" Value="{ThemeResource TextBoxForegroundHeaderThemeBrush}" />
                 <Setter Property="Template">
@@ -70,6 +70,31 @@
                     </Setter.Value>
                 </Setter>
             </Style>
+
+            <Style x:Key="TextBlockNoCloseButtonStyle" TargetType="RichEditBox">
+                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="RichEditBox">
+                            <Grid>
+                                <VisualStateManager.VisualStateGroups>
+                                    <VisualStateGroup x:Name="CommonStates">
+                                        <VisualState x:Name="Normal"/>
+                                        <VisualState x:Name="Disabled"/>
+                                        <VisualState x:Name="PointerOver"/>
+                                        <VisualState x:Name="Focused"/>
+                                    </VisualStateGroup>
+                                </VisualStateManager.VisualStateGroups>
+                                <Border x:Name="BorderElement" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}">
+                                    <ScrollViewer x:Name="ContentElement" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Hidden" IsTabStop="False" Margin="0"/>
+                                </Border>
+                                <RichEditBox x:Name="PlaceholderTextContentPresenter" PlaceholderText="{TemplateBinding PlaceholderText}" Foreground="{ThemeResource TextControlPlaceholderForeground}" />
+                            </Grid>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
         </ResourceDictionary>
     </Application.Resources>
 </Application>
