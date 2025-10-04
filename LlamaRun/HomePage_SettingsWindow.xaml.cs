@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
@@ -80,7 +81,7 @@ namespace LlamaRun
             //    MainWindowHeight.Value = 10;
             //}
 
-            if (SettingsWindow.LoadSetting("AppOpacity") != "")
+            if (SettingsWindow.LoadSetting("AppOpacity") != String.Empty)
             {
                 var appOpacity = SettingsWindow.LoadSetting("AppOpacity");
 
@@ -92,7 +93,7 @@ namespace LlamaRun
                 MainWindowOpacitySlider.Value = 15;
             }
 
-            if (SettingsWindow.LoadSetting("Startup Enabled") != "")
+            if (SettingsWindow.LoadSetting("Startup Enabled") != String.Empty)
             {
                 var StartupEnabled = SettingsWindow.LoadSetting("Startup Enabled");
                 _ = bool.TryParse(StartupEnabled, out bool _StartupEnabled);
@@ -161,6 +162,11 @@ namespace LlamaRun
             {
                 Model_ComboBox.SelectedIndex = 0;
             }
+        }
+
+        private void MainWindowOpacitySlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
+        {
+            OpacityValueText.Text = $"{e.NewValue:F0}%";
         }
 
         public async void SaveButtonClicked(Object _, Object args)

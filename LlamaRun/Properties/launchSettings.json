@@ -3,10 +3,11 @@
     "LlamaRun (Package)": {
       "commandName": "MsixPackage",
       "nativeDebugging": false,
-      "alwaysReinstallApp": false
+      "alwaysReinstallApp": true
     },
     "LlamaRun (Unpackaged)": {
-      "commandName": "Project"
+      "commandName": "Project",
+      "nativeDebugging": true
     }
   }
 }

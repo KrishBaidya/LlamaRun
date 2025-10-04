@@ -55,8 +55,10 @@ namespace LlamaRun
 
             mainInstance.Activated += OnActivated;
 
+            //DataStore.GetInstance().SetMCPServers(await SettingsWindow.LoadMCPServerData());
+
             var a = SettingsWindow.LoadSetting("isFirstRun");
-            if (a == "")
+            if (a == String.Empty)
             {
                 a = bool.TrueString;
             }

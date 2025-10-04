@@ -1,7 +1,7 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net9.0-windows10.0.26100.0</TargetFramework>
+    <TargetFramework>net9.0-windows10.0.22000.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>LlamaRun</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
@@ -12,6 +12,10 @@
     <EnableMsixTooling>true</EnableMsixTooling>
     <Nullable>enable</Nullable>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)'=='Release'">
+    <PublishAot>true</PublishAot>
+    <PublishTrimmed>false</PublishTrimmed>
+  </PropertyGroup>
   <ItemGroup>
     <None Remove="Assets\StoreLogo.scale-100.png" />
     <None Remove="Assets\StoreLogo.scale-125.png" />
@@ -20,6 +24,13 @@
     <None Remove="Assets\StoreLogo.scale-400.png" />
     <None Remove="FirstRunWindow.xaml" />
     <None Remove="HomePage_SettingsWindow.xaml" />
+    <None Remove="MCPServerPage_SettingsWindow.xaml" />
+    <None Remove="MCPServers\AvaliableMCPServers.xaml" />
+    <None Remove="MCPServers\EnvironmentConfigDialog.xaml" />
+    <None Remove="MCPServers\InstalledMCPServers.xaml" />
+    <None Remove="MCPServers\MCPServerDetailsPage.xaml" />
+    <None Remove="MCPServers\ServerInstallPreviewDialog.xaml" />
+    <None Remove="MCPServers\SimpleReadmeViewer.xaml" />
     <None Remove="SettingsWindow.xaml" />
   </ItemGroup>
 
@@ -45,15 +56,43 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.WinUI.UI.Controls.Markdown" Version="7.1.2" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" Version="9.0.3" />
-    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3124.44" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" Version="10.0.0-preview.6.25358.103" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3405.78" />
     <PackageReference Include="Microsoft.Windows.CsWinRT" Version="2.2.0" />
-    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.1742" />
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.7.250310001" />
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4948" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.250702007-experimental4" />
+    <PackageReference Include="ModelContextProtocol" Version="0.3.0-preview.4" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4-beta1" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\CPythonIntrop\CPythonIntrop.vcxproj" />
+    <Page Update="MCPServers\ServerInstallPreviewDialog.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+  </ItemGroup>
+  <ItemGroup>
+    <Page Update="MCPServers\EnvironmentConfigDialog.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+  </ItemGroup>
+  <ItemGroup>
+    <Page Update="MCPServers\SimpleReadmeViewer.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+  </ItemGroup>
+  <ItemGroup>
+    <Page Update="MCPServers\MCPServerDetailsPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+  </ItemGroup>
+  <ItemGroup>
+    <Page Update="MCPServers\AvaliableMCPServers.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+  </ItemGroup>
+  <ItemGroup>
+    <Page Update="MCPServerPage_SettingsWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
   </ItemGroup>
   <ItemGroup>
     <Page Update="PluginPage_SettingsWindow.xaml">
@@ -77,6 +116,11 @@
   </ItemGroup>
   <ItemGroup>
     <Page Update="SettingsWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+  </ItemGroup>
+  <ItemGroup>
+    <Page Update="MCPServers\InstalledMCPServers.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
   </ItemGroup>
@@ -119,4 +163,7 @@
   <PropertyGroup>
     <CsWinRTIncludes>CPythonIntrop</CsWinRTIncludes>
   </PropertyGroup>
+  <!--<PropertyGroup>
+		<WindowsPackageType>None</WindowsPackageType>
+	</PropertyGroup>-->
 </Project>
