@@ -11,8 +11,10 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading.Tasks;
 using Windows.Graphics;
 using Windows.System;
@@ -151,6 +153,7 @@ namespace LlamaRun
                     string inputText = textBox.Text;
                     string model = DataStore.GetInstance().GetSelectedModel();
 
+                    LLMResponse.Clear();
                     MarkdownTextBlock1.Text = null;
 
                     //await PluginManagerIntrop.BroadcastEvent("beforeTextGeneration");
@@ -203,6 +206,14 @@ namespace LlamaRun
                                             [.. tools]
                                         );
                                 }
+                                catch (IOException ex)
+                                {
+                                    System.Diagnostics.Trace.WriteLine($"GENERAL ERROR: {ex.GetType().FullName}");
+                                    System.Diagnostics.Trace.WriteLine($"Message: {ex.Message}");
+                                    System.Diagnostics.Trace.WriteLine($"HRESULT: {ex.HResult:X8}");
+                                    System.Diagnostics.Trace.WriteLine($"Stack: {ex.StackTrace}");
+                                    throw;
+                                }
                                 catch (Exception ex)
                                 {
                                     // Handle exceptions from Response Generation
@@ -237,20 +248,23 @@ namespace LlamaRun
             }
         }
 
+        readonly StringBuilder LLMResponse = new();
+
         public void UpdateTextBox(string text)
         {
             try
             {
+                LLMResponse.Append(text);
                 // No need to check for null text, the calling code now sends an empty string.
 
                 // TryEnqueue returns false if the UI thread is shutting down or unavailable.
-                bool successfullyEnqueued = DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.High, () =>
+                bool successfullyEnqueued = DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, async() =>
                 {
                     // Add a final check here. The control could have become null
                     // by the time this code runs on the UI thread.
                     if (MarkdownTextBlock1 != null)
                     {
-                        MarkdownTextBlock1.Text += text;
+                        MarkdownTextBlock1.Text = LLMResponse.ToString();
                     }
                 });
 

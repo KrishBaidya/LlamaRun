@@ -8,9 +8,9 @@
         /// </summary>
         public const string BaseServerUrl =
 #if DEBUG
-    "https://llamarun.krishbaidya.me";
+    "http://localhost:3000";
 #else
-        "http://localhost:3000";
+    "https://llamarun.krishbaidya.me";
 #endif
 
         /// <summary>

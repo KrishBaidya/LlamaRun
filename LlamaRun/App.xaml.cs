@@ -2,6 +2,9 @@
 using Microsoft.Windows.AppLifecycle;
 using System;
 using System.Diagnostics;
+using System.IO;
+using System.Text;
+using System.Threading.Tasks;
 using Windows.ApplicationModel.Activation;
 
 // To learn more about WinUI, the WinUI project structure,
@@ -21,7 +24,75 @@ namespace LlamaRun
         public App()
         {
             this.InitializeComponent();
+
+            AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
+            TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+
+            // For WinUI3 specific exceptions
+            this.UnhandledException += OnAppUnhandledException;
         }
+
+        private void OnUnhandledException(object sender, System.UnhandledExceptionEventArgs e)
+        {
+            var ex = e.ExceptionObject as Exception;
+            LogCrash("AppDomain.UnhandledException", ex);
+        }
+
+        private void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
+        {
+            LogCrash("UnobservedTaskException", e.Exception);
+            e.SetObserved(); // Prevent app crash for now
+        }
+
+        private void OnAppUnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
+        {
+            LogCrash("WinUI.UnhandledException", e.Exception);
+            e.Handled = true; // Prevent immediate crash
+        }
+
+        private static void LogCrash(string source, Exception? ex)
+        {
+            var logPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "LlamaRun",
+                "crash.log");
+
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
+
+                var logMessage = new StringBuilder();
+                logMessage.AppendLine($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {source}");
+                logMessage.AppendLine($"Exception Type: {ex?.GetType().FullName ?? "null"}");
+                logMessage.AppendLine($"Message: {ex?.Message ?? "No message"}");
+                logMessage.AppendLine($"HRESULT: {ex?.HResult:X8}");
+                logMessage.AppendLine($"Stack Trace:\n{ex?.StackTrace ?? "No stack trace"}");
+
+                if (ex?.InnerException != null)
+                {
+                    logMessage.AppendLine($"\nInner Exception: {ex.InnerException.GetType().FullName}");
+                    logMessage.AppendLine($"Inner Message: {ex.InnerException.Message}");
+                    logMessage.AppendLine($"Inner Stack:\n{ex.InnerException.StackTrace}");
+                }
+
+                logMessage.AppendLine(new string('=', 80));
+
+                File.AppendAllText(logPath, logMessage.ToString());
+
+                // Also write to debug output
+                System.Diagnostics.Trace.WriteLine(logMessage.ToString());
+
+                // Show message box in debug builds
+#if DEBUG
+            System.Diagnostics.Debug.WriteLine($"CRASH LOG: {logPath}");
+#endif
+            }
+            catch
+            {
+                // Can't even log - we're in trouble
+            }
+        }
+
 
         private string? JWT;
         public event EventHandler<AuthenticationChangedEventArgs>? AuthenticationChanged = null;
@@ -62,6 +133,7 @@ namespace LlamaRun
             {
                 a = bool.TrueString;
             }
+
             bool isFirstRun = bool.Parse(a);
             if (isFirstRun)
             {
