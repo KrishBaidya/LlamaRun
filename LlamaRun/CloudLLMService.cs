@@ -1,4 +1,5 @@
-﻿using ModelContextProtocol.Client;
+﻿using CommunityToolkit.WinUI.UI.Controls;
+using ModelContextProtocol.Client;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
@@ -11,6 +12,8 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
+using System.Timers;
+using Windows.Media.Protection.PlayReady;
 
 namespace LlamaRun
 {
@@ -59,6 +62,19 @@ namespace LlamaRun
     {
         private static readonly HttpClient _httpClient = new();
 
+        // Throttling buffer and timer to limit UI updates to every 100 ms
+        private static readonly StringBuilder _throttleBuffer = new();
+        private static readonly object _throttleLock = new();
+        private static readonly System.Timers.Timer _flushTimer;
+
+        static CloudLLMService()
+        {
+            _flushTimer = new System.Timers.Timer(10); // 50 ms
+            _flushTimer.AutoReset = true;
+            _flushTimer.Elapsed += FlushTimer_Elapsed;
+            _flushTimer.Start();
+        }
+
         public static Dictionary<string, Model> GetModels()
         {
             Dictionary<string, Model> models = [];
@@ -70,6 +86,8 @@ namespace LlamaRun
         {
             try
             {
+                System.Diagnostics.Trace.WriteLine("=== TextGeneration START ===");
+
                 string? jwtToken = DataStore.GetInstance().LoadJWT().GetJWT();
                 if (string.IsNullOrEmpty(jwtToken))
                 {
@@ -141,10 +159,13 @@ namespace LlamaRun
                     Debug.WriteLine($"Response Status: {response.StatusCode}");
                     Debug.WriteLine($"Response Headers: {response.Headers}");
 
+                    Trace.WriteLine($"Response Status: {response.StatusCode}");
+
                     if (!response.IsSuccessStatusCode)
                     {
                         var errorContent = await response.Content.ReadAsStringAsync();
                         Debug.WriteLine($"Error Response: {errorContent}");
+                        Trace.WriteLine($"Error Response: {errorContent}");
                         throw new HttpRequestException($"Request failed with status {response.StatusCode}: {errorContent}");
                     }
 
@@ -157,6 +178,7 @@ namespace LlamaRun
                         SupportMultipleContent = true
                     };
 
+                    Trace.WriteLine("Stream obtained");
                     var serializer = new Newtonsoft.Json.JsonSerializer();
                     while (await jsonReader.ReadAsync())
                     {
@@ -165,9 +187,10 @@ namespace LlamaRun
                             try
                             {
                                 JObject parsedData = serializer.Deserialize<JObject>(jsonReader)!;
-                                if (parsedData.ContainsKey("done") && parsedData["done"]!.Value<string>() == "true")
+                                if (parsedData.ContainsKey("done") && parsedData["done"]!.Value<string>() == "True")
                                 {
-                                    break;
+                                    System.Diagnostics.Trace.WriteLine("=== TextGeneration END ===");
+                                    return;
                                 }
 
                                 // Parse Again
@@ -178,7 +201,7 @@ namespace LlamaRun
                                     // Tool Calls
                                     if (parsedResponse["type"]?.Value<string>() == "tool-call" &&
                                         parsedResponse!.ContainsKey("toolName") &&
-                                        tools != null)
+                                                tools != null)
                                     {
                                         foreach (var item in tools)
                                         {
@@ -199,11 +222,11 @@ namespace LlamaRun
                                                             var simplifiedResponse = CreateSimplifiedResponse(callToolResponse);
 
                                                             var conversationHistory = new List<KeyValuePair<string, object?>>
-                                                            {
-                                                                new("user", inputText),
+                                                {
+                                                    new("user", inputText),
                                                                 new("assistant", parsedResponse.ToString()),
-                                                                new("user", simplifiedResponse)
-                                                            };
+                                                    new("user", simplifiedResponse)
+                                                };
 
                                                             // Use System.Text.Json with JsonContext for serialization
                                                             var newInput = JsonSerializer.Serialize(
@@ -229,8 +252,10 @@ namespace LlamaRun
                                     if (parsedResponse["type"]?.Value<string>() == "text-delta" &&
                                         parsedResponse!.ContainsKey("textDelta"))
                                     {
-                                        AIServiceManager.GetInstance().MainWindow!.UpdateTextBox(
-                                            (string?)parsedResponse["textDelta"] ?? String.Empty);
+                                        // Get the delta text
+                                        string delta = parsedResponse["textDelta"]?.Value<string>() ?? String.Empty;
+                                        // Throttle UI updates: append delta to buffer; flush timer will update UI every 100 ms
+                                        AppendDelta(delta);
                                     }
                                 }
                             }
@@ -241,18 +266,22 @@ namespace LlamaRun
                         }
                     }
                 }
-                catch (HttpRequestException httpEx)
+                catch (HttpRequestException ex)
                 {
-                    Debug.WriteLine($"HTTP Request Exception: {httpEx.Message}");
-                    Debug.WriteLine($"Stack Trace: {httpEx.StackTrace}");
-                    throw; // Re-throw to maintain original behavior
+                    System.Diagnostics.Trace.WriteLine($"GENERAL ERROR: {ex.GetType().FullName}");
+                    System.Diagnostics.Trace.WriteLine($"Message: {ex.Message}");
+                    System.Diagnostics.Trace.WriteLine($"HRESULT: {ex.HResult:X8}");
+                    System.Diagnostics.Trace.WriteLine($"Stack: {ex.StackTrace}");
+                    throw;
                 }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"General Exception in TextGeneration: {ex.Message}");
-                Debug.WriteLine($"Stack Trace: {ex.StackTrace}");
-                throw; // Re-throw to maintain original behavior
+                System.Diagnostics.Trace.WriteLine($"GENERAL ERROR: {ex.GetType().FullName}");
+                System.Diagnostics.Trace.WriteLine($"Message: {ex.Message}");
+                System.Diagnostics.Trace.WriteLine($"HRESULT: {ex.HResult:X8}");
+                System.Diagnostics.Trace.WriteLine($"Stack: {ex.StackTrace}");
+                throw;
             }
         }
 
@@ -324,6 +353,58 @@ namespace LlamaRun
                 Debug.WriteLine($"Error creating simplified response: {ex.Message}");
                 // Return a minimal safe object
                 return new { error = "Failed to process tool response", message = ex.Message };
+            }
+        }
+
+        // Append delta to buffer under lock
+        private static void AppendDelta(string delta)
+        {
+            if (string.IsNullOrEmpty(delta))
+                return;
+
+            try
+            {
+                lock (_throttleLock)
+                {
+                    _throttleBuffer.Append(delta);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error appending delta: {ex.Message}");
+            }
+        }
+
+        // Timer elapsed handler: flush accumulated buffer to UI every 100 ms
+        private static void FlushTimer_Elapsed(object? sender, ElapsedEventArgs e)
+        {
+            string toFlush = string.Empty;
+            try
+            {
+                lock (_throttleLock)
+                {
+                    if (_throttleBuffer.Length == 0)
+                        return;
+
+                    toFlush = _throttleBuffer.ToString();
+                    _throttleBuffer.Clear();
+                }
+
+                if (!string.IsNullOrEmpty(toFlush))
+                {
+                    try
+                    {
+                        AIServiceManager.GetInstance().MainWindow!.UpdateTextBox(toFlush);
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"Error updating UI with flushed text: {ex.Message}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error in FlushTimer_Elapsed: {ex.Message}");
             }
         }
     }
