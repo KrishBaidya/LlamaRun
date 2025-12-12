@@ -12,36 +12,280 @@
         <MicaBackdrop />
     </Window.SystemBackdrop>
 
-    <Grid Loaded="Grid_Loaded">
+    <Grid>
+        <Grid.Resources>
+            <ThemeShadow x:Key="CommonShadow" />
+        </Grid.Resources>
+
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <!-- Title Area -->
             <RowDefinition Height="*"/>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="auto"/>
+            <!-- Content Area -->
+            <RowDefinition Height="Auto"/>
+            <!-- Footer/Buttons -->
         </Grid.RowDefinitions>
-        <StackPanel Grid.Row="0" HorizontalAlignment="Center" VerticalAlignment="Center">
-            <TextBlock Text="Welcome to LlamaRun!" FontSize="36" />
-            <TextBlock Text="Let's take you through a quick guide on how to use the app." />
-            <!-- Add steps and images here -->
-        </StackPanel>
 
-        <StackPanel Grid.Row="1" x:Name="StepsPanel" HorizontalAlignment="Center" VerticalAlignment="Center">
-            <TextBlock x:Name="StepTitle" FontSize="20" FontWeight="Bold"/>
-            <TextBlock x:Name="StepDescription"/>
-            <ProgressBar x:Name="ProgressIndicator"
-                     Minimum="0" Maximum="100"
-                     Height="20"
-                     Width="400"
-                     HorizontalAlignment="Center"
-                     VerticalAlignment="Bottom"
-                     Margin="0,0,0,-50" />
-        </StackPanel>
+        <TextBlock Grid.Row="0" Text="Welcome to Llama Run" 
+                   HorizontalAlignment="Center" Margin="0,40,0,0"
+                   FontSize="28" FontWeight="SemiBold" 
+                   Foreground="{ThemeResource SystemControlForegroundBaseHighBrush}"/>
+
+        <!-- Content Area -->
+        <Grid Grid.Row="1" Margin="40,20">
+
+            <!-- Resources for uniformity -->
+            <Grid.Resources>
+                <Style TargetType="TextBlock" x:Key="HeaderStyle">
+                    <Setter Property="FontSize" Value="24"/>
+                    <Setter Property="FontWeight" Value="Bold"/>
+                    <Setter Property="HorizontalAlignment" Value="Center"/>
+                    <Setter Property="Margin" Value="0,20,0,10"/>
+                </Style>
+                <Style TargetType="TextBlock" x:Key="BodyStyle">
+                    <Setter Property="FontSize" Value="14"/>
+                    <Setter Property="Opacity" Value="0.7"/>
+                    <Setter Property="TextAlignment" Value="Center"/>
+                    <Setter Property="HorizontalAlignment" Value="Center"/>
+                    <Setter Property="TextWrapping" Value="Wrap"/>
+                    <Setter Property="MaxWidth" Value="450"/>
+                </Style>
+                <!-- Style for the "Keyboard Keys" visuals -->
+                <Style TargetType="Border" x:Key="KeyCapStyle">
+                    <Setter Property="Background" Value="{ThemeResource ControlFillColorDefaultBrush}"/>
+                    <Setter Property="BorderBrush" Value="{ThemeResource SurfaceStrokeColorDefaultBrush}"/>
+                    <Setter Property="BorderThickness" Value="1"/>
+                    <Setter Property="CornerRadius" Value="6"/>
+                    <Setter Property="Padding" Value="12,8"/>
+                    <Setter Property="Margin" Value="4"/>
+                    <Setter Property="BorderThickness" Value="1,1,1,3"/>
+                    <!-- Thicker bottom border for 3D effect -->
+                </Style>
+            </Grid.Resources>
+
+            <!-- STEP 1: WELCOME -->
+            <StackPanel x:Name="Step1Panel" VerticalAlignment="Center" Spacing="0" Visibility="Visible">
+                <StackPanel.ChildrenTransitions>
+                    <TransitionCollection>
+                        <EntranceThemeTransition FromVerticalOffset="20" IsStaggeringEnabled="True"/>
+                    </TransitionCollection>
+                </StackPanel.ChildrenTransitions>
+
+                <!-- Visual: Gradient Orb with AI Sparkles -->
+                <Grid Width="120" Height="120" HorizontalAlignment="Center" CornerRadius="60">
+                    <Grid.Background>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                            <GradientStop Color="PeachPuff" Offset="0"/>
+                            <GradientStop Color="MediumPurple" Offset="1"/>
+                        </LinearGradientBrush>
+                    </Grid.Background>
+
+                    <FontIcon Glyph="&#xF4A5;" FontSize="48" Foreground="White"/>
+                </Grid>
+
+                <TextBlock Text="Meet Llama Run" Style="{StaticResource HeaderStyle}"/>
+                <TextBlock Text="Your native AI workspace. Chat with LLMs, automate workflows, and organize your digital life without leaving your desktop." Style="{StaticResource BodyStyle}"/>
+            </StackPanel>
+
+            <!-- STEP 2: HOTKEY -->
+            <StackPanel x:Name="Step2Panel" VerticalAlignment="Center" Spacing="0" Visibility="Collapsed">
+                <StackPanel.ChildrenTransitions>
+                    <TransitionCollection>
+                        <EntranceThemeTransition FromVerticalOffset="20" IsStaggeringEnabled="True"/>
+                    </TransitionCollection>
+                </StackPanel.ChildrenTransitions>
+
+                <!-- Visual: Keyboard Keys -->
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,20,0,30">
+                    <Border Style="{StaticResource KeyCapStyle}">
+                        <TextBlock Text="Ctrl" FontWeight="SemiBold"/>
+                    </Border>
+                    <TextBlock Text="+" VerticalAlignment="Center" Opacity="0.5" Margin="5"/>
+                    <Border Style="{StaticResource KeyCapStyle}">
+                        <TextBlock Text="Shift" FontWeight="SemiBold"/>
+                    </Border>
+                    <TextBlock Text="+" VerticalAlignment="Center" Opacity="0.5" Margin="5"/>
+                    <Border Style="{StaticResource KeyCapStyle}" Background="{ThemeResource AccentFillColorDefaultBrush}">
+                        <TextBlock Text="A" FontWeight="Bold" Foreground="White"/>
+                    </Border>
+                </StackPanel>
+
+                <TextBlock Text="Always One Second Away" Style="{StaticResource HeaderStyle}" Margin="0,0,0,10"/>
+                <TextBlock Text="Llama Run lives silently in the background. Summon it instantly from anywhere in Windows to get answers or run scripts." Style="{StaticResource BodyStyle}"/>
+            </StackPanel>
+
+            <!-- STEP 3: PLUGINS -->
+            <StackPanel x:Name="Step3Panel" VerticalAlignment="Center" Spacing="0" Visibility="Collapsed">
+                <StackPanel.ChildrenTransitions>
+                    <TransitionCollection>
+                        <EntranceThemeTransition FromVerticalOffset="20" IsStaggeringEnabled="True"/>
+                    </TransitionCollection>
+                </StackPanel.ChildrenTransitions>
+
+                <!-- Visual: Plugin Block -->
+                <Grid Width="120" Height="100" Margin="0,0,0,20">
+
+                    <!-- Back file (Background card) -->
+                    <Border Width="80" Height="90" 
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" 
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" 
+                BorderThickness="1" 
+                CornerRadius="8" 
+                Margin="-20,-10,0,0" 
+                HorizontalAlignment="Center">
+                        <FontIcon Glyph="&#xE99A;" FontFamily="Segoe MDL2 Assets" FontSize="32" Opacity="0.2"/>
+                    </Border>
+
+                    <!-- Front Python file (The one with shadow) -->
+                    <!-- Added Translation="0,0,32" so the shadow actually shows up -->
+                    <Border Width="90" Height="90" 
+                Background="{ThemeResource LayerFillColorDefaultBrush}" 
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" 
+                BorderThickness="1" 
+                CornerRadius="8" 
+                Margin="20,10,0,0" 
+                HorizontalAlignment="Center"
+                Shadow="{StaticResource CommonShadow}"
+                Translation="0,0,32">
+
+                        <StackPanel VerticalAlignment="Center" Spacing="5">
+                            <!-- Python Icon / Puzzle Piece -->
+                            <FontIcon Glyph="&#xE74C;" FontFamily="Segoe MDL2 Assets" FontSize="32" Foreground="{ThemeResource AccentFillColorDefaultBrush}"/>
+                            <TextBlock Text=".py" FontSize="12" HorizontalAlignment="Center" FontWeight="Bold"/>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+
+                <TextBlock Text="Powered by Python" Style="{StaticResource HeaderStyle}"/>
+                <TextBlock Text="Extend functionality with simple Python plugins. We install pip automatically so you can use your favorite libraries." Style="{StaticResource BodyStyle}"/>
+            </StackPanel>
 
 
-        <StackPanel Grid.Row="3" Margin="0,-100,0,0" Orientation="Horizontal" Spacing="50" HorizontalAlignment="Center" VerticalAlignment="Center">
-            <Button x:Name="PreviousButton" Content="Previous" Width="100" Click="Previous_Click" IsEnabled="False"/>
-            <Button x:Name="NextButton" Content="Next" Width="100" Click="Next_Click"/>
-            <Button x:Name="FinishButton" Content="Finish" Width="100" Click="Finish_Click"/>
+            <!-- STEP 4: LOGIN / CLOUD -->
+            <StackPanel x:Name="Step4Panel" VerticalAlignment="Center" Spacing="0" Visibility="Collapsed">
+                <StackPanel.ChildrenTransitions>
+                    <TransitionCollection>
+                        <EntranceThemeTransition FromVerticalOffset="20" IsStaggeringEnabled="True"/>
+                    </TransitionCollection>
+                </StackPanel.ChildrenTransitions>
+
+                <!-- Visual: Cloud vs Local Connection -->
+                <Grid Width="120" Height="120" HorizontalAlignment="Center" Margin="0,0,0,20">
+                    <!-- Background Halo -->
+                    <Grid Width="120" Height="120" CornerRadius="60" Opacity="0.1">
+                        <Grid.Background>
+                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                <GradientStop Color="#ff00cc" Offset="0"/>
+                                <GradientStop Color="#333399" Offset="1"/>
+                            </LinearGradientBrush>
+                        </Grid.Background>
+                    </Grid>
+
+                    <!-- User/Cloud Icon -->
+                    <FontIcon Glyph="&#xE77B;" FontFamily="Segoe MDL2 Assets" FontSize="52" Foreground="{ThemeResource SystemControlForegroundBaseHighBrush}"/>
+
+                    <!-- Small Lock Badge -->
+                    <Border Background="{ThemeResource SystemControlBackgroundChromeMediumBrush}" 
+                    HorizontalAlignment="Right" VerticalAlignment="Bottom" 
+                    Margin="10" Padding="8" CornerRadius="20" BorderThickness="1"
+                    BorderBrush="{ThemeResource SurfaceStrokeColorDefaultBrush}">
+                        <FontIcon Glyph="&#xE72E;" FontFamily="Segoe MDL2 Assets" FontSize="16"/>
+                    </Border>
+                </Grid>
+
+                <TextBlock Text="Connect Your Account" Style="{StaticResource HeaderStyle}"/>
+                <TextBlock Text="Sign in to sync your preferences and access cloud models like Google Gemini. Or skip to run purely on local hardware." Style="{StaticResource BodyStyle}"/>
+
+                <!-- Inside Step4Panel -->
+
+                <!-- CONTAINER 1: Buttons (Visible by default) -->
+                <StackPanel x:Name="ActionButtonsPanel" Orientation="Vertical" Spacing="12" Margin="0,30,0,0" Width="260">
+                    <!-- SIGN IN BUTTON -->
+                    <Button x:Name="SignInActionBtn" Click="SignIn_Click" HorizontalAlignment="Stretch" Height="44" 
+            Style="{StaticResource AccentButtonStyle}">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <FontIcon Glyph="&#xE77B;" FontSize="16"/>
+                            <TextBlock Text="Sign In / Create Account"/>
+                        </StackPanel>
+                    </Button>
+
+                    <!-- SKIP BUTTON -->
+                    <Button x:Name="SkipActionBtn" Click="Skip_Click" HorizontalAlignment="Stretch" Height="44" 
+            Background="Transparent" BorderThickness="0">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <FontIcon Glyph="&#xE966;" FontSize="16" Opacity="0.6"/>
+                            <TextBlock Text="Skip (Use Offline Models)"/>
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+
+                <!-- CONTAINER 2: Loading State (Hidden by default) -->
+                <StackPanel x:Name="LoadingPanel" Visibility="Collapsed" Orientation="Vertical" Spacing="15" Margin="0,40,0,0">
+                    <ProgressRing IsActive="True" Width="40" Height="40" Foreground="{ThemeResource AccentFillColorDefaultBrush}"/>
+                    <TextBlock Text="Waiting for browser..." FontSize="14" Opacity="0.7" HorizontalAlignment="Center"/>
+                    <Button Content="Cancel" Click="CancelLogin_Click" HorizontalAlignment="Center" Margin="0,10,0,0" />
+                </StackPanel>
+            </StackPanel>
+        </Grid>
+
+        <!-- Navigation Footer -->
+        <StackPanel Grid.Row="2" Margin="0,0,0,40" HorizontalAlignment="Stretch">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,20">
+                <PipsPager x:Name="PipsPagerControl" 
+                       NumberOfPages="4" 
+                       SelectedPageIndex="0" 
+                       HorizontalAlignment="Center" 
+                       VerticalAlignment="Center"
+                       SelectedIndexChanged="PipsPagerControl_SelectedIndexChanged"
+                       PreviousButtonVisibility="Collapsed"
+                       NextButtonVisibility="Collapsed"
+                       Margin="10,0,10,0">
+                    <PipsPager.SelectedPipStyle>
+                        <Style TargetType="Button">
+                            <Setter Property="Width" Value="24"/>
+                            <Setter Property="Height" Value="8"/>
+                            <Setter Property="Padding" Value="0"/>
+                            <Setter Property="Margin" Value="4,0"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="Button">
+                                        <!-- USE BORDER INSTEAD OF RECTANGLE -->
+                                        <Border Background="{ThemeResource AccentFillColorDefaultBrush}" 
+                            CornerRadius="4"
+                            Height="{TemplateBinding Height}"
+                            Width="{TemplateBinding Width}"/>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </PipsPager.SelectedPipStyle>
+                    <PipsPager.NormalPipStyle>
+                        <Style TargetType="Button">
+                            <Setter Property="Width" Value="6"/>
+                            <Setter Property="Height" Value="6"/>
+                            <Setter Property="Margin" Value="4,0"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="Button">
+                                        <Grid>
+                                            <Rectangle Fill="{ThemeResource AccentFillColorDisabledBrush}" 
+                                                RadiusX="100" RadiusY="100"
+                                                Height="{TemplateBinding Height}"
+                                                Width="{TemplateBinding Width}"/>
+                                        </Grid>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </PipsPager.NormalPipStyle>
+                </PipsPager>
+            </StackPanel>
+
+            <!-- Buttons -->
+            <Grid Padding="40,0">
+                <Button x:Name="PreviousButton" Content="Back" Click="Previous_Click" IsEnabled="False" HorizontalAlignment="Left"/>
+                <Button x:Name="NextButton" Content="Next Step" Style="{StaticResource AccentButtonStyle}" Click="Next_Click" HorizontalAlignment="Right"/>
+            </Grid>
         </StackPanel>
     </Grid>
 </Window>

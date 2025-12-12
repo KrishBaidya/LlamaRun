@@ -1,5 +1,9 @@
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using System;
+using System.Linq;
+using Windows.System;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -16,95 +20,142 @@ namespace LlamaRun
         public FirstRunWindow()
         {
             this.InitializeComponent();
-
-            Title = "Get Started - Llama Run";
-
+            Title = "Welcome to Llama Run";
             ExtendsContentIntoTitleBar = true;
 
-            RequestStartup();
+            ((App)Application.Current).AuthenticationChanged += OnAuthenticationChanged;
+
+            UpdateUI();
         }
 
-        void UpdateStep()
+        private void UpdateUI()
         {
-            // Update the step title and description based on current step
-            switch (currentStep)
+            PipsPagerControl.SelectedPageIndex = currentStep;
+
+            Step1Panel.Visibility = (currentStep == 0) ? Visibility.Visible : Visibility.Collapsed;
+            Step2Panel.Visibility = (currentStep == 1) ? Visibility.Visible : Visibility.Collapsed;
+            Step3Panel.Visibility = (currentStep == 2) ? Visibility.Visible : Visibility.Collapsed;
+            Step4Panel.Visibility = (currentStep == 3) ? Visibility.Visible : Visibility.Collapsed;
+
+            if (currentStep == 3)
             {
-                case 0:
-                    StepTitle.Text = "Step 1: AI Answers";
-                    StepDescription.Text = "Instantly get answers to programming questions and tech problems.";
-                    break;
-                case 1:
-                    StepTitle.Text = "Step 2: Hotkey Activation";
-                    StepDescription.Text = "Wake LlamaRun with a hotkey, ready to assist anytime. Just Press Ctrl + Shift + A";
-                    break;
-                case 2:
-                    StepTitle.Text = "Step 3: Lightweight & Always On";
-                    StepDescription.Text = "LlamaRun starts with your PC, so you always have AI assistance at your fingertips.";
-                    break;
+                PreviousButton.Visibility = Visibility.Collapsed;
+                NextButton.Visibility = Visibility.Collapsed;
             }
+            else
+            {
+                PreviousButton.Visibility = Visibility.Visible;
+                NextButton.Visibility = Visibility.Visible;
 
-            // Update progress bar
-            ProgressIndicator.Value = currentStep * 100.0 / 2.0;
-
-            // Enable/disable buttons
-            PreviousButton.IsEnabled = (currentStep > 0);
-            NextButton.IsEnabled = (currentStep < 2);
+                PreviousButton.IsEnabled = (currentStep > 0);
+                NextButton.Content = "Next";
+            }
         }
 
-        public void Previous_Click(Object _, Object __)
+        public void Previous_Click(object sender, RoutedEventArgs e)
         {
             if (currentStep > 0)
             {
                 currentStep--;
-                UpdateStep();
+                UpdateUI();
             }
         }
 
-        public void Next_Click(Object _, Object __)
+        public void Next_Click(object sender, RoutedEventArgs e)
         {
-            if (currentStep < 2)
+            if (currentStep < 3) // Updated to 3
             {
                 currentStep++;
-                UpdateStep();
+                UpdateUI();
             }
         }
 
-        public void Finish_Click(Object _, Object __)
+
+        private void Finish_Sequence()
         {
+            // Open Main Window
             var window = new LlamaRun.MainWindow();
             App.m_window = window;
             window.Activate();
 
+            // Close this onboarding window
             this.Close();
         }
 
-        async void RequestStartup()
+        private void PipsPagerControl_SelectedIndexChanged(PipsPager sender, PipsPagerSelectedIndexChangedEventArgs args)
         {
-            var startupTask = await Windows.ApplicationModel.StartupTask.GetAsync("LlamaRun Generation");
+            currentStep = sender.SelectedPageIndex;
+            UpdateUI();
+        }
 
-            switch (startupTask.State)
+        private async void OnAuthenticationChanged(object? sender, AuthenticationChangedEventArgs e)
+        {
+            DispatcherQueue.TryEnqueue(async () =>
             {
-                case Windows.ApplicationModel.StartupTaskState.Disabled:
-                    await startupTask.RequestEnableAsync();
-                    break;
+                if (e.IsAuthenticated)
+                {
+                    var loadingText = LoadingPanel.Children.OfType<TextBlock>().FirstOrDefault();
+                    if (loadingText != null)
+                    {
+                        loadingText.Text = "Setting up your profile...";
+                    }
 
-                case Windows.ApplicationModel.StartupTaskState.DisabledByUser:
-                    await startupTask.RequestEnableAsync();
-                    break;
+                    try
+                    {
+                        string jwt = DataStore.GetInstance().GetJWT();
+                        if (!string.IsNullOrEmpty(jwt))
+                        {
+                            await SettingsWindow.FetchAndSaveUserInfo(jwt);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine("Profile fetch failed: " + ex.Message);
+                    }
 
-                case Windows.ApplicationModel.StartupTaskState.DisabledByPolicy:
-                    // Startup disabled by group policy
-                    break;
+                    Finish_Sequence();
+                }
+            });
+        }
 
-                case Windows.ApplicationModel.StartupTaskState.Enabled:
-                    // Already enabled
-                    break;
+        private async void SignIn_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                // 1. Switch UI to Loading State
+                ActionButtonsPanel.Visibility = Visibility.Collapsed;
+                LoadingPanel.Visibility = Visibility.Visible;
+
+                // 2. Launch Browser
+                await Launcher.LaunchUriAsync(new Uri(Constants.BaseServerUrl + "/login"));
+
+                // 3. DO NOT call Finish_Sequence(). 
+                // We now wait for OnAuthenticationChanged to fire.
+            }
+            catch (Exception)
+            {
+                // If launch fails, revert UI
+                CancelLogin_Click(null, null);
             }
         }
 
-        public void Grid_Loaded(Object _, Object __)
+        private void CancelLogin_Click(object? sender, RoutedEventArgs? e)
         {
-            UpdateStep();
+            // Revert UI if user cancels
+            LoadingPanel.Visibility = Visibility.Collapsed;
+            ActionButtonsPanel.Visibility = Visibility.Visible;
+        }
+
+        private void Skip_Click(object sender, RoutedEventArgs e)
+        {
+            // User chose local mode explicitly
+            Finish_Sequence();
+        }
+
+        // Ensure we unsubscribe to avoid memory leaks (though Window is closing anyway)
+        private void Window_Closed(object sender, WindowEventArgs args)
+        {
+            ((App)Application.Current).AuthenticationChanged -= OnAuthenticationChanged;
         }
 
     }

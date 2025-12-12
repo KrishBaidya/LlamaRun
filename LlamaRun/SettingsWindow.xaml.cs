@@ -25,7 +25,7 @@ namespace LlamaRun
         private const string BackendUrl = "https://llamarun.vercel.app"; // Your Next.js Backend URL
 #endif
         private const string REDIRECT_URI = "llama-run://auth";
-        private readonly ApplicationDataContainer localSettings = ApplicationData.Current.LocalSettings;
+        private static readonly ApplicationDataContainer localSettings = ApplicationData.Current.LocalSettings;
         private static readonly Windows.Web.Http.HttpClient httpClient = new();
 
         public static bool IsAuth = false;
@@ -163,7 +163,7 @@ namespace LlamaRun
             }
         }
 
-        private async Task FetchAndSaveUserInfo(string token)
+        public static async Task FetchAndSaveUserInfo(string token)
         {
             try
             {
