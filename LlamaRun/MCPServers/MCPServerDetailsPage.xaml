@@ -112,6 +112,18 @@
                 <Grid HorizontalAlignment="Stretch" MaxWidth="1200">
                     <StackPanel Spacing="0">
 
+                        <Button Click="BackButton_Click"
+                                HorizontalAlignment="Left" 
+                                Margin="0,0,0,10" 
+                                Background="Transparent" 
+                                BorderThickness="0" 
+                                Padding="10">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE72B;" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                <TextBlock Text="Back" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontWeight="Medium"/>
+                            </StackPanel>
+                        </Button>
+
                         <!-- Hero Section with Glassmorphism Effect -->
                         <Border ActualThemeChanged="Card_Border_ActualThemeChanged" Loaded="Card_Border_Loaded" Style="{StaticResource ModernCard}" Margin="0,0,0,32">
                             <Border.Background>

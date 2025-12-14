@@ -200,10 +200,11 @@ namespace LlamaRun
                             {
                                 try
                                 {
-                                    string modelName = DataStore.GetInstance().GetSelectedModel();
+                                    string modelName = DataStore.GetInstance().LoadSelectedModel().GetSelectedModel();
+                                    var vals = CloudLLMService.GetModels().Values;
 
                                     var modelObject = AIServiceManager.IsModelCloudBased(modelName)
-                                    ? CloudLLMService.GetModels()[DataStore.GetInstance().LoadSelectedModel().GetSelectedModel()]
+                                    ? CloudLLMService.GetModels().Values.Where((_model) => _model.Name == DataStore.GetInstance().LoadSelectedModel().GetSelectedModel()).First()
                                     : new Model(modelName, [Capabilities.Text]);
 
                                     await AIServiceManager.GetInstance().TextGeneration(

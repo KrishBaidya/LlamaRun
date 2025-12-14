@@ -139,7 +139,7 @@ namespace LlamaRun
                 Model_ComboBox.Items.Add(new ComboBoxItem { Content = $"--- {provider.Key} ---", IsEnabled = false, Opacity = 0.5 });
                 foreach (var model in provider.Value.Models)
                 {
-                    var item = new ComboBoxItem { Content = model.Key, Tag = model.Value };
+                    var item = new ComboBoxItem { Content = model.Key, Tag = model.Value.Name };
                     Model_ComboBox.Items.Add(item);
                     if (model.Value.Name == savedModelId) itemToSelect = item;
                 }

@@ -284,7 +284,7 @@
             <!-- Buttons -->
             <Grid Padding="40,0">
                 <Button x:Name="PreviousButton" Content="Back" Click="Previous_Click" IsEnabled="False" HorizontalAlignment="Left"/>
-                <Button x:Name="NextButton" Content="Next Step" Style="{StaticResource AccentButtonStyle}" Click="Next_Click" HorizontalAlignment="Right"/>
+                <Button x:Name="NextButton" Content="Get Started" Style="{StaticResource AccentButtonStyle}" Click="Next_Click" HorizontalAlignment="Right"/>
             </Grid>
         </StackPanel>
     </Grid>

@@ -70,16 +70,19 @@
 
         <!-- Search Box -->
         <AutoSuggestBox Grid.Row="1"
-                        Margin="0,24"
-                        PlaceholderText="Search MCP Servers..."
-                        QueryIcon="Find"/>
+                x:Name="SearchBox"
+                Margin="0,24"
+                PlaceholderText="Search MCP Servers..."
+                QueryIcon="Find"
+                TextChanged="SearchBox_TextChanged"/>
 
         <!-- Modern MCP List -->
         <ListView Grid.Row="2" 
-                Background="Transparent" 
-                x:Name="InstalledMCPList"
-                Loaded="InstalledMCPList_Loaded"
-                SelectionMode="None">
+          Background="Transparent" 
+          x:Name="InstalledMCPList"
+          Loaded="InstalledMCPList_Loaded"
+          ItemsSource="{x:Bind FilteredServers}"
+          SelectionMode="None">
             <ListView.Resources>
                 <Style TargetType="ListViewItem">
                     <Setter Property="Margin" Value="0,8"/>
@@ -106,27 +109,39 @@
                         </Grid.ColumnDefinitions>
 
                         <StackPanel Grid.Column="0">
-                            <TextBlock Text="{Binding Name}" 
+                            <TextBlock Text="{Binding Item1.Name}" 
                                FontWeight="SemiBold" 
                                FontSize="16"/>
-                            <TextBlock Text="{Binding Description}" 
+                            <!--<TextBlock Text="{Binding description}" 
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                Margin="0,2,0,4"
-                               TextWrapping="Wrap"/>
+                               TextWrapping="Wrap"/>-->
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <Border Background="{ThemeResource AccentFillColorSecondaryBrush}" 
                                 CornerRadius="2" 
                                 Padding="6,2">
-                                    <TextBlock Text="{Binding Command}" 
+                                    <TextBlock Text="{Binding Item1.Data.Command}" 
                                        FontSize="12" 
                                        FontFamily="Consolas"/>
                                 </Border>
-                                <TextBlock Text="{Binding ArgumentsDisplay}" 
-                                   FontSize="12" 
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                   FontFamily="Consolas"/>
+                                <TextBlock Text="{Binding Item2}"
+                                           FontSize="12" 
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           FontFamily="Consolas"/>
                             </StackPanel>
                         </StackPanel>
+
+                        <Button Grid.Column="1" 
+                                VerticalAlignment="Center"
+                                Click="RemoveServer_Click"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                Padding="8"
+                                Margin="8,0,0,0"
+                                ToolTipService.ToolTip="Remove Server">
+                            <FontIcon Glyph="&#xE74D;" FontSize="16" Foreground="{ThemeResource SystemFillColorCriticalBrush}"/>
+                        </Button>
+
                     </Grid>
                 </DataTemplate>
             </ListView.ItemTemplate>

@@ -107,7 +107,6 @@ namespace LlamaRun
         {
             bool isCloud = IsModelCloudBased(model.Name);
 
-            // 2. Route
             Debug.WriteLine($"Generating with: {model.Name} (Cloud: {isCloud})");
 
             if (isCloud)
@@ -116,7 +115,6 @@ namespace LlamaRun
             }
             else
             {
-                // Default to Ollama for everything else (llama3, mistral, custom-model, etc.)
                 await OllamaService.TextGeneration(model.Name, inputText, tools);
             }
 

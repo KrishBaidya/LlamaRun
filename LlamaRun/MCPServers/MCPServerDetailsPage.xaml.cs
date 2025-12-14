@@ -27,7 +27,6 @@ namespace LlamaRun.MCPServers
 
             if (e.Parameter is MCPServerInfo server)
             {
-                // Use server data to populate your UI
                 serverInfo = server;
 
                 Debug.WriteLine(server.id);
@@ -104,6 +103,14 @@ namespace LlamaRun.MCPServers
                 {
                     border.Background.Opacity = 0.8;
                 }
+            }
+        }
+
+        private void BackButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (Frame.CanGoBack)
+            {
+                Frame.GoBack();
             }
         }
     }
