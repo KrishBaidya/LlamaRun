@@ -200,8 +200,14 @@ namespace LlamaRun
                             {
                                 try
                                 {
+                                    string modelName = DataStore.GetInstance().GetSelectedModel();
+
+                                    var modelObject = AIServiceManager.IsModelCloudBased(modelName)
+                                    ? CloudLLMService.GetModels()[DataStore.GetInstance().LoadSelectedModel().GetSelectedModel()]
+                                    : new Model(modelName, [Capabilities.Text]);
+
                                     await AIServiceManager.GetInstance().TextGeneration(
-                                            CloudLLMService.GetModels()[DataStore.GetInstance().LoadSelectedModel().GetSelectedModel()],
+                                            modelObject,
                                             inputText,
                                             [.. tools]
                                         );
@@ -258,7 +264,7 @@ namespace LlamaRun
                 // No need to check for null text, the calling code now sends an empty string.
 
                 // TryEnqueue returns false if the UI thread is shutting down or unavailable.
-                bool successfullyEnqueued = DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, async() =>
+                bool successfullyEnqueued = DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, async () =>
                 {
                     // Add a final check here. The control could have become null
                     // by the time this code runs on the UI thread.
