@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ContentDialog
+    x:Class="LlamaRun.MCPServers.EnvironmentConfigDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Configure Environment Variables"
+    PrimaryButtonText="Save &amp; Install"
+    SecondaryButtonText="Cancel"
+    DefaultButton="Primary">
+
+    <ScrollViewer MaxHeight="400" VerticalScrollBarVisibility="Auto">
+        <StackPanel Spacing="16" Padding="4">
+
+            <!-- Info Message -->
+            <InfoBar x:Name="InfoMessage"
+                     Severity="Informational"
+                     IsOpen="True"
+                     Title="Configuration Required"
+                     Message="This MCP server requires environment variables to be configured."/>
+
+            <!-- Environment Variables -->
+            <StackPanel x:Name="EnvVarsPanel" Spacing="12">
+                <!-- Items will be added programmatically -->
+            </StackPanel>
+
+        </StackPanel>
+    </ScrollViewer>
+</ContentDialog>

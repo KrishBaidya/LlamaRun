@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net9.0-windows10.0.26100.0</TargetFramework>
@@ -12,6 +12,10 @@
     <EnableMsixTooling>true</EnableMsixTooling>
     <Nullable>enable</Nullable>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)'=='Release'">
+    <PublishAot>False</PublishAot>
+    <PublishTrimmed>false</PublishTrimmed>
+  </PropertyGroup>
   <ItemGroup>
     <None Remove="Assets\StoreLogo.scale-100.png" />
     <None Remove="Assets\StoreLogo.scale-125.png" />
@@ -20,6 +24,13 @@
     <None Remove="Assets\StoreLogo.scale-400.png" />
     <None Remove="FirstRunWindow.xaml" />
     <None Remove="HomePage_SettingsWindow.xaml" />
+    <None Remove="MCPServerPage_SettingsWindow.xaml" />
+    <None Remove="MCPServers\AvaliableMCPServers.xaml" />
+    <None Remove="MCPServers\EnvironmentConfigDialog.xaml" />
+    <None Remove="MCPServers\InstalledMCPServers.xaml" />
+    <None Remove="MCPServers\MCPServerDetailsPage.xaml" />
+    <None Remove="MCPServers\ServerInstallPreviewDialog.xaml" />
+    <None Remove="MCPServers\SimpleReadmeViewer.xaml" />
     <None Remove="SettingsWindow.xaml" />
   </ItemGroup>
 
@@ -36,10 +47,10 @@
   </ItemGroup>
 
   <!--
-    Defining the "Msix" ProjectCapability here allows the Single-project MSIX Packaging
-    Tools extension to be activated for this project even if the Windows App SDK Nuget
-    package has not yet been restored.
-  -->
+      Defining the "Msix" ProjectCapability here allows the Single-project MSIX Packaging
+      Tools extension to be activated for this project even if the Windows App SDK Nuget
+      package has not yet been restored.
+    -->
   <ItemGroup Condition="'$(DisableMsixProjectCapabilityAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
     <ProjectCapability Include="Msix" />
   </ItemGroup>
@@ -55,6 +66,7 @@
     <PackageReference Include="System.Net.Http" Version="4.3.4" />
     <PackageReference Include="System.Private.Uri" Version="4.3.2" />
     <PackageReference Include="System.Text.RegularExpressions" Version="4.3.1" />
+    <PackageReference Include="OllamaSharp" Version="5.4.12" />
   </ItemGroup>
   <ItemGroup>
     <Page Update="MCPServers\ServerInstallPreviewDialog.xaml">
@@ -62,7 +74,34 @@
     </Page>
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\CPythonIntrop\CPythonIntrop.vcxproj" />
+    <Page Update="MCPServers\ServerInstallPreviewDialog.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+  </ItemGroup>
+  <ItemGroup>
+    <Page Update="MCPServers\EnvironmentConfigDialog.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+  </ItemGroup>
+  <ItemGroup>
+    <Page Update="MCPServers\SimpleReadmeViewer.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+  </ItemGroup>
+  <ItemGroup>
+    <Page Update="MCPServers\MCPServerDetailsPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+  </ItemGroup>
+  <ItemGroup>
+    <Page Update="MCPServers\AvaliableMCPServers.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+  </ItemGroup>
+  <ItemGroup>
+    <Page Update="MCPServerPage_SettingsWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
   </ItemGroup>
   <ItemGroup>
     <Page Update="PluginPage_SettingsWindow.xaml">
@@ -91,10 +130,10 @@
   </ItemGroup>
 
   <!--
-    Defining the "HasPackageAndPublishMenuAddedByProject" property here allows the Solution
-    Explorer "Package and Publish" context menu entry to be enabled for this project even if
-    the Windows App SDK Nuget package has not yet been restored.
-  -->
+      Defining the "HasPackageAndPublishMenuAddedByProject" property here allows the Solution
+      Explorer "Package and Publish" context menu entry to be enabled for this project even if
+      the Windows App SDK Nuget package has not yet been restored.
+    -->
   <PropertyGroup Condition="'$(DisableHasPackageAndPublishMenuAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
     <HasPackageAndPublishMenu>true</HasPackageAndPublishMenu>
   </PropertyGroup>
@@ -102,9 +141,9 @@
   <!-- Publish Properties -->
   <PropertyGroup>
     <PublishReadyToRun Condition="'$(Configuration)' == 'Debug'">False</PublishReadyToRun>
-    <PublishReadyToRun Condition="'$(Configuration)' != 'Debug'">True</PublishReadyToRun>
+    <PublishReadyToRun Condition="'$(Configuration)' != 'Debug'">False</PublishReadyToRun>
     <PublishTrimmed Condition="'$(Configuration)' == 'Debug'">False</PublishTrimmed>
-    <PublishTrimmed Condition="'$(Configuration)' != 'Debug'">True</PublishTrimmed>
+    <PublishTrimmed Condition="'$(Configuration)' != 'Debug'">False</PublishTrimmed>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <GenerateTemporaryStoreCertificate>True</GenerateTemporaryStoreCertificate>
     <UserSecretsId>5224ed0c-372e-4a8f-9679-27eb1d681466</UserSecretsId>
@@ -128,4 +167,7 @@
   <PropertyGroup>
     <CsWinRTIncludes>CPythonIntrop</CsWinRTIncludes>
   </PropertyGroup>
+  <!--<PropertyGroup>
+		<WindowsPackageType>None</WindowsPackageType>
+	</PropertyGroup>-->
 </Project>

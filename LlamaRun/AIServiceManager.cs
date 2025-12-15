@@ -1,7 +1,8 @@
 ﻿using Microsoft.UI.Dispatching;
+using ModelContextProtocol.Client;
+using OllamaSharp.Models;
 using System;
 using System.Collections.Generic;
-using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Threading.Tasks;
 
@@ -87,9 +88,35 @@ namespace LlamaRun
             return Task.CompletedTask;
         }
 
-        public async Task<bool> TextGeneration(string model, string inputText)
+        public static bool IsModelCloudBased(string model)
         {
-            await CloudLLMService.TextGeneration(model, inputText);
+            foreach (var item in Models.models)
+            {
+                foreach (var item1 in item.Value.Models)
+                {
+                    if (item1.Value.Name.Equals(model))
+                    {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        public async Task<bool> TextGeneration(Model model, string inputText, IList<McpClientTool>? tools)
+        {
+            bool isCloud = IsModelCloudBased(model.Name);
+
+            Debug.WriteLine($"Generating with: {model.Name} (Cloud: {isCloud})");
+
+            if (isCloud)
+            {
+                await CloudLLMService.TextGeneration(model, inputText, tools);
+            }
+            else
+            {
+                await OllamaService.TextGeneration(model.Name, inputText, tools);
+            }
 
             MainWindow!.DispatcherQueue.TryEnqueue(() =>
             {

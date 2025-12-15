@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
@@ -80,7 +81,7 @@ namespace LlamaRun
             //    MainWindowHeight.Value = 10;
             //}
 
-            if (SettingsWindow.LoadSetting("AppOpacity") != "")
+            if (SettingsWindow.LoadSetting("AppOpacity") != String.Empty)
             {
                 var appOpacity = SettingsWindow.LoadSetting("AppOpacity");
 
@@ -92,7 +93,7 @@ namespace LlamaRun
                 MainWindowOpacitySlider.Value = 15;
             }
 
-            if (SettingsWindow.LoadSetting("Startup Enabled") != "")
+            if (SettingsWindow.LoadSetting("Startup Enabled") != String.Empty)
             {
                 var StartupEnabled = SettingsWindow.LoadSetting("Startup Enabled");
                 _ = bool.TryParse(StartupEnabled, out bool _StartupEnabled);
@@ -125,56 +126,62 @@ namespace LlamaRun
             }
         }
 
-        void Update_Model_ComboBox()
+        async void Update_Model_ComboBox()
         {
-            var models = DataStore.GetInstance().GetModels();
 
-            if (models != null && models.Count > 0)
+            Model_ComboBox.Items.Clear();
+            string savedModelId = DataStore.GetInstance().LoadSelectedModel().GetSelectedModel();
+            ComboBoxItem? itemToSelect = null;
+
+            // 1. GEMINI (Static)
+            foreach (var provider in Models.models)
             {
-                foreach (var model in models)
+                Model_ComboBox.Items.Add(new ComboBoxItem { Content = $"--- {provider.Key} ---", IsEnabled = false, Opacity = 0.5 });
+                foreach (var model in provider.Value.Models)
                 {
-                    var comboBoxItem = new ComboBoxItem
-                    {
-                        Content = model.Key
-                    };
-                    Model_ComboBox.Items.Add(comboBoxItem);
+                    var item = new ComboBoxItem { Content = model.Key, Tag = model.Value.Name };
+                    Model_ComboBox.Items.Add(item);
+                    if (model.Value.Name == savedModelId) itemToSelect = item;
                 }
             }
 
-            if (!String.IsNullOrEmpty(DataStore.GetInstance().LoadSelectedModel().GetSelectedModel()))
+            // 2. OLLAMA (Dynamic)
+            Model_ComboBox.Items.Add(new ComboBoxItem { Content = "--- Ollama (Local) ---", IsEnabled = false, Opacity = 0.5 });
+
+            // Fetch generic 'Model' objects from OllamaService
+            var localModels = await OllamaService.GetAvailableModels();
+
+            if (localModels.Count == 0)
             {
-                var _selectedModel = DataStore.GetInstance().LoadSelectedModel().GetSelectedModel();
-                DataStore.GetInstance().SetSelectedModel(_selectedModel);
-                ComboBoxItem? comboBoxItem = null;
-                _ = Model_ComboBox.Items.OfType<ComboBoxItem>().All(item =>
-                {
-                    if (string.Equals(item.Content.ToString(), _selectedModel))
-                    {
-                        comboBoxItem = item;
-                        return false;
-                    }
-                    return true;
-                });
-                Model_ComboBox.SelectedItem = comboBoxItem;
+                Model_ComboBox.Items.Add(new ComboBoxItem { Content = "(Ollama not running)", IsEnabled = false });
             }
             else
             {
-                Model_ComboBox.SelectedIndex = 0;
+                foreach (var m in localModels)
+                {
+                    var item = new ComboBoxItem { Content = m.Name, Tag = m.Name };
+                    Model_ComboBox.Items.Add(item);
+                    if (m.Name == savedModelId) itemToSelect = item;
+                }
             }
+
+            // 3. Selection Logic
+            if (itemToSelect != null) Model_ComboBox.SelectedItem = itemToSelect;
+            else if (Model_ComboBox.Items.Count > 1) Model_ComboBox.SelectedIndex = 1;
+        }
+
+        private void MainWindowOpacitySlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
+        {
+            OpacityValueText.Text = $"{e.NewValue:F0}%";
         }
 
         public async void SaveButtonClicked(Object _, Object args)
         {
             // Get the selected model index from the ComboBox
             var selectedModelValue = Model_ComboBox.SelectedValue;
-            ComboBoxItem? comboBoxItem = selectedModelValue?.As<ComboBoxItem>();
-            if (selectedModelValue != null && comboBoxItem?.Content.As<String>().Length > 0)
+            if (Model_ComboBox.SelectedItem is ComboBoxItem item && item.Tag is string modelId)
             {
-                var selectedModelIndex = Model_ComboBox.SelectedIndex;
-
-                String selectedModel = DataStore.GetInstance().GetModels().ElementAt(selectedModelIndex).Key;
-
-                DataStore.GetInstance().SetSelectedModel(selectedModel).SaveSelectedModel();
+                DataStore.GetInstance().SetSelectedModel(modelId).SaveSelectedModel();
             }
 
             // Retrieve the current height, width, and opacity values from the UI elements

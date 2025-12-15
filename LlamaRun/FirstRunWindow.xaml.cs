@@ -48,7 +48,7 @@ namespace LlamaRun
                 NextButton.Visibility = Visibility.Visible;
 
                 PreviousButton.IsEnabled = (currentStep > 0);
-                NextButton.Content = "Next";
+                NextButton.Content = currentStep == 0 ? "Get Started" : "Next";
             }
         }
 
@@ -122,6 +122,9 @@ namespace LlamaRun
         {
             try
             {
+                //Manually Set Default Model to Gemini 2.5 Flash
+                DataStore.GetInstance().SetSelectedModel("gemini-2.5-flash").SaveSelectedModel();
+
                 // 1. Switch UI to Loading State
                 ActionButtonsPanel.Visibility = Visibility.Collapsed;
                 LoadingPanel.Visibility = Visibility.Visible;
@@ -146,8 +149,27 @@ namespace LlamaRun
             ActionButtonsPanel.Visibility = Visibility.Visible;
         }
 
-        private void Skip_Click(object sender, RoutedEventArgs e)
+        private async void Skip_Click(object sender, RoutedEventArgs e)
         {
+            try
+            {
+                var models = await OllamaService.GetAvailableModels();
+                //Select one of Avaliable Models
+                if ((models).Count > 0)
+                {
+                    DataStore.GetInstance().SetSelectedModel(models.First().Name).SaveSelectedModel();
+                }
+                else
+                {
+                    DataStore.GetInstance().SetSelectedModel("gemini-2.5-flash").SaveSelectedModel();
+                }
+            }
+            catch
+            {
+
+                // If launch fails, revert UI
+                CancelLogin_Click(null, null);
+            }
             // User chose local mode explicitly
             Finish_Sequence();
         }

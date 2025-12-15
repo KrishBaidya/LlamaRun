@@ -8,23 +8,160 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
 
+    <Page.Resources>
+        <!-- Custom styles -->
+        <Style x:Key="SettingsCardStyle" TargetType="Border">
+            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}"/>
+            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="20"/>
+            <Setter Property="Margin" Value="0,0,0,16"/>
+        </Style>
+
+        <Style x:Key="SectionHeaderStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="20"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,0,0,12"/>
+            <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}"/>
+        </Style>
+
+        <Style x:Key="FooterTextStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="FontWeight" Value="Normal"/>
+            <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}"/>
+        </Style>
+    </Page.Resources>
+
     <Grid x:Name="rootPanel" Loaded="rootPanel_Loaded">
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled" 
+                      VerticalScrollBarVisibility="Auto"
+                      Padding="40,60,40,40">
+            <StackPanel MaxWidth="800" HorizontalAlignment="Center" Spacing="32">
 
-        <StackPanel HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Margin="200,100" Orientation="Vertical">
-            <ComboBox x:Name="Model_ComboBox" HorizontalAlignment="Stretch" PlaceholderText="Select Model" Loaded="Model_ComboBox_Loaded" />
-            <!--<Slider x:Name="MainWindowHeight" Minimum="10" Maximum="80" Header="App Height" />
-            <Slider x:Name="MainWindowWidth" Minimum="10" Maximum="80" Header="App Width"/>-->
-            <Slider x:Name="MainWindowOpacitySlider" Minimum="0" Maximum="100" Header="Animation Opactiy" />
-            <CheckBox x:Name="AutoStartUpCheckBox" Content="Enable Auto Startup" IsChecked="False" />
-            <Button Content="Save" Click="SaveButtonClicked" HorizontalAlignment="Center" />
-        </StackPanel>
+                <!-- Page Header -->
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Settings" 
+                              Style="{StaticResource TitleTextBlockStyle}"
+                              HorizontalAlignment="Center"
+                              FontSize="32"
+                              FontWeight="Bold"/>
+                    <TextBlock Text="Customize your LlamaRun experience"
+                              Style="{StaticResource BodyTextBlockStyle}"
+                              HorizontalAlignment="Center"
+                              Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
 
-        <StackPanel Margin="0, 0, 0, 20" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Bottom">
-            <TextBlock Margin="0,0,0,0" FontSize="30">Made With</TextBlock>
-            <Image Source="../Assets/red_heart_animated.gif" Margin="0,0,0,-10" Width="50"></Image>
-            <TextBlock FontSize="30">By&#160;</TextBlock>
-            <HyperlinkButton Margin="0,0,0,0" NavigateUri="https://github.com/krishbaidya" FontSize="30" Style="{StaticResource TextBlockStyleHyperlink}">Krish Baidya</HyperlinkButton>
-        </StackPanel>
+                <!-- Model Selection Card -->
+                <Border Style="{StaticResource SettingsCardStyle}">
+                    <StackPanel Spacing="16">
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="Model Configuration" 
+                                      Style="{StaticResource SectionHeaderStyle}"/>
+                            <TextBlock Text="Choose the AI model for your conversations"
+                                      Style="{StaticResource CaptionTextBlockStyle}"
+                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
+
+                        <ComboBox x:Name="Model_ComboBox" 
+                                 HorizontalAlignment="Stretch" 
+                                 PlaceholderText="Select Model" 
+                                 Loaded="Model_ComboBox_Loaded"
+                                 MinWidth="300"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Appearance Card -->
+                <Border Style="{StaticResource SettingsCardStyle}">
+                    <StackPanel Spacing="20">
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="Appearance" 
+                                      Style="{StaticResource SectionHeaderStyle}"/>
+                            <TextBlock Text="Adjust visual settings and behavior"
+                                      Style="{StaticResource CaptionTextBlockStyle}"
+                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
+
+                        <!-- Animation Opacity Slider -->
+                        <StackPanel Spacing="8">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock Text="Animation Opacity" 
+                                          FontWeight="SemiBold"
+                                          FontSize="14"/>
+                                <TextBlock x:Name="OpacityValueText"
+                                          Text="100%"
+                                          FontWeight="Normal"
+                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            </StackPanel>
+                            <Slider x:Name="MainWindowOpacitySlider" 
+                                   Minimum="0" 
+                                   Maximum="100" 
+                                   Value="100"
+                                   HorizontalAlignment="Stretch"
+                                   TickFrequency="10"
+                                   TickPlacement="Outside"
+                                   ValueChanged="MainWindowOpacitySlider_ValueChanged"/>
+                        </StackPanel>
+
+                        <!-- Auto Startup -->
+                        <StackPanel Spacing="8">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="System Integration" 
+                                          FontWeight="SemiBold"
+                                          FontSize="14"/>
+                                <CheckBox x:Name="AutoStartUpCheckBox" 
+                                         Content="Launch LlamaRun automatically when Windows starts" 
+                                         IsChecked="False"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Action Buttons -->
+                <StackPanel Orientation="Horizontal" 
+                           HorizontalAlignment="Center" 
+                           Spacing="12">
+                    <Button Content="Save Settings" 
+                           Click="SaveButtonClicked"
+                           Style="{StaticResource AccentButtonStyle}"
+                           MinWidth="120"
+                           Height="40"/>
+                    <Button Content="Reset to Defaults"
+                           Style="{StaticResource DefaultButtonStyle}"
+                           MinWidth="120"
+                           Height="40"/>
+                </StackPanel>
+
+                <!-- Spacer -->
+                <Rectangle Height="40"/>
+
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Footer -->
+        <Border Background="{ThemeResource AcrylicBackgroundFillColorBaseBrush}"
+               BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+               BorderThickness="0,1,0,0"
+               VerticalAlignment="Bottom"
+               Padding="0,16">
+            <StackPanel Orientation="Horizontal" 
+                       HorizontalAlignment="Center" 
+                       VerticalAlignment="Center"
+                       Spacing="4">
+                <TextBlock Text="Made with" 
+                          Style="{StaticResource FooterTextStyle}"/>
+                <Image Source="../Assets/red_heart_animated.gif" 
+                       Width="24" 
+                       Height="24"
+                       VerticalAlignment="Center"/>
+                <TextBlock Text="by" 
+                          Style="{StaticResource FooterTextStyle}"/>
+                <HyperlinkButton Content="Krish Baidya"
+                                NavigateUri="https://github.com/krishbaidya"
+                                Style="{StaticResource TextBlockStyleHyperlink}"
+                                FontSize="16"
+                                Padding="4,0"/>
+            </StackPanel>
+        </Border>
     </Grid>
-
 </Page>

@@ -16,9 +16,9 @@
 
     <Grid x:Name="AppTitleBar" Loaded="AppTitleBar_Loaded" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
         <Grid.RowDefinitions>
-            <RowDefinition Height="80"></RowDefinition>
-            <RowDefinition Height="10"></RowDefinition>
-            <RowDefinition Height="*"></RowDefinition>
+            <RowDefinition x:Name="TopRowDefinition" Height="80"/>
+            <RowDefinition x:Name="SeparatorRowDefinition" Height="10"/>
+            <RowDefinition x:Name="BottomRowDefinition" Height="*"/>
         </Grid.RowDefinitions>
 
         <Grid.Resources>
@@ -81,29 +81,56 @@
             </LinearGradientBrush>
         </Grid.Background>
 
-        <ScrollViewer x:Name="scrollViewer" Grid.Row="0" IsScrollInertiaEnabled="True" VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled">
-            <TextBox
-			   x:Name="TextBoxElement"
-			   x:FieldModifier="public"
-			   PlaceholderText="Ask Anything!"
-			   VerticalAlignment="Center"
-			   HorizontalAlignment="Stretch" 
-			   TextWrapping="Wrap"
-			   AcceptsReturn="True"
-			   IsSpellCheckEnabled="True"
-			   PreviewKeyDown="TextBoxElement_PreviewKeyDown"
-			   TextChanged="TextBoxElement_TextChanged"
-			   Style="{StaticResource EditableTextBlockStyle}"
+        <Grid Grid.Row="0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <ScrollViewer x:Name="scrollViewer" Grid.Column="0" IsScrollInertiaEnabled="True" VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled">
+                <TextBox
+				   x:Name="TextBoxElement"
+				   x:FieldModifier="public"
+				   PlaceholderText="Ask Anything!"
+				   VerticalAlignment="Center"
+				   HorizontalAlignment="Stretch"
+				   TextWrapping="Wrap"
+				   AcceptsReturn="True"
+				   IsSpellCheckEnabled="True"
+				   PreviewKeyDown="TextBoxElement_PreviewKeyDown"
+				   TextChanged="TextBoxElement_TextChanged"
+				   Style="{StaticResource EditableTextBlockStyle}"
+				/>
+            </ScrollViewer>
+
+            <!-- MCP Server Selection Dropdown --><!--
+            <ComboBox
+				Grid.Column="1"
+				Background="Transparent"
+				VerticalAlignment="Center"
+				BorderThickness="0"
+				Padding="8"
+				Margin="0,50,4,0"
+                x:Name="ServerComboBox"
+                >
+            </ComboBox>-->
+
+        </Grid>
+
+        <NavigationViewItemSeparator
+			Grid.Row="1"
+			Margin="10,0,10,0"
+			Background="Transparent"
 			/>
-        </ScrollViewer>
-        <NavigationViewItemSeparator Grid.Row="1" Margin="10,-15,10,0"/>
+
         <ScrollViewer Grid.Row="2" IsScrollInertiaEnabled="True" VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled">
             <controls:MarkdownTextBlock 
 				x:Name="MarkdownTextBlock1"
+                x:FieldModifier="public"
+                IsTextSelectionEnabled="True"
 				Margin="20,0"
 				HorizontalAlignment="Stretch"
 				VerticalAlignment="Top"
-                CodeBackground="#10FFFFFF"
+				CodeBackground="#10FFFFFF"
 				Background="Transparent"/>
         </ScrollViewer>
 

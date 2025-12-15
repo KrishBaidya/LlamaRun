@@ -6,7 +6,8 @@
       "alwaysReinstallApp": false
     },
     "LlamaRun (Unpackaged)": {
-      "commandName": "Project"
+      "commandName": "Project",
+      "nativeDebugging": true
     }
   }
 }
