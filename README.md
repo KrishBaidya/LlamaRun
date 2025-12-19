@@ -32,7 +32,7 @@ Contributions are welcome! If you'd like to help improve Llama Run, here's how y
 3. Clone your fork:
 
 ```bash
-git clone https://github.com/yourusername/LlamaRun.git
+git clone https://github.com/KrishBaidya/LlamaRun.git
 ```
 4. Create a new branch for your feature or fix:
 
@@ -58,6 +58,7 @@ git push origin feature/my-new-feature
     - [ ] Docs for Plugin System
     - [ ] Dependency Manager for Plugins
     - [ ] Plugin Marketplace
+- [X] MCP Support
 
 ## License 📝
 This project is licensed under the GPL v3.0 License. See the LICENSE file for more details.
