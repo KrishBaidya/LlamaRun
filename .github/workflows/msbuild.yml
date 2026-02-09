@@ -24,7 +24,41 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  build-unpackaged:
+    name: Build Unpackaged (.exe)
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - uses: ChristopheLav/windows-sdk-install@v1
+      with:
+        version-sdk: 26100
+        features: 'OptionId.UWPCPP,OptionId.DesktopCPParm64'
+
+    - name: Add MSBuild to PATH
+      uses: microsoft/setup-msbuild@v2
+      with:
+        msbuild-architecture: "x64"
+
+    - name: Restore NuGet packages
+      working-directory: ${{env.GITHUB_WORKSPACE}}
+      run: nuget restore ${{env.SOLUTION_FILE_PATH}}
+
+    - name: Build Unpackaged App
+      working-directory: ${{env.GITHUB_WORKSPACE}}
+      run: msbuild /m /p:Configuration=${{env.BUILD_CONFIGURATION}} LlamaRun\LlamaRun.csproj /p:Platform=x64
+
+    - name: 'Upload unpackaged artifact'
+      uses: actions/upload-artifact@v4
+      with:
+        name: LlamaRun-Unpackaged-x64
+        path: |
+          LlamaRun\bin\x64\${{env.BUILD_CONFIGURATION}}\net9.0-windows10.0.26100.0\win-x64\
+          !LlamaRun\bin\x64\${{env.BUILD_CONFIGURATION}}\**\*.pdb
+
+  build-packaged:
+    name: Build Packaged (MSIX)
     runs-on: windows-latest
 
     steps:
@@ -51,18 +85,18 @@ jobs:
         $certificatePath = "GitHubActionsWorkflow.pfx"
         [IO.File]::WriteAllBytes("$certificatePath", $pfx_cert_byte)
 
-    - name: Build
+    - name: Build Packaged App
       working-directory: ${{env.GITHUB_WORKSPACE}}
       # Add additional options to the MSBuild command line here (like platform or verbosity level).
       # See https://docs.microsoft.com/visualstudio/msbuild/msbuild-command-line-reference
-      run: msbuild /m /p:Configuration=${{env.BUILD_CONFIGURATION}} ${{env.SOLUTION_FILE_PATH}} /p:Platform=x64 /p:AppxBundle=Always /p:PackageCertificateKeyFile=GitHubActionsWorkflow.pfx /p:GenerateAppxPackageOnBuild=true /p:EnableMsixTooling=true /p:AppxPackageDir="Package"
+      run: msbuild /m /p:Configuration=${{env.BUILD_CONFIGURATION}} LlamaRun.Packaged\LlamaRun.Packaged.wapproj /p:Platform=x64 /p:AppxBundle=Always /p:PackageCertificateKeyFile=GitHubActionsWorkflow.pfx /p:AppxPackageDir="${{env.GITHUB_WORKSPACE}}\PackageOutput"
       
     # Remove the pfx
     - name: Remove the pfx
       run: Remove-Item -path GitHubActionsWorkflow.pfx
 
-    - name: 'Upload unpacked artifact'
+    - name: 'Upload packaged artifact'
       uses: actions/upload-artifact@v4
       with:
-        name: LlamaRun-x64
-        path: ${{env.SOLUTION_FILE_PATH}}\\Package
+        name: LlamaRun-Packaged-x64
+        path: ${{env.GITHUB_WORKSPACE}}\PackageOutput
