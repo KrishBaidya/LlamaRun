@@ -248,7 +248,6 @@ namespace LlamaRun
 
         public static async Task SaveMCPServerData(List<MCP_Server> config)
         {
-            var folderPath = await storageService.GetLocalFolderPathAsync();
             var file = await storageService.CreateFileAsync("mcp.json", CreationCollisionOption.OpenIfExists);
 
             var mcpServers = config.Distinct(new MCPServerObjectComparer()).ToArray();
@@ -262,8 +261,7 @@ namespace LlamaRun
             try
             {
                 var folderPath = await storageService.GetLocalFolderPathAsync();
-                var path = Path.Combine(folderPath, "mcp.json");
-                Debug.WriteLine("Trying to read MCP config from: " + path);
+                Debug.WriteLine("Trying to read MCP config from: " + Path.Combine(folderPath, "mcp.json"));
 
                 var file = await storageService.TryGetFileAsync("mcp.json");
                 if (file is not null)
