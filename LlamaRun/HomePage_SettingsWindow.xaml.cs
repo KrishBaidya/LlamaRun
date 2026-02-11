@@ -4,7 +4,6 @@ using Microsoft.UI.Xaml.Controls.Primitives;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
-using Windows.ApplicationModel;
 using WinRT;
 
 // To learn more about WinUI, the WinUI project structure,
@@ -18,6 +17,7 @@ namespace LlamaRun
     public sealed partial class HomePage_SettingsWindow : Page
     {
         public bool IsAuth = false;
+        private static readonly IStartupService startupService = StartupServiceFactory.GetStartupService();
 
         public HomePage_SettingsWindow()
         {
@@ -34,27 +34,9 @@ namespace LlamaRun
 
         static async Task<bool> CheckStartUp()
         {
-            var startupTask = await StartupTask.GetAsync("LlamaRun Generation");
+            var state = await startupService.GetStateAsync();
 
-            switch (startupTask.State)
-            {
-                case StartupTaskState.Disabled:
-                    return false;
-
-                case StartupTaskState.DisabledByUser:
-                    return false;
-
-                case StartupTaskState.DisabledByPolicy:
-                    return false;
-
-                case StartupTaskState.Enabled:
-                    return true;
-
-                case StartupTaskState.EnabledByPolicy:
-                    return true;
-            }
-
-            return false;
+            return state == StartupState.Enabled || state == StartupState.EnabledByPolicy;
         }
 
         public async void rootPanel_Loaded(Object sender, RoutedEventArgs e)
@@ -114,15 +96,13 @@ namespace LlamaRun
 
         async Task RequestStartupChange(bool Enable)
         {
-            var startupTask = await StartupTask.GetAsync("LlamaRun Generation");
-
             if (Enable)
             {
-                await startupTask.RequestEnableAsync();
+                await startupService.RequestEnableAsync();
             }
             else
             {
-                startupTask.Disable();
+                startupService.Disable();
             }
         }
 
