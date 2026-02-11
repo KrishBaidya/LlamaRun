@@ -102,7 +102,7 @@ namespace LlamaRun
             }
             else
             {
-                startupService.Disable();
+                await startupService.DisableAsync();
             }
         }
 

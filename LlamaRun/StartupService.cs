@@ -24,7 +24,7 @@ namespace LlamaRun
     {
         Task<StartupState> GetStateAsync();
         Task<bool> RequestEnableAsync();
-        void Disable();
+        Task DisableAsync();
     }
 
     /// <summary>
@@ -72,7 +72,7 @@ namespace LlamaRun
             }
         }
 
-        public async void Disable()
+        public async Task DisableAsync()
         {
             try
             {
@@ -96,8 +96,17 @@ namespace LlamaRun
 
         private string GetExecutablePath()
         {
-            return System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName 
-                   ?? System.Reflection.Assembly.GetExecutingAssembly().Location;
+            // Try ProcessPath first (works for .NET 5+ including single-file deployments)
+            if (!string.IsNullOrEmpty(Environment.ProcessPath))
+                return Environment.ProcessPath;
+
+            // Fallback to MainModule.FileName
+            var mainModulePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName;
+            if (!string.IsNullOrEmpty(mainModulePath))
+                return mainModulePath;
+
+            // Last resort: Assembly location (won't work for single-file deployments)
+            return System.Reflection.Assembly.GetExecutingAssembly().Location;
         }
 
         public Task<StartupState> GetStateAsync()
@@ -146,7 +155,7 @@ namespace LlamaRun
             return Task.FromResult(false);
         }
 
-        public void Disable()
+        public Task DisableAsync()
         {
             try
             {
@@ -165,6 +174,8 @@ namespace LlamaRun
             {
                 System.Diagnostics.Debug.WriteLine($"Failed to disable startup: {ex.Message}");
             }
+
+            return Task.CompletedTask;
         }
     }
 
@@ -184,7 +195,7 @@ namespace LlamaRun
             try
             {
                 // This will throw if app is unpackaged
-                var test = Windows.ApplicationModel.Package.Current;
+                var _ = Windows.ApplicationModel.Package.Current;
                 _instance = new PackagedStartupService();
             }
             catch
