@@ -25,7 +25,7 @@ namespace LlamaRun
     public sealed partial class SettingsWindow : Window
     {
         private const string REDIRECT_URI = "llama-run://auth";
-        private static readonly ApplicationDataContainer localSettings = ApplicationData.Current.LocalSettings;
+        private static readonly IStorageService storageService = StorageServiceFactory.GetStorageService();
         private static readonly Windows.Web.Http.HttpClient httpClient = new();
 
         public static bool IsAuth = false;
@@ -95,16 +95,16 @@ namespace LlamaRun
                     UserInfoPanel.Visibility = Visibility.Visible;
                     SignInButton.Visibility = Visibility.Collapsed;
                     SignOutButton.Visibility = Visibility.Visible;
-                    UserNameText.Text = localSettings.Values["UserName"] as string ?? "User";
+                    UserNameText.Text = storageService.LoadSetting("UserName") ?? "User";
 
 
                     // Compact panel
                     CompactUserButton.Visibility = Visibility.Visible;
                     CompactSignInButton.Visibility = Visibility.Collapsed;
-                    CompactUserPicture.DisplayName = localSettings.Values["UserName"] as string ?? "User";
+                    CompactUserPicture.DisplayName = storageService.LoadSetting("UserName") ?? "User";
 
 
-                    string? photoUrl = localSettings.Values["PhotoURL"] as string;
+                    string? photoUrl = storageService.LoadSetting("PhotoURL");
                     if (!string.IsNullOrEmpty(photoUrl))
                     {
                         UserPicture.ProfilePicture = new BitmapImage(new Uri(photoUrl));
@@ -195,8 +195,8 @@ namespace LlamaRun
                     var userInfo = await response.Content.ReadAsStringAsync();
                     // Parse user info and save
                     var user = System.Text.Json.JsonSerializer.Deserialize<UserInfo>(userInfo, AppJsonContext.Default.UserInfo);
-                    localSettings.Values["UserName"] = user!.Profile.DisplayName;
-                    localSettings.Values["PhotoURL"] = user!.Profile.PhotoURL;
+                    storageService.SaveSetting("UserName", user!.Profile.DisplayName ?? "User");
+                    storageService.SaveSetting("PhotoURL", user!.Profile.PhotoURL ?? "");
                 }
             }
             catch (Exception ex)
@@ -207,16 +207,12 @@ namespace LlamaRun
 
         public static void SaveSetting(String key, String value)
         {
-            ApplicationDataContainer localSettings = ApplicationData.Current.LocalSettings;
-
-            localSettings.Values[key] = value as Object;
+            storageService.SaveSetting(key, value);
         }
 
         public static void SaveSetting(String key, Object value)
         {
-            ApplicationDataContainer localSettings = ApplicationData.Current.LocalSettings;
-
-            localSettings.Values[key] = value;
+            storageService.SaveSetting(key, value);
         }
 
         public static async Task CopyFolderAsync(StorageFolder sourceFolder, StorageFolder destinationFolder)
@@ -247,52 +243,30 @@ namespace LlamaRun
 
         public static String LoadSetting(string key)
         {
-            ApplicationDataContainer localSettings = ApplicationData.Current.LocalSettings;
-
-            var values = localSettings.Values;
-
-            var result = values.TryGetValue(key, out object? value);
-
-            if (result)
-            {
-                try
-                {
-                    Debug.WriteLine(value);
-
-                    return value!.ToString().As<String>();
-                }
-                catch (Exception)
-                {
-                    Debug.WriteLine("Failed to unbox the value.\n");
-                }
-            }
-
-            return String.Empty;
+            return storageService.LoadSetting(key);
         }
 
         public static async Task SaveMCPServerData(List<MCP_Server> config)
         {
-            var folder = ApplicationData.Current.LocalFolder;
-            var file = await folder.CreateFileAsync("mcp.json", CreationCollisionOption.OpenIfExists);
+            var file = await storageService.CreateFileAsync("mcp.json", CreationCollisionOption.OpenIfExists);
 
             var mcpServers = config.Distinct(new MCPServerObjectComparer()).ToArray();
 
             var json = System.Text.Json.JsonSerializer.Serialize(mcpServers);
-            await FileIO.WriteTextAsync(file, json);
+            await storageService.WriteTextAsync(file, json);
         }
 
         public static async Task<List<MCP_Server>> LoadMCPServerData()
         {
             try
             {
-                var folder = ApplicationData.Current.LocalFolder;
-                var path = Path.Combine(folder.Path, "mcp.json");
-                Debug.WriteLine("Trying to read MCP config from: " + path);
+                var folderPath = await storageService.GetLocalFolderPathAsync();
+                Debug.WriteLine("Trying to read MCP config from: " + Path.Combine(folderPath, "mcp.json"));
 
-                if (await folder.TryGetItemAsync("mcp.json") is not null)
+                var file = await storageService.TryGetFileAsync("mcp.json");
+                if (file is not null)
                 {
-                    var file = await folder.GetFileAsync("mcp.json");
-                    var json = await FileIO.ReadTextAsync(file);
+                    var json = await storageService.ReadTextAsync(file);
                     Debug.WriteLine("MCP Raw JSON: " + json);
 
                     var result = System.Text.Json.JsonSerializer.Deserialize<List<MCP_Server>>(json, AppJsonContext.Default.ListMCP_Server);

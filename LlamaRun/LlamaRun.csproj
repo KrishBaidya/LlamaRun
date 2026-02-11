@@ -9,7 +9,9 @@
     <RuntimeIdentifiers>win-x86;win-x64;win-arm64</RuntimeIdentifiers>
     <PublishProfile>win-$(Platform).pubxml</PublishProfile>
     <UseWinUI>true</UseWinUI>
-    <EnableMsixTooling>true</EnableMsixTooling>
+    <EnableMsixTooling>false</EnableMsixTooling>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)'=='Release'">
@@ -47,13 +49,9 @@
   </ItemGroup>
 
   <!--
-      Defining the "Msix" ProjectCapability here allows the Single-project MSIX Packaging
-      Tools extension to be activated for this project even if the Windows App SDK Nuget
-      package has not yet been restored.
+      MSIX ProjectCapability removed - this is now an unpackaged project.
+      For packaged builds, use the LlamaRun.Packaged project.
     -->
-  <ItemGroup Condition="'$(DisableMsixProjectCapabilityAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
-    <ProjectCapability Include="Msix" />
-  </ItemGroup>
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.WinUI.UI.Controls.Markdown" Version="7.1.2" />
     <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" Version="10.0.1" />
@@ -130,13 +128,9 @@
   </ItemGroup>
 
   <!--
-      Defining the "HasPackageAndPublishMenuAddedByProject" property here allows the Solution
-      Explorer "Package and Publish" context menu entry to be enabled for this project even if
-      the Windows App SDK Nuget package has not yet been restored.
+      Package and Publish menu removed - this is now an unpackaged project.
+      For packaged builds, use the LlamaRun.Packaged project.
     -->
-  <PropertyGroup Condition="'$(DisableHasPackageAndPublishMenuAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
-    <HasPackageAndPublishMenu>true</HasPackageAndPublishMenu>
-  </PropertyGroup>
 
   <!-- Publish Properties -->
   <PropertyGroup>
@@ -145,18 +139,7 @@
     <PublishTrimmed Condition="'$(Configuration)' == 'Debug'">False</PublishTrimmed>
     <PublishTrimmed Condition="'$(Configuration)' != 'Debug'">False</PublishTrimmed>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <GenerateTemporaryStoreCertificate>True</GenerateTemporaryStoreCertificate>
     <UserSecretsId>5224ed0c-372e-4a8f-9679-27eb1d681466</UserSecretsId>
-    <GenerateAppInstallerFile>False</GenerateAppInstallerFile>
-    <AppxPackageSigningEnabled>False</AppxPackageSigningEnabled>
-    <AppxPackageSigningTimestampDigestAlgorithm>SHA256</AppxPackageSigningTimestampDigestAlgorithm>
-    <AppxAutoIncrementPackageRevision>True</AppxAutoIncrementPackageRevision>
-    <AppxSymbolPackageEnabled>True</AppxSymbolPackageEnabled>
-    <GenerateTestArtifacts>True</GenerateTestArtifacts>
-    <AppxBundle>Auto</AppxBundle>
-    <AppxBundlePlatforms>x64</AppxBundlePlatforms>
-    <HoursBetweenUpdateChecks>0</HoursBetweenUpdateChecks>
-    <AppInstallerUri>D:\source\LlamaRun\LlamaRun\bin\x64\</AppInstallerUri>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -167,7 +150,4 @@
   <PropertyGroup>
     <CsWinRTIncludes>CPythonIntrop</CsWinRTIncludes>
   </PropertyGroup>
-  <!--<PropertyGroup>
-		<WindowsPackageType>None</WindowsPackageType>
-	</PropertyGroup>-->
 </Project>
