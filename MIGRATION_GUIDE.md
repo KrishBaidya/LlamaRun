@@ -134,6 +134,12 @@ msbuild LlamaRun.Packaged\LlamaRun.Packaged.wapproj /p:Configuration=Release /p:
 
 ## Troubleshooting
 
+### Issue: "App launches but no UI appears" or "XAML crashes silently"
+**Solution**: This occurs when the Windows App SDK runtime is not included. The fix has been applied:
+- `WindowsAppSDKSelfContained=true` is now set in LlamaRun.csproj
+- This ensures all necessary WinUI 3 runtime components are included in the build output
+- Pull the latest changes to get this fix
+
 ### Issue: "Cannot find LlamaRun.Packaged"
 **Solution**: Pull the latest changes. The packaged project is new.
 

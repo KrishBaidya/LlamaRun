@@ -16,8 +16,11 @@ The LlamaRun solution has been refactored into two distinct projects to support 
 **Key Properties**:
 - `EnableMsixTooling`: `false`
 - `WindowsPackageType`: `None`
+- `WindowsAppSDKSelfContained`: `true` (includes Windows App SDK runtime)
 - Output: Standard Windows executable (`.exe`)
 - No MSIX packaging dependencies
+
+**Important Note**: The `WindowsAppSDKSelfContained=true` property ensures that the Windows App SDK runtime components are included in the build output. This is **critical** for unpackaged WinUI 3 apps - without it, XAML will silently crash while the app process continues running in the background.
 
 **Use Cases**:
 - Local development and debugging
@@ -135,6 +138,12 @@ The GitHub Actions workflow (`.github/workflows/msbuild.yml`) includes two jobs:
 - Desktop Bridge for packaging
 
 ## Troubleshooting
+
+### XAML crashes silently / App runs in background only
+If the unpackaged app launches but no UI appears (XAML crashes silently):
+- **Cause**: Windows App SDK runtime components are not included in the build output
+- **Solution**: Ensure `WindowsAppSDKSelfContained` is set to `true` in LlamaRun.csproj
+- This property includes the necessary WinUI 3 runtime files for unpackaged deployment
 
 ### "EnableMsixTooling" error
 If you see MSIX-related errors when building the unpackaged project, ensure:
