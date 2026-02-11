@@ -10,12 +10,14 @@ The project is now split into two configurations to support different use cases:
 - Ideal for development, debugging, and testing
 - No dependency on MSIX tooling
 - Can be run directly from the build output
+- Settings stored in `%LocalAppData%\LlamaRun\`
 
 ### **LlamaRun.Packaged** (Packaged App)
 - MSIX-packaged version for production deployment
 - Wraps the unpackaged core application
 - Required for Microsoft Store distribution
 - Supports full Windows App SDK features and capabilities
+- Settings managed by MSIX container
 
 ## Features ✨
 * Python Plugin Support (in progress): Write Python scripts to automate tasks and integrate third-party libraries.
