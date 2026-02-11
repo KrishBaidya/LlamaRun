@@ -141,10 +141,20 @@ msbuild LlamaRun.Packaged\LlamaRun.Packaged.wapproj /p:Configuration=Release /p:
 - Pull the latest changes to get this fix
 
 ### Issue: "The process has no package identity" (Error 0x80073D54)
-**Solution**: This error occurred because the code tried to use `ApplicationData.Current` which requires package identity. The fix has been applied:
-- The code now uses a storage abstraction layer (`StorageService.cs`)
-- Automatically detects if running packaged or unpackaged
-- Unpackaged builds use file system APIs instead
+**Solution**: This error occurred because the code tried to use APIs requiring package identity. The fix has been applied:
+- **Storage**: Uses `StorageService.cs` abstraction layer
+  - Unpackaged builds use file system APIs at `%LocalAppData%\LlamaRun\`
+  - Packaged builds use `ApplicationData.Current`
+- **Startup**: Uses `StartupService.cs` abstraction layer
+  - Unpackaged builds use Windows Registry
+  - Packaged builds use `StartupTask` API
+- Pull the latest changes to get these fixes
+
+### Issue: "Element not found" (Error 0x80070490) related to StartupTask
+**Solution**: This error occurred when trying to use `StartupTask.GetAsync()` in unpackaged builds. The fix has been applied:
+- The code now uses `StartupService.cs` which detects packaged vs unpackaged
+- Unpackaged builds use Windows Registry for startup: `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`
+- Packaged builds continue to use `StartupTask` from Package.appxmanifest
 - Pull the latest changes to get this fix
 
 ### Issue: "Cannot find LlamaRun.Packaged"

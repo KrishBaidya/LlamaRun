@@ -150,10 +150,17 @@ If the unpackaged app launches but no UI appears (XAML crashes silently):
 
 ### "The process has no package identity" error (0x80073D54)
 If you see this error when running the unpackaged build:
-- **Cause**: Code is trying to use APIs that require package identity (like `ApplicationData.Current`)
-- **Solution**: The code now uses a storage abstraction that automatically detects packaged vs unpackaged
-- Unpackaged builds use file system APIs stored in `%LocalAppData%\LlamaRun\`
-- Packaged builds use `ApplicationData.Current` as normal
+- **Cause**: Code is trying to use APIs that require package identity (like `ApplicationData.Current` or `StartupTask`)
+- **Solution**: The code now uses abstractions that automatically detect packaged vs unpackaged
+- **Storage**: Unpackaged builds use file system APIs at `%LocalAppData%\LlamaRun\`
+- **Startup**: Unpackaged builds use Windows Registry (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`)
+- Packaged builds use `ApplicationData.Current` and `StartupTask` as normal
+
+### "Element not found" error (0x80070490)
+If you see this error related to `StartupTask`:
+- **Cause**: `StartupTask` API requires package identity
+- **Solution**: Already fixed - unpackaged builds now use Windows Registry for startup management
+- Packaged builds continue to use `StartupTask` from Package.appxmanifest
 
 ### "EnableMsixTooling" error
 If you see MSIX-related errors when building the unpackaged project, ensure:
