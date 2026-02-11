@@ -20,7 +20,10 @@ The LlamaRun solution has been refactored into two distinct projects to support 
 - Output: Standard Windows executable (`.exe`)
 - No MSIX packaging dependencies
 
-**Important Note**: The `WindowsAppSDKSelfContained=true` property ensures that the Windows App SDK runtime components are included in the build output. This is **critical** for unpackaged WinUI 3 apps - without it, XAML will silently crash while the app process continues running in the background.
+**Important Notes**: 
+- The `WindowsAppSDKSelfContained=true` property ensures that the Windows App SDK runtime components are included in the build output. This is **critical** for unpackaged WinUI 3 apps - without it, XAML will silently crash while the app process continues running in the background.
+- Uses file system APIs for storage instead of `ApplicationData.Current` (which requires package identity)
+- Settings and data are stored in: `%LocalAppData%\LlamaRun\` (e.g., `C:\Users\YourName\AppData\Local\LlamaRun\`)
 
 **Use Cases**:
 - Local development and debugging
@@ -144,6 +147,13 @@ If the unpackaged app launches but no UI appears (XAML crashes silently):
 - **Cause**: Windows App SDK runtime components are not included in the build output
 - **Solution**: Ensure `WindowsAppSDKSelfContained` is set to `true` in LlamaRun.csproj
 - This property includes the necessary WinUI 3 runtime files for unpackaged deployment
+
+### "The process has no package identity" error (0x80073D54)
+If you see this error when running the unpackaged build:
+- **Cause**: Code is trying to use APIs that require package identity (like `ApplicationData.Current`)
+- **Solution**: The code now uses a storage abstraction that automatically detects packaged vs unpackaged
+- Unpackaged builds use file system APIs stored in `%LocalAppData%\LlamaRun\`
+- Packaged builds use `ApplicationData.Current` as normal
 
 ### "EnableMsixTooling" error
 If you see MSIX-related errors when building the unpackaged project, ensure:

@@ -140,6 +140,13 @@ msbuild LlamaRun.Packaged\LlamaRun.Packaged.wapproj /p:Configuration=Release /p:
 - This ensures all necessary WinUI 3 runtime components are included in the build output
 - Pull the latest changes to get this fix
 
+### Issue: "The process has no package identity" (Error 0x80073D54)
+**Solution**: This error occurred because the code tried to use `ApplicationData.Current` which requires package identity. The fix has been applied:
+- The code now uses a storage abstraction layer (`StorageService.cs`)
+- Automatically detects if running packaged or unpackaged
+- Unpackaged builds use file system APIs instead
+- Pull the latest changes to get this fix
+
 ### Issue: "Cannot find LlamaRun.Packaged"
 **Solution**: Pull the latest changes. The packaged project is new.
 
@@ -153,9 +160,11 @@ msbuild LlamaRun.Packaged\LlamaRun.Packaged.wapproj /p:Configuration=Release /p:
 
 ### Issue: "Where are my app settings/data?"
 **Solution**: 
-- Unpackaged builds use the standard Windows app data location
-- Packaged builds use the MSIX container
-- They may not share the same data location
+- **Unpackaged builds**: `%LocalAppData%\LlamaRun\` (e.g., `C:\Users\YourName\AppData\Local\LlamaRun\`)
+  - Settings: `settings.json`
+  - MCP data: `mcp.json`
+- **Packaged builds**: MSIX container (managed by Windows)
+- Note: Data is NOT automatically migrated between packaged and unpackaged builds
 
 ## Benefits of This Change
 
