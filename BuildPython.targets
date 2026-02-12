@@ -158,7 +158,7 @@
     <Copy SourceFiles="@(PythonLibraries)" 
           DestinationFolder="$(TargetLibsDir)" />
     
-    <Message Importance="high" Text="Copied @(PythonLibraries->Count()) library files" />
+    <Message Importance="high" Text="Copied library files to $(TargetLibsDir)" />
   </Target>
 
   <!-- Copy Python DLLs to CPythonIntrop/DLL directory -->
@@ -178,7 +178,7 @@
     <Copy SourceFiles="@(PythonDlls)" 
           DestinationFolder="$(TargetDllDir)" />
     
-    <Message Importance="high" Text="Copied @(PythonDlls->Count()) DLL files" />
+    <Message Importance="high" Text="Copied DLL files to $(TargetDllDir)" />
   </Target>
 
   <!-- Copy Python standard library to Lib directory -->
