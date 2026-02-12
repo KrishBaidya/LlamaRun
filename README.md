@@ -11,8 +11,60 @@
 
 * Window application Development workload with C# WinUI app development tools (For Building from Source)
 * Ollama for AI model support (you can install Ollama from [here](https://ollama.com/)).
+* Visual Studio 2022 or MSBuild 17.0+ (for building Python components)
+* Windows SDK 10.0.26100.0 or higher
 
 Make sure you have these installed and configured properly before running the project.
+
+### Building Python Components
+
+The CPythonIntrop project requires Python headers, libraries, and DLLs to build. These can be automatically downloaded and built using the included MSBuild script.
+
+#### Automated Build (Recommended)
+
+To automatically download Python source, build DLLs, and organize files for the CPythonIntrop project:
+
+```powershell
+# Build Python 3.13.0 for x64 Release configuration (default)
+msbuild BuildPython.targets /t:BuildPython
+
+# Or specify custom options
+msbuild BuildPython.targets /t:BuildPython /p:PythonVersion=3.13.0 /p:Platform=x64 /p:PythonConfiguration=Release
+```
+
+**Available Options:**
+- `/p:PythonVersion=3.13.0` - Python version to download and build (default: 3.13.0)
+- `/p:Platform=x64` - Target platform: x64, Win32, or ARM64 (default: x64)
+- `/p:PythonConfiguration=Release` - Build configuration: Release or Debug (default: Release)
+
+The build script will:
+1. Download Python source code from GitHub (if not already downloaded)
+2. Build Python DLLs and import libraries using MSBuild
+3. Copy headers to `include/Python/`
+4. Copy import libraries (.lib) to `libs/`
+5. Copy runtime DLLs to `CPythonIntrop/DLL/`
+6. Copy Python standard library to `Lib/`
+
+#### Manual Build
+
+If you prefer to set up Python components manually:
+
+1. Download Python 3.13.0 source from [python.org](https://www.python.org/downloads/)
+2. Build using `PCbuild/build.bat` in the Python source directory
+3. Copy headers from `Include/` to `include/Python/`
+4. Copy libraries from `PCbuild/amd64/` to `libs/`
+5. Copy DLLs from `PCbuild/amd64/` to `CPythonIntrop/DLL/`
+6. Copy standard library from `Lib/` to `Lib/`
+
+#### Cleaning Build Artifacts
+
+To remove downloaded Python source and build artifacts:
+
+```powershell
+msbuild BuildPython.targets /t:CleanPython
+```
+
+**Note:** This will not delete the copied headers, libraries, or DLLs in the project directories.
 
 ## Installation
 Download Llama Run from the [Microsoft Store](https://apps.microsoft.com/store/detail/9NW950ZX02CQ?cid=DevShareMCLPCB).

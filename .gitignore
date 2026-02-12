@@ -363,3 +363,7 @@ MigrationBackup/
 FodyWeavers.xsd
 /LlamaRun/App1_TemporaryKey_Base64.txt
 /.idea/.idea.LlamaRun/.idea
+
+# Python build artifacts
+build/
+*.zip
