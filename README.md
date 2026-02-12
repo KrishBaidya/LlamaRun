@@ -83,12 +83,6 @@ msbuild BuildPython.targets /t:CleanPython
 - Ensure `PCbuild/get_externals.bat` can access the internet
 - Some corporate firewalls may block the download; check your network settings
 
-```powershell
-msbuild BuildPython.targets /t:CleanPython
-```
-
-**Note:** This will not delete the copied headers, libraries, or DLLs in the project directories.
-
 ## Installation
 Download Llama Run from the [Microsoft Store](https://apps.microsoft.com/store/detail/9NW950ZX02CQ?cid=DevShareMCLPCB).
 
