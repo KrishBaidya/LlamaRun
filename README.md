@@ -66,6 +66,29 @@ msbuild BuildPython.targets /t:CleanPython
 
 **Note:** This will not delete the copied headers, libraries, or DLLs in the project directories.
 
+#### Troubleshooting
+
+**Build fails with "Cannot find Python source"**
+- Ensure you have internet connectivity to download Python source from GitHub
+- Check that the `build/` directory is writable
+- Try running `msbuild BuildPython.targets /t:DownloadPythonSource` first
+
+**Build fails during Python compilation**
+- Verify Visual Studio 2022 or MSBuild 17.0+ is installed
+- Ensure Windows SDK 10.0.26100.0 or higher is installed
+- Check that the platform (x64, Win32, ARM64) matches your system architecture
+
+**External dependencies download fails**
+- The Python build requires external dependencies (OpenSSL, Tcl/Tk, etc.)
+- Ensure `PCbuild/get_externals.bat` can access the internet
+- Some corporate firewalls may block the download; check your network settings
+
+```powershell
+msbuild BuildPython.targets /t:CleanPython
+```
+
+**Note:** This will not delete the copied headers, libraries, or DLLs in the project directories.
+
 ## Installation
 Download Llama Run from the [Microsoft Store](https://apps.microsoft.com/store/detail/9NW950ZX02CQ?cid=DevShareMCLPCB).
 
