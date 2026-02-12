@@ -138,7 +138,7 @@
     <Copy SourceFiles="@(PythonHeadersPC)" 
           DestinationFolder="$(TargetIncludeDir)" />
     
-    <Message Importance="high" Text="Copied $(PythonHeaders.Count) header files" />
+    <Message Importance="high" Text="Copied header files to $(TargetIncludeDir)" />
   </Target>
 
   <!-- Copy Python libraries to libs directory -->

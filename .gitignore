@@ -366,4 +366,4 @@ FodyWeavers.xsd
 
 # Python build artifacts
 build/
-*.zip
+/python-*.zip
