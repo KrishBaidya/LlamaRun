@@ -10,6 +10,13 @@ on:
     branches: [ "master" ]
   pull_request:
     branches: [ "master" ]
+  workflow_dispatch:
+    inputs:
+      build_python:
+        description: 'Build Python components from source'
+        required: false
+        default: false
+        type: boolean
 
 env:
   # Path to the solution file relative to the root of the project.
@@ -43,6 +50,12 @@ jobs:
     - name: Restore NuGet packages
       working-directory: ${{env.GITHUB_WORKSPACE}}
       run: nuget restore ${{env.SOLUTION_FILE_PATH}}
+
+    # Optional: Build Python components from source
+    - name: Build Python Components
+      if: github.event.inputs.build_python == 'true'
+      working-directory: ${{env.GITHUB_WORKSPACE}}
+      run: msbuild BuildPython.targets /t:BuildPython /p:Platform=x64 /p:PythonConfiguration=${{env.BUILD_CONFIGURATION}}
 
     # Decode the base 64 encoded pfx and save the Signing_Certificate
     - name: Decode the pfx
