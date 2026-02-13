@@ -35,7 +35,7 @@ The build process will automatically:
 5. Copy runtime DLLs to `CPythonIntrop/DLL/`
 6. Copy Python standard library to `Lib/`
 
-**Note:** The first build may take up to 10-15 minutes (depending on network speed and machine performance) as it clones and builds Python. Subsequent builds will be much faster as the Python components are cached.
+**Note:** The first build typically takes 10-15 minutes (depending on network speed and machine performance) as it clones and builds Python. Subsequent builds will be much faster as the Python components are cached.
 
 #### Building from Command Line
 

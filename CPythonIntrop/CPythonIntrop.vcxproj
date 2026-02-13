@@ -272,6 +272,7 @@
     <PythonBuildPlatform Condition="'$(Platform)' == 'ARM64'">arm64</PythonBuildPlatform>
     
     <!-- Python major.minor version for filenames (e.g., 3.13.0 -> 313, 3.9.0 -> 39) -->
+    <!-- Expects PythonVersion format: major.minor.patch (e.g., 3.13.0, 3.9.0) -->
     <!-- Extract major version (first segment) -->
     <PythonMajor>$(PythonVersion.Split('.')[0])</PythonMajor>
     <!-- Extract minor version (second segment) -->
@@ -313,7 +314,7 @@
     
     <!-- Provide helpful error if git clone failed -->
     <Error Condition="'$(GitCloneExitCode)' != '0' AND '$(GitCloneExitCode)' != ''" 
-           Text="Failed to clone Python source. Please ensure: 1) Git for Windows is installed and in PATH, 2) You have internet connectivity, 3) The version tag $(PythonVersionTag) exists in the CPython repository." />
+           Text="Failed to clone Python source. Please ensure: 1) Git for Windows is installed and in PATH, 2) You have internet connectivity, 3) The version tag $(PythonVersionTag) exists (check https://github.com/python/cpython/tags for available versions)." />
     
     <Message Importance="high" Text="Python source ready at $(PythonSourceDir)" />
   </Target>
