@@ -271,6 +271,9 @@
     <PythonBuildPlatform Condition="'$(Platform)' == 'Win32'">win32</PythonBuildPlatform>
     <PythonBuildPlatform Condition="'$(Platform)' == 'ARM64'">arm64</PythonBuildPlatform>
     
+    <!-- Python major.minor version for filenames (e.g., 3.13 -> 313) -->
+    <PythonMajorMinor>$([System.String]::new($(PythonVersion)).Replace('.', '').Substring(0, 3))</PythonMajorMinor>
+    
     <!-- Target directories -->
     <TargetIncludeDir>$(RepoRoot)include\Python</TargetIncludeDir>
     <TargetLibsDir>$(RepoRoot)libs</TargetLibsDir>
@@ -305,9 +308,9 @@
 
   <!-- Build Python DLLs -->
   <Target Name="BuildPythonDlls" DependsOnTargets="ClonePythonSource" BeforeTargets="PrepareForBuild">
-    <!-- Check if Python is already built -->
+    <!-- Check if Python is already built using dynamic version -->
     <PropertyGroup>
-      <PythonAlreadyBuilt Condition="Exists('$(PythonBuildDir)\$(PythonBuildPlatform)\python313.dll')">true</PythonAlreadyBuilt>
+      <PythonAlreadyBuilt Condition="Exists('$(PythonBuildDir)\$(PythonBuildPlatform)\python$(PythonMajorMinor).dll')">true</PythonAlreadyBuilt>
     </PropertyGroup>
     
     <Message Importance="high" Text="Python DLLs already built" Condition="'$(PythonAlreadyBuilt)' == 'true'" />
@@ -337,14 +340,14 @@
   <Target Name="CopyPythonHeaders" DependsOnTargets="ClonePythonSource" BeforeTargets="PrepareForBuild">
     <!-- Check if headers already copied -->
     <PropertyGroup>
-      <HeadersAlreadyCopied Condition="Exists('$(TargetIncludeDir)\Python.h')">true</HeadersAlreadyCopied>
+      <HeadersAlreadyCopied Condition="Exists('$(TargetIncludeDir)\Python.h') AND Exists('$(TargetIncludeDir)\pyconfig.h')">true</HeadersAlreadyCopied>
     </PropertyGroup>
     
     <Message Importance="high" Text="Headers already in place" Condition="'$(HeadersAlreadyCopied)' == 'true'" />
     <Message Importance="high" Text="Copying Python headers to $(TargetIncludeDir)..." Condition="'$(HeadersAlreadyCopied)' != 'true'" />
     
-    <!-- Clean target directory if copying -->
-    <RemoveDir Directories="$(TargetIncludeDir)" Condition="Exists('$(TargetIncludeDir)') AND '$(HeadersAlreadyCopied)' != 'true'" />
+    <!-- Only clean if we're going to copy - safer approach -->
+    <RemoveDir Directories="$(TargetIncludeDir)" Condition="'$(HeadersAlreadyCopied)' != 'true' AND Exists('$(TargetIncludeDir)')" />
     <MakeDir Directories="$(TargetIncludeDir)" Condition="'$(HeadersAlreadyCopied)' != 'true'" />
     
     <!-- Get all header files from Include directory -->
@@ -368,16 +371,16 @@
 
   <!-- Copy Python libraries to libs directory -->
   <Target Name="CopyPythonLibraries" DependsOnTargets="BuildPythonDlls" BeforeTargets="PrepareForBuild">
-    <!-- Check if libraries already copied -->
+    <!-- Check if libraries already copied using dynamic version -->
     <PropertyGroup>
-      <LibsAlreadyCopied Condition="Exists('$(TargetLibsDir)\python313.lib')">true</LibsAlreadyCopied>
+      <LibsAlreadyCopied Condition="Exists('$(TargetLibsDir)\python$(PythonMajorMinor).lib')">true</LibsAlreadyCopied>
     </PropertyGroup>
     
     <Message Importance="high" Text="Libraries already in place" Condition="'$(LibsAlreadyCopied)' == 'true'" />
     <Message Importance="high" Text="Copying Python libraries to $(TargetLibsDir)..." Condition="'$(LibsAlreadyCopied)' != 'true'" />
     
-    <!-- Clean target directory if copying -->
-    <RemoveDir Directories="$(TargetLibsDir)" Condition="Exists('$(TargetLibsDir)') AND '$(LibsAlreadyCopied)' != 'true'" />
+    <!-- Only clean if we're going to copy - safer approach -->
+    <RemoveDir Directories="$(TargetLibsDir)" Condition="'$(LibsAlreadyCopied)' != 'true' AND Exists('$(TargetLibsDir)')" />
     <MakeDir Directories="$(TargetLibsDir)" Condition="'$(LibsAlreadyCopied)' != 'true'" />
     
     <!-- Get all .lib files from build output -->
@@ -395,16 +398,16 @@
 
   <!-- Copy Python DLLs to CPythonIntrop/DLL directory -->
   <Target Name="CopyPythonDlls" DependsOnTargets="BuildPythonDlls" BeforeTargets="PrepareForBuild">
-    <!-- Check if DLLs already copied -->
+    <!-- Check if DLLs already copied using dynamic version -->
     <PropertyGroup>
-      <DllsAlreadyCopied Condition="Exists('$(TargetDllDir)\python313.dll')">true</DllsAlreadyCopied>
+      <DllsAlreadyCopied Condition="Exists('$(TargetDllDir)\python$(PythonMajorMinor).dll')">true</DllsAlreadyCopied>
     </PropertyGroup>
     
     <Message Importance="high" Text="DLLs already in place" Condition="'$(DllsAlreadyCopied)' == 'true'" />
     <Message Importance="high" Text="Copying Python DLLs to $(TargetDllDir)..." Condition="'$(DllsAlreadyCopied)' != 'true'" />
     
-    <!-- Clean target directory if copying -->
-    <RemoveDir Directories="$(TargetDllDir)" Condition="Exists('$(TargetDllDir)') AND '$(DllsAlreadyCopied)' != 'true'" />
+    <!-- Only clean if we're going to copy - safer approach -->
+    <RemoveDir Directories="$(TargetDllDir)" Condition="'$(DllsAlreadyCopied)' != 'true' AND Exists('$(TargetDllDir)')" />
     <MakeDir Directories="$(TargetDllDir)" Condition="'$(DllsAlreadyCopied)' != 'true'" />
     
     <!-- Get all .dll files from build output -->
@@ -424,14 +427,14 @@
   <Target Name="CopyPythonStdLib" DependsOnTargets="ClonePythonSource" BeforeTargets="PrepareForBuild">
     <!-- Check if stdlib already copied -->
     <PropertyGroup>
-      <StdLibAlreadyCopied Condition="Exists('$(TargetStdLibDir)\os.py')">true</StdLibAlreadyCopied>
+      <StdLibAlreadyCopied Condition="Exists('$(TargetStdLibDir)\os.py') AND Exists('$(TargetStdLibDir)\sys.py')">true</StdLibAlreadyCopied>
     </PropertyGroup>
     
     <Message Importance="high" Text="Standard library already in place" Condition="'$(StdLibAlreadyCopied)' == 'true'" />
     <Message Importance="high" Text="Copying Python standard library to $(TargetStdLibDir)..." Condition="'$(StdLibAlreadyCopied)' != 'true'" />
     
-    <!-- Clean target directory if copying -->
-    <RemoveDir Directories="$(TargetStdLibDir)" Condition="Exists('$(TargetStdLibDir)') AND '$(StdLibAlreadyCopied)' != 'true'" />
+    <!-- Only clean if we're going to copy - safer approach -->
+    <RemoveDir Directories="$(TargetStdLibDir)" Condition="'$(StdLibAlreadyCopied)' != 'true' AND Exists('$(TargetStdLibDir)')" />
     <MakeDir Directories="$(TargetStdLibDir)" Condition="'$(StdLibAlreadyCopied)' != 'true'" />
     
     <!-- Get all files from Lib directory -->
