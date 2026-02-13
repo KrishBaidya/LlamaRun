@@ -245,4 +245,222 @@
   <!--<PropertyGroup Label="Globals">
 		<AppxPackage>false</AppxPackage>
 	</PropertyGroup>-->
+  
+  <!-- Python Build Automation -->
+  <PropertyGroup>
+    <!-- Default Python version -->
+    <PythonVersion Condition="'$(PythonVersion)' == ''">3.13.0</PythonVersion>
+    
+    <!-- Python version tag format for GitHub -->
+    <PythonVersionTag>v$(PythonVersion)</PythonVersionTag>
+    
+    <!-- Python build configuration -->
+    <PythonConfiguration Condition="'$(PythonConfiguration)' == ''">$(Configuration)</PythonConfiguration>
+    
+    <!-- Repository root directory -->
+    <RepoRoot>$(MSBuildThisFileDirectory)..\</RepoRoot>
+    
+    <!-- Python source directory -->
+    <PythonSourceDir>$(RepoRoot)build\python-src</PythonSourceDir>
+    
+    <!-- Python build output directory -->
+    <PythonBuildDir>$(PythonSourceDir)\PCbuild</PythonBuildDir>
+    
+    <!-- Platform-specific build output subdirectory -->
+    <PythonBuildPlatform Condition="'$(Platform)' == 'x64'">amd64</PythonBuildPlatform>
+    <PythonBuildPlatform Condition="'$(Platform)' == 'Win32'">win32</PythonBuildPlatform>
+    <PythonBuildPlatform Condition="'$(Platform)' == 'ARM64'">arm64</PythonBuildPlatform>
+    
+    <!-- Python major.minor version for filenames (e.g., 3.13.0 -> 313, 3.9.0 -> 39) -->
+    <!-- Expects PythonVersion format: major.minor.patch (e.g., 3.13.0, 3.9.0) -->
+    <!-- Extract major version (first segment) -->
+    <PythonMajor>$(PythonVersion.Split('.')[0])</PythonMajor>
+    <!-- Extract minor version (second segment) -->
+    <PythonMinor>$(PythonVersion.Split('.')[1])</PythonMinor>
+    <!-- Combine for DLL name: python{major}{minor}.dll -->
+    <PythonMajorMinor>$(PythonMajor)$(PythonMinor)</PythonMajorMinor>
+    
+    <!-- Target directories -->
+    <TargetIncludeDir>$(RepoRoot)include\Python</TargetIncludeDir>
+    <TargetLibsDir>$(RepoRoot)libs</TargetLibsDir>
+    <TargetDllDir>$(ProjectDir)DLL</TargetDllDir>
+    <TargetStdLibDir>$(RepoRoot)Lib</TargetStdLibDir>
+  </PropertyGroup>
+
+  <!-- Clone Python source code using git -->
+  <Target Name="ClonePythonSource" BeforeTargets="PrepareForBuild">
+    <Message Importance="high" Text="Checking for Python source at $(PythonSourceDir)..." />
+    
+    <!-- Check if source already exists -->
+    <PropertyGroup>
+      <PythonSourceExists Condition="Exists('$(PythonSourceDir)\.git')">true</PythonSourceExists>
+    </PropertyGroup>
+    
+    <Message Importance="high" Text="Python source found at $(PythonSourceDir)" Condition="'$(PythonSourceExists)' == 'true'" />
+    
+    <!-- Clone if not exists -->
+    <Message Importance="high" Text="Cloning Python $(PythonVersion) source code from GitHub..." Condition="'$(PythonSourceExists)' != 'true'" />
+    <Message Importance="high" Text="This may take a few minutes. Ensure git is installed and in your PATH, and you have internet connectivity." Condition="'$(PythonSourceExists)' != 'true'" />
+    
+    <!-- Create build directory -->
+    <MakeDir Directories="$(RepoRoot)build" Condition="!Exists('$(RepoRoot)build')" />
+    
+    <!-- Clone Python repository with specific tag -->
+    <Exec Command="git clone --depth 1 --branch $(PythonVersionTag) https://github.com/python/cpython.git &quot;$(PythonSourceDir)&quot;" 
+          Condition="'$(PythonSourceExists)' != 'true'" 
+          IgnoreExitCode="false">
+      <Output TaskParameter="ExitCode" PropertyName="GitCloneExitCode" />
+    </Exec>
+    
+    <!-- Provide helpful error if git clone failed -->
+    <Error Condition="'$(GitCloneExitCode)' != '0' AND '$(GitCloneExitCode)' != ''" 
+           Text="Failed to clone Python source. Please ensure: 1) Git for Windows is installed and in PATH, 2) You have internet connectivity, 3) The version tag $(PythonVersionTag) exists (check https://github.com/python/cpython/tags for available versions)." />
+    
+    <Message Importance="high" Text="Python source ready at $(PythonSourceDir)" />
+  </Target>
+
+  <!-- Build Python DLLs -->
+  <Target Name="BuildPythonDlls" DependsOnTargets="ClonePythonSource" BeforeTargets="PrepareForBuild">
+    <!-- Check if Python is already built using dynamic version -->
+    <PropertyGroup>
+      <PythonAlreadyBuilt Condition="Exists('$(PythonBuildDir)\$(PythonBuildPlatform)\python$(PythonMajorMinor).dll')">true</PythonAlreadyBuilt>
+    </PropertyGroup>
+    
+    <Message Importance="high" Text="Python DLLs already built" Condition="'$(PythonAlreadyBuilt)' == 'true'" />
+    <Message Importance="high" Text="Building Python DLLs for $(Platform) $(PythonConfiguration)..." Condition="'$(PythonAlreadyBuilt)' != 'true'" />
+    
+    <!-- Get external dependencies first -->
+    <Exec Command="$(PythonBuildDir)\get_externals.bat" 
+          WorkingDirectory="$(PythonBuildDir)" 
+          Condition="'$(PythonAlreadyBuilt)' != 'true'" />
+    
+    <!-- Build Python using build.bat -->
+    <PropertyGroup>
+      <BuildPlatformArg Condition="'$(Platform)' == 'x64'">-p x64</BuildPlatformArg>
+      <BuildPlatformArg Condition="'$(Platform)' == 'Win32'">-p Win32</BuildPlatformArg>
+      <BuildPlatformArg Condition="'$(Platform)' == 'ARM64'">-p ARM64</BuildPlatformArg>
+      <BuildConfigArg Condition="'$(PythonConfiguration)' == 'Debug'">-d</BuildConfigArg>
+    </PropertyGroup>
+    
+    <Exec Command="$(PythonBuildDir)\build.bat $(BuildPlatformArg) $(BuildConfigArg)" 
+          WorkingDirectory="$(PythonBuildDir)" 
+          Condition="'$(PythonAlreadyBuilt)' != 'true'" />
+    
+    <Message Importance="high" Text="Python build completed" Condition="'$(PythonAlreadyBuilt)' != 'true'" />
+  </Target>
+
+  <!-- Copy Python headers to include directory -->
+  <Target Name="CopyPythonHeaders" DependsOnTargets="ClonePythonSource" BeforeTargets="PrepareForBuild">
+    <!-- Check if headers already copied -->
+    <PropertyGroup>
+      <HeadersAlreadyCopied Condition="Exists('$(TargetIncludeDir)\Python.h') AND Exists('$(TargetIncludeDir)\pyconfig.h')">true</HeadersAlreadyCopied>
+    </PropertyGroup>
+    
+    <Message Importance="high" Text="Headers already in place" Condition="'$(HeadersAlreadyCopied)' == 'true'" />
+    <Message Importance="high" Text="Copying Python headers to $(TargetIncludeDir)..." Condition="'$(HeadersAlreadyCopied)' != 'true'" />
+    
+    <!-- Only clean if we're going to copy - safer approach -->
+    <RemoveDir Directories="$(TargetIncludeDir)" Condition="'$(HeadersAlreadyCopied)' != 'true' AND Exists('$(TargetIncludeDir)')" />
+    <MakeDir Directories="$(TargetIncludeDir)" Condition="'$(HeadersAlreadyCopied)' != 'true'" />
+    
+    <!-- Get all header files from Include directory -->
+    <ItemGroup Condition="'$(HeadersAlreadyCopied)' != 'true'">
+      <PythonHeaders Include="$(PythonSourceDir)\Include\**\*.h" />
+      <PythonHeadersPC Include="$(PythonSourceDir)\PC\pyconfig.h" />
+    </ItemGroup>
+    
+    <!-- Copy headers preserving directory structure -->
+    <Copy SourceFiles="@(PythonHeaders)" 
+          DestinationFiles="@(PythonHeaders->'$(TargetIncludeDir)\%(RecursiveDir)%(Filename)%(Extension)')" 
+          Condition="'$(HeadersAlreadyCopied)' != 'true'" />
+    
+    <!-- Copy PC/pyconfig.h to root of include directory -->
+    <Copy SourceFiles="@(PythonHeadersPC)" 
+          DestinationFolder="$(TargetIncludeDir)" 
+          Condition="'$(HeadersAlreadyCopied)' != 'true'" />
+    
+    <Message Importance="high" Text="Copied header files to $(TargetIncludeDir)" Condition="'$(HeadersAlreadyCopied)' != 'true'" />
+  </Target>
+
+  <!-- Copy Python libraries to libs directory -->
+  <Target Name="CopyPythonLibraries" DependsOnTargets="BuildPythonDlls" BeforeTargets="PrepareForBuild">
+    <!-- Check if libraries already copied using dynamic version -->
+    <PropertyGroup>
+      <LibsAlreadyCopied Condition="Exists('$(TargetLibsDir)\python$(PythonMajorMinor).lib')">true</LibsAlreadyCopied>
+    </PropertyGroup>
+    
+    <Message Importance="high" Text="Libraries already in place" Condition="'$(LibsAlreadyCopied)' == 'true'" />
+    <Message Importance="high" Text="Copying Python libraries to $(TargetLibsDir)..." Condition="'$(LibsAlreadyCopied)' != 'true'" />
+    
+    <!-- Only clean if we're going to copy - safer approach -->
+    <RemoveDir Directories="$(TargetLibsDir)" Condition="'$(LibsAlreadyCopied)' != 'true' AND Exists('$(TargetLibsDir)')" />
+    <MakeDir Directories="$(TargetLibsDir)" Condition="'$(LibsAlreadyCopied)' != 'true'" />
+    
+    <!-- Get all .lib files from build output -->
+    <ItemGroup Condition="'$(LibsAlreadyCopied)' != 'true'">
+      <PythonLibraries Include="$(PythonBuildDir)\$(PythonBuildPlatform)\*.lib" />
+    </ItemGroup>
+    
+    <!-- Copy libraries -->
+    <Copy SourceFiles="@(PythonLibraries)" 
+          DestinationFolder="$(TargetLibsDir)" 
+          Condition="'$(LibsAlreadyCopied)' != 'true'" />
+    
+    <Message Importance="high" Text="Copied library files to $(TargetLibsDir)" Condition="'$(LibsAlreadyCopied)' != 'true'" />
+  </Target>
+
+  <!-- Copy Python DLLs to CPythonIntrop/DLL directory -->
+  <Target Name="CopyPythonDlls" DependsOnTargets="BuildPythonDlls" BeforeTargets="PrepareForBuild">
+    <!-- Check if DLLs already copied using dynamic version -->
+    <PropertyGroup>
+      <DllsAlreadyCopied Condition="Exists('$(TargetDllDir)\python$(PythonMajorMinor).dll')">true</DllsAlreadyCopied>
+    </PropertyGroup>
+    
+    <Message Importance="high" Text="DLLs already in place" Condition="'$(DllsAlreadyCopied)' == 'true'" />
+    <Message Importance="high" Text="Copying Python DLLs to $(TargetDllDir)..." Condition="'$(DllsAlreadyCopied)' != 'true'" />
+    
+    <!-- Only clean if we're going to copy - safer approach -->
+    <RemoveDir Directories="$(TargetDllDir)" Condition="'$(DllsAlreadyCopied)' != 'true' AND Exists('$(TargetDllDir)')" />
+    <MakeDir Directories="$(TargetDllDir)" Condition="'$(DllsAlreadyCopied)' != 'true'" />
+    
+    <!-- Get all .dll files from build output -->
+    <ItemGroup Condition="'$(DllsAlreadyCopied)' != 'true'">
+      <PythonDllFiles Include="$(PythonBuildDir)\$(PythonBuildPlatform)\*.dll" />
+    </ItemGroup>
+    
+    <!-- Copy DLLs -->
+    <Copy SourceFiles="@(PythonDllFiles)" 
+          DestinationFolder="$(TargetDllDir)" 
+          Condition="'$(DllsAlreadyCopied)' != 'true'" />
+    
+    <Message Importance="high" Text="Copied DLL files to $(TargetDllDir)" Condition="'$(DllsAlreadyCopied)' != 'true'" />
+  </Target>
+
+  <!-- Copy Python standard library to Lib directory -->
+  <Target Name="CopyPythonStdLib" DependsOnTargets="ClonePythonSource" BeforeTargets="PrepareForBuild">
+    <!-- Check if stdlib already copied - check for os.py and a common package -->
+    <PropertyGroup>
+      <StdLibAlreadyCopied Condition="Exists('$(TargetStdLibDir)\os.py') AND Exists('$(TargetStdLibDir)\collections\__init__.py')">true</StdLibAlreadyCopied>
+    </PropertyGroup>
+    
+    <Message Importance="high" Text="Standard library already in place" Condition="'$(StdLibAlreadyCopied)' == 'true'" />
+    <Message Importance="high" Text="Copying Python standard library to $(TargetStdLibDir)..." Condition="'$(StdLibAlreadyCopied)' != 'true'" />
+    
+    <!-- Only clean if we're going to copy - safer approach -->
+    <RemoveDir Directories="$(TargetStdLibDir)" Condition="'$(StdLibAlreadyCopied)' != 'true' AND Exists('$(TargetStdLibDir)')" />
+    <MakeDir Directories="$(TargetStdLibDir)" Condition="'$(StdLibAlreadyCopied)' != 'true'" />
+    
+    <!-- Get all files from Lib directory -->
+    <ItemGroup Condition="'$(StdLibAlreadyCopied)' != 'true'">
+      <PythonStdLibFiles Include="$(PythonSourceDir)\Lib\**\*" Exclude="$(PythonSourceDir)\Lib\**\*.pyc;$(PythonSourceDir)\Lib\**\__pycache__\**" />
+    </ItemGroup>
+    
+    <!-- Copy standard library preserving directory structure -->
+    <Copy SourceFiles="@(PythonStdLibFiles)" 
+          DestinationFiles="@(PythonStdLibFiles->'$(TargetStdLibDir)\%(RecursiveDir)%(Filename)%(Extension)')" 
+          Condition="'$(StdLibAlreadyCopied)' != 'true'" />
+    
+    <Message Importance="high" Text="Copied Python standard library" Condition="'$(StdLibAlreadyCopied)' != 'true'" />
+  </Target>
+
 </Project>

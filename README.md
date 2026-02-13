@@ -11,8 +11,95 @@
 
 * Window application Development workload with C# WinUI app development tools (For Building from Source)
 * Ollama for AI model support (you can install Ollama from [here](https://ollama.com/)).
+* Visual Studio 2022 or MSBuild 17.0+ (for building Python components)
+* Windows SDK 10.0.26100.0 or higher
+* Git for Windows (for cloning Python source)
 
 Make sure you have these installed and configured properly before running the project.
+
+### Building the Project
+
+The CPythonIntrop project includes automated Python build integration. When you build the project in Visual Studio or via MSBuild, Python components will be automatically set up if not already present.
+
+#### Building from Visual Studio (Recommended)
+
+1. Open `LlamaRun.sln` in Visual Studio 2022
+2. Select your desired configuration (Debug/Release) and platform (x64/ARM64)
+3. Build the solution (F7 or Build > Build Solution)
+
+The build process will automatically:
+1. Clone Python source code from GitHub using git (if not already cloned)
+2. Build Python DLLs and import libraries for your selected platform
+3. Copy headers to `include/Python/`
+4. Copy import libraries (.lib) to `libs/`
+5. Copy runtime DLLs to `CPythonIntrop/DLL/`
+6. Copy Python standard library to `Lib/`
+
+**Note:** The first build typically takes 10-15 minutes (depending on network speed and machine performance) as it clones and builds Python. Subsequent builds will be much faster as the Python components are cached.
+
+#### Building from Command Line
+
+```powershell
+# Build the entire solution
+msbuild LlamaRun.sln /p:Configuration=Release /p:Platform=x64
+```
+
+#### Customizing Python Version
+
+To build with a different Python version, set the `PythonVersion` property:
+
+```powershell
+# Build with Python 3.12.0
+msbuild LlamaRun.sln /p:Configuration=Release /p:Platform=x64 /p:PythonVersion=3.12.0
+```
+
+**Default:** Python 3.13.0
+
+#### Manual Build
+
+If you prefer to set up Python components manually or the automated build doesn't work:
+
+1. Clone Python source with your desired version (replace v3.13.0 with the version you want):
+   ```powershell
+   git clone --depth 1 --branch v3.13.0 https://github.com/python/cpython.git build/python-src
+   ```
+2. Build using `build/python-src/PCbuild/build.bat -p x64` (or your platform)
+3. Copy headers from `build/python-src/Include/` to `include/Python/`
+4. Copy `build/python-src/PC/pyconfig.h` to `include/Python/`
+5. Copy libraries from `build/python-src/PCbuild/amd64/` to `libs/`
+6. Copy DLLs from `build/python-src/PCbuild/amd64/` to `CPythonIntrop/DLL/`
+7. Copy standard library from `build/python-src/Lib/` to `Lib/`
+
+#### Cleaning Build Artifacts
+
+To force a clean rebuild of Python components, delete the `build/` directory:
+
+```powershell
+Remove-Item -Recurse -Force build/
+```
+
+The next build will re-clone and rebuild Python from scratch.
+
+#### Troubleshooting
+
+**Build fails with "git is not recognized"**
+- Install Git for Windows from [git-scm.com](https://git-scm.com/)
+- Ensure git is in your PATH
+
+**Build fails with "Cannot clone Python source"**
+- Ensure you have internet connectivity
+- Check that the `build/` directory is writable
+- Try cloning manually: `git clone --depth 1 --branch v3.13.0 https://github.com/python/cpython.git build/python-src`
+
+**Build fails during Python compilation**
+- Verify Visual Studio 2022 or MSBuild 17.0+ is installed
+- Ensure Windows SDK 10.0.26100.0 or higher is installed
+- Check that the platform (x64, Win32, ARM64) matches your system architecture
+
+**External dependencies download fails**
+- The Python build requires external dependencies (OpenSSL, Tcl/Tk, etc.)
+- Ensure `build/python-src/PCbuild/get_externals.bat` can access the internet
+- Some corporate firewalls may block the download; check your network settings
 
 ## Installation
 Download Llama Run from the [Microsoft Store](https://apps.microsoft.com/store/detail/9NW950ZX02CQ?cid=DevShareMCLPCB).
