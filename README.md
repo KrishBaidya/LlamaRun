@@ -35,7 +35,7 @@ The build process will automatically:
 5. Copy runtime DLLs to `CPythonIntrop/DLL/`
 6. Copy Python standard library to `Lib/`
 
-**Note:** The first build may take 10-15 minutes as it clones and builds Python. Subsequent builds will be much faster as the Python components are cached.
+**Note:** The first build may take up to 10-15 minutes (depending on network speed and machine performance) as it clones and builds Python. Subsequent builds will be much faster as the Python components are cached.
 
 #### Building from Command Line
 
@@ -59,7 +59,10 @@ msbuild LlamaRun.sln /p:Configuration=Release /p:Platform=x64 /p:PythonVersion=3
 
 If you prefer to set up Python components manually or the automated build doesn't work:
 
-1. Clone Python source: `git clone --depth 1 --branch v3.13.0 https://github.com/python/cpython.git build/python-src`
+1. Clone Python source with your desired version (replace v3.13.0 with the version you want):
+   ```powershell
+   git clone --depth 1 --branch v3.13.0 https://github.com/python/cpython.git build/python-src
+   ```
 2. Build using `build/python-src/PCbuild/build.bat -p x64` (or your platform)
 3. Copy headers from `build/python-src/Include/` to `include/Python/`
 4. Copy `build/python-src/PC/pyconfig.h` to `include/Python/`

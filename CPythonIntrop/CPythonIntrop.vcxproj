@@ -271,8 +271,9 @@
     <PythonBuildPlatform Condition="'$(Platform)' == 'Win32'">win32</PythonBuildPlatform>
     <PythonBuildPlatform Condition="'$(Platform)' == 'ARM64'">arm64</PythonBuildPlatform>
     
-    <!-- Python major.minor version for filenames (e.g., 3.13 -> 313) -->
-    <PythonMajorMinor>$([System.String]::new($(PythonVersion)).Replace('.', '').Substring(0, 3))</PythonMajorMinor>
+    <!-- Python major.minor version for filenames (e.g., 3.13 -> 313, 3.9 -> 39) -->
+    <PythonVersionNoDots>$([System.String]::new($(PythonVersion)).Replace('.', ''))</PythonVersionNoDots>
+    <PythonMajorMinor>$(PythonVersionNoDots.Substring(0, $([MSBuild]::Min($(PythonVersionNoDots.Length), 3))))</PythonMajorMinor>
     
     <!-- Target directories -->
     <TargetIncludeDir>$(RepoRoot)include\Python</TargetIncludeDir>
@@ -293,7 +294,8 @@
     <Message Importance="high" Text="Python source found at $(PythonSourceDir)" Condition="'$(PythonSourceExists)' == 'true'" />
     
     <!-- Clone if not exists -->
-    <Message Importance="high" Text="Cloning Python $(PythonVersion) source code..." Condition="'$(PythonSourceExists)' != 'true'" />
+    <Message Importance="high" Text="Cloning Python $(PythonVersion) source code from GitHub..." Condition="'$(PythonSourceExists)' != 'true'" />
+    <Message Importance="high" Text="This may take a few minutes. Ensure git is installed and in your PATH, and you have internet connectivity." Condition="'$(PythonSourceExists)' != 'true'" />
     
     <!-- Create build directory -->
     <MakeDir Directories="$(RepoRoot)build" Condition="!Exists('$(RepoRoot)build')" />
@@ -301,7 +303,13 @@
     <!-- Clone Python repository with specific tag -->
     <Exec Command="git clone --depth 1 --branch $(PythonVersionTag) https://github.com/python/cpython.git &quot;$(PythonSourceDir)&quot;" 
           Condition="'$(PythonSourceExists)' != 'true'" 
-          IgnoreExitCode="false" />
+          IgnoreExitCode="false">
+      <Output TaskParameter="ExitCode" PropertyName="GitCloneExitCode" />
+    </Exec>
+    
+    <!-- Provide helpful error if git clone failed -->
+    <Error Condition="'$(GitCloneExitCode)' != '0' AND '$(GitCloneExitCode)' != ''" 
+           Text="Failed to clone Python source. Please ensure: 1) Git for Windows is installed and in PATH, 2) You have internet connectivity, 3) The version tag $(PythonVersionTag) exists in the CPython repository." />
     
     <Message Importance="high" Text="Python source ready at $(PythonSourceDir)" />
   </Target>
