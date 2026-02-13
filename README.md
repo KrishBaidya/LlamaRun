@@ -13,65 +13,80 @@
 * Ollama for AI model support (you can install Ollama from [here](https://ollama.com/)).
 * Visual Studio 2022 or MSBuild 17.0+ (for building Python components)
 * Windows SDK 10.0.26100.0 or higher
+* Git for Windows (for cloning Python source)
 
 Make sure you have these installed and configured properly before running the project.
 
-### Building Python Components
+### Building the Project
 
-The CPythonIntrop project requires Python headers, libraries, and DLLs to build. These can be automatically downloaded and built using the included MSBuild script.
+The CPythonIntrop project includes automated Python build integration. When you build the project in Visual Studio or via MSBuild, Python components will be automatically set up if not already present.
 
-#### Automated Build (Recommended)
+#### Building from Visual Studio (Recommended)
 
-To automatically download Python source, build DLLs, and organize files for the CPythonIntrop project:
+1. Open `LlamaRun.sln` in Visual Studio 2022
+2. Select your desired configuration (Debug/Release) and platform (x64/ARM64)
+3. Build the solution (F7 or Build > Build Solution)
 
-```powershell
-# Build Python 3.13.0 for x64 Release configuration (default)
-msbuild BuildPython.targets /t:BuildPython
-
-# Or specify custom options
-msbuild BuildPython.targets /t:BuildPython /p:PythonVersion=3.13.0 /p:Platform=x64 /p:PythonConfiguration=Release
-```
-
-**Available Options:**
-- `/p:PythonVersion=3.13.0` - Python version to download and build (default: 3.13.0)
-- `/p:Platform=x64` - Target platform: x64, Win32, or ARM64 (default: x64)
-- `/p:PythonConfiguration=Release` - Build configuration: Release or Debug (default: Release)
-
-The build script will:
-1. Download Python source code from GitHub (if not already downloaded)
-2. Build Python DLLs and import libraries using MSBuild
+The build process will automatically:
+1. Clone Python source code from GitHub using git (if not already cloned)
+2. Build Python DLLs and import libraries for your selected platform
 3. Copy headers to `include/Python/`
 4. Copy import libraries (.lib) to `libs/`
 5. Copy runtime DLLs to `CPythonIntrop/DLL/`
 6. Copy Python standard library to `Lib/`
 
+**Note:** The first build may take 10-15 minutes as it clones and builds Python. Subsequent builds will be much faster as the Python components are cached.
+
+#### Building from Command Line
+
+```powershell
+# Build the entire solution
+msbuild LlamaRun.sln /p:Configuration=Release /p:Platform=x64
+```
+
+#### Customizing Python Version
+
+To build with a different Python version, set the `PythonVersion` property:
+
+```powershell
+# Build with Python 3.12.0
+msbuild LlamaRun.sln /p:Configuration=Release /p:Platform=x64 /p:PythonVersion=3.12.0
+```
+
+**Default:** Python 3.13.0
+
 #### Manual Build
 
-If you prefer to set up Python components manually:
+If you prefer to set up Python components manually or the automated build doesn't work:
 
-1. Download Python 3.13.0 source from [python.org](https://www.python.org/downloads/)
-2. Build using `PCbuild/build.bat` in the Python source directory
-3. Copy headers from `Include/` to `include/Python/`
-4. Copy libraries from `PCbuild/amd64/` to `libs/`
-5. Copy DLLs from `PCbuild/amd64/` to `CPythonIntrop/DLL/`
-6. Copy standard library from `Lib/` to `Lib/`
+1. Clone Python source: `git clone --depth 1 --branch v3.13.0 https://github.com/python/cpython.git build/python-src`
+2. Build using `build/python-src/PCbuild/build.bat -p x64` (or your platform)
+3. Copy headers from `build/python-src/Include/` to `include/Python/`
+4. Copy `build/python-src/PC/pyconfig.h` to `include/Python/`
+5. Copy libraries from `build/python-src/PCbuild/amd64/` to `libs/`
+6. Copy DLLs from `build/python-src/PCbuild/amd64/` to `CPythonIntrop/DLL/`
+7. Copy standard library from `build/python-src/Lib/` to `Lib/`
 
 #### Cleaning Build Artifacts
 
-To remove downloaded Python source and build artifacts:
+To force a clean rebuild of Python components, delete the `build/` directory:
 
 ```powershell
-msbuild BuildPython.targets /t:CleanPython
+Remove-Item -Recurse -Force build/
 ```
 
-**Note:** This will not delete the copied headers, libraries, or DLLs in the project directories.
+The next build will re-clone and rebuild Python from scratch.
 
 #### Troubleshooting
 
-**Build fails with "Cannot find Python source"**
-- Ensure you have internet connectivity to download Python source from GitHub
+**Build fails with "git is not recognized"**
+- Install Git for Windows from [git-scm.com](https://git-scm.com/)
+- Ensure git is in your PATH
+
+**Build fails with "Cannot clone Python source"**
+- Ensure you have internet connectivity
 - Check that the `build/` directory is writable
-- Try running `msbuild BuildPython.targets /t:DownloadPythonSource` first
+- Try cloning manually: `git clone --depth 1 --branch v3.13.0 https://github.com/python/cpython.git build/python-src`
 
 **Build fails during Python compilation**
 - Verify Visual Studio 2022 or MSBuild 17.0+ is installed
@@ -80,7 +95,7 @@ msbuild BuildPython.targets /t:CleanPython
 
 **External dependencies download fails**
 - The Python build requires external dependencies (OpenSSL, Tcl/Tk, etc.)
-- Ensure `PCbuild/get_externals.bat` can access the internet
+- Ensure `build/python-src/PCbuild/get_externals.bat` can access the internet
 - Some corporate firewalls may block the download; check your network settings
 
 ## Installation
