@@ -271,9 +271,13 @@
     <PythonBuildPlatform Condition="'$(Platform)' == 'Win32'">win32</PythonBuildPlatform>
     <PythonBuildPlatform Condition="'$(Platform)' == 'ARM64'">arm64</PythonBuildPlatform>
     
-    <!-- Python major.minor version for filenames (e.g., 3.13 -> 313, 3.9 -> 39) -->
-    <PythonVersionNoDots>$([System.String]::new($(PythonVersion)).Replace('.', ''))</PythonVersionNoDots>
-    <PythonMajorMinor>$(PythonVersionNoDots.Substring(0, $([MSBuild]::Min($(PythonVersionNoDots.Length), 3))))</PythonMajorMinor>
+    <!-- Python major.minor version for filenames (e.g., 3.13.0 -> 313, 3.9.0 -> 39) -->
+    <!-- Extract major version (first segment) -->
+    <PythonMajor>$(PythonVersion.Split('.')[0])</PythonMajor>
+    <!-- Extract minor version (second segment) -->
+    <PythonMinor>$(PythonVersion.Split('.')[1])</PythonMinor>
+    <!-- Combine for DLL name: python{major}{minor}.dll -->
+    <PythonMajorMinor>$(PythonMajor)$(PythonMinor)</PythonMajorMinor>
     
     <!-- Target directories -->
     <TargetIncludeDir>$(RepoRoot)include\Python</TargetIncludeDir>
@@ -433,9 +437,9 @@
 
   <!-- Copy Python standard library to Lib directory -->
   <Target Name="CopyPythonStdLib" DependsOnTargets="ClonePythonSource" BeforeTargets="PrepareForBuild">
-    <!-- Check if stdlib already copied -->
+    <!-- Check if stdlib already copied - check for os.py and a common package -->
     <PropertyGroup>
-      <StdLibAlreadyCopied Condition="Exists('$(TargetStdLibDir)\os.py') AND Exists('$(TargetStdLibDir)\sys.py')">true</StdLibAlreadyCopied>
+      <StdLibAlreadyCopied Condition="Exists('$(TargetStdLibDir)\os.py') AND Exists('$(TargetStdLibDir)\collections\__init__.py')">true</StdLibAlreadyCopied>
     </PropertyGroup>
     
     <Message Importance="high" Text="Standard library already in place" Condition="'$(StdLibAlreadyCopied)' == 'true'" />
