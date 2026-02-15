@@ -367,3 +367,8 @@ FodyWeavers.xsd
 # Python build artifacts
 build/
 /python-*.zip
+
+# Python build output directories (generated during automated build)
+/Lib/
+/libs/
+/include/Python/
