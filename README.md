@@ -111,6 +111,15 @@ The next build will re-clone and rebuild Python from scratch.
   - v141 = Visual Studio 2017
   - v140 = Visual Studio 2015
 
+**Build fails with "Could not copy pyconfig.h" or file not found errors**
+- This error occurs if the Python build didn't complete successfully
+- **Solution:** Delete the `build/` directory and rebuild: `Remove-Item -Recurse -Force build/`
+- The build system automatically copies `pyconfig.h` from the Python build output after compilation
+- If the error persists, check that:
+  - The Python build completed without errors (check build output)
+  - You have write permissions to the `build/` directory
+  - Anti-virus software isn't blocking file operations
+
 **External dependencies download fails**
 - The Python build requires external dependencies (OpenSSL, Tcl/Tk, etc.)
 - Ensure `build/python-src/PCbuild/get_externals.bat` can access the internet

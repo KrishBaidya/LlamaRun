@@ -353,7 +353,7 @@
   </Target>
 
   <!-- Copy Python headers to include directory -->
-  <Target Name="CopyPythonHeaders" DependsOnTargets="ClonePythonSource" BeforeTargets="PrepareForBuild">
+  <Target Name="CopyPythonHeaders" DependsOnTargets="BuildPythonDlls" BeforeTargets="PrepareForBuild">
     <!-- Check if headers already copied -->
     <PropertyGroup>
       <HeadersAlreadyCopied Condition="Exists('$(TargetIncludeDir)\Python.h') AND Exists('$(TargetIncludeDir)\pyconfig.h')">true</HeadersAlreadyCopied>
@@ -369,7 +369,8 @@
     <!-- Get all header files from Include directory -->
     <ItemGroup Condition="'$(HeadersAlreadyCopied)' != 'true'">
       <PythonHeaders Include="$(PythonSourceDir)\Include\**\*.h" />
-      <PythonHeadersPC Include="$(PythonSourceDir)\PC\pyconfig.h" />
+      <!-- pyconfig.h is generated during build, not in source - get it from build output -->
+      <PythonHeadersPC Include="$(PythonBuildDir)\$(PythonBuildPlatform)\pyconfig.h" />
     </ItemGroup>
     
     <!-- Copy headers preserving directory structure -->
@@ -377,7 +378,7 @@
           DestinationFiles="@(PythonHeaders->'$(TargetIncludeDir)\%(RecursiveDir)%(Filename)%(Extension)')" 
           Condition="'$(HeadersAlreadyCopied)' != 'true'" />
     
-    <!-- Copy PC/pyconfig.h to root of include directory -->
+    <!-- Copy pyconfig.h from build output to root of include directory -->
     <Copy SourceFiles="@(PythonHeadersPC)" 
           DestinationFolder="$(TargetIncludeDir)" 
           Condition="'$(HeadersAlreadyCopied)' != 'true'" />
