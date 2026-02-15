@@ -11,9 +11,11 @@
 
 * Window application Development workload with C# WinUI app development tools (For Building from Source)
 * Ollama for AI model support (you can install Ollama from [here](https://ollama.com/)).
-* Visual Studio 2022 or MSBuild 17.0+ (for building Python components)
+* **Visual Studio 2022** (recommended) or MSBuild 17.0+ with v143 platform toolset
 * Windows SDK 10.0.26100.0 or higher
 * Git for Windows (for cloning Python source)
+
+**Important:** The project is configured to use the **v143 platform toolset** (Visual Studio 2022). CPython will be built with the same toolset to ensure binary compatibility. If you have multiple Visual Studio versions installed, make sure Visual Studio 2022 is available, or the build may fall back to older toolsets like v140 (VS2015), which can cause compatibility issues.
 
 Make sure you have these installed and configured properly before running the project.
 
@@ -95,6 +97,19 @@ The next build will re-clone and rebuild Python from scratch.
 - Verify Visual Studio 2022 or MSBuild 17.0+ is installed
 - Ensure Windows SDK 10.0.26100.0 or higher is installed
 - Check that the platform (x64, Win32, ARM64) matches your system architecture
+
+**Build reports "requires v140 toolkit" or toolset mismatch errors**
+- This happens when CPython auto-detects and uses a different platform toolset than CPythonIntrop
+- **Solution:** Ensure Visual Studio 2022 with v143 toolset is installed and is the primary/default version
+- The build system now explicitly passes the platform toolset to CPython to avoid mismatches
+- If you need to use a different toolset, modify both:
+  - `CPythonIntrop.vcxproj`: Change `<PlatformToolset>v143</PlatformToolset>` 
+  - The toolset will automatically be passed to CPython during build
+- Common toolset versions:
+  - v143 = Visual Studio 2022 (recommended)
+  - v142 = Visual Studio 2019
+  - v141 = Visual Studio 2017
+  - v140 = Visual Studio 2015
 
 **External dependencies download fails**
 - The Python build requires external dependencies (OpenSSL, Tcl/Tk, etc.)

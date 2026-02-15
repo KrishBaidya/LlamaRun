@@ -334,7 +334,10 @@
           WorkingDirectory="$(PythonBuildDir)" 
           Condition="'$(PythonAlreadyBuilt)' != 'true'" />
     
-    <!-- Build Python using build.bat -->
+    <!-- Build Python using build.bat with matching platform toolset -->
+    <!-- IMPORTANT: Pass PlatformToolset to ensure CPython builds with the same toolset as CPythonIntrop.
+         This prevents linking issues when CPythonIntrop tries to use Python DLLs built with a different toolset.
+         Without this, CPython may auto-detect and use v140 (VS2015) while CPythonIntrop uses v143 (VS2022). -->
     <PropertyGroup>
       <BuildPlatformArg Condition="'$(Platform)' == 'x64'">-p x64</BuildPlatformArg>
       <BuildPlatformArg Condition="'$(Platform)' == 'Win32'">-p Win32</BuildPlatformArg>
@@ -342,7 +345,7 @@
       <BuildConfigArg Condition="'$(PythonConfiguration)' == 'Debug'">-d</BuildConfigArg>
     </PropertyGroup>
     
-    <Exec Command="$(PythonBuildDir)\build.bat $(BuildPlatformArg) $(BuildConfigArg)" 
+    <Exec Command="$(PythonBuildDir)\build.bat $(BuildPlatformArg) $(BuildConfigArg) &quot;/p:PlatformToolset=$(PlatformToolset)&quot;" 
           WorkingDirectory="$(PythonBuildDir)" 
           Condition="'$(PythonAlreadyBuilt)' != 'true'" />
     
