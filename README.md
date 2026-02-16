@@ -27,54 +27,121 @@ The project is now split into two configurations to support different use cases:
 ## Getting Started 🛠
 ### Prerequisites
 
-* Windows Application Development workload with C# WinUI app development tools (For Building from Source)
-* Ollama for AI model support (you can install Ollama from [here](https://ollama.com/))
+* Window application Development workload with C# WinUI app development tools (For Building from Source)
+* Ollama for AI model support (you can install Ollama from [here](https://ollama.com/)).
+* **Visual Studio 2022** (recommended) or MSBuild 17.0+ with v143 platform toolset
+* Windows SDK 10.0.26100.0 or higher
+* Git for Windows (for cloning Python source)
+
+**Important:** The project is configured to use the **v143 platform toolset** (Visual Studio 2022). CPython will be built with the same toolset to ensure binary compatibility. If you have multiple Visual Studio versions installed, make sure Visual Studio 2022 is available, or the build may fall back to older toolsets like v140 (VS2015), which can cause compatibility issues.
 
 Make sure you have these installed and configured properly before running the project.
 
-### Building from Source
+### Building the Project
 
-#### Option 1: Build Unpackaged Version (for Development)
+The CPythonIntrop project includes automated Python build integration. When you build the project in Visual Studio or via MSBuild, Python components will be automatically set up if not already present.
 
-1. Clone the repository:
-```bash
-git clone https://github.com/KrishBaidya/LlamaRun.git
-cd LlamaRun
-```
+#### Building from Visual Studio (Recommended)
 
-2. Open `LlamaRun.sln` in Visual Studio
+1. Open `LlamaRun.sln` in Visual Studio 2022
+2. Select your desired configuration (Debug/Release) and platform (x64/ARM64)
+3. Build the solution (F7 or Build > Build Solution)
 
-3. Set `LlamaRun` as the startup project (right-click → Set as Startup Project)
+The build process will automatically:
+1. Clone Python source code from GitHub using git (if not already cloned)
+2. Build Python DLLs and import libraries for your selected platform
+3. Copy headers to `include/Python/`
+4. Copy import libraries (.lib) to `libs/`
+5. Copy runtime DLLs to `CPythonIntrop/DLL/`
+6. Copy Python standard library to `Lib/`
 
-4. Build and run (F5 or Ctrl+F5)
-   - The app will build as a standalone .exe
-   - No MSIX packaging required
-   - Output location: `LlamaRun\bin\x64\Debug\net9.0-windows10.0.26100.0\`
+**Note:** The first build typically takes 10-15 minutes (depending on network speed and machine performance) as it clones and builds Python. Subsequent builds will be much faster as the Python components are cached.
 
-#### Option 2: Build Packaged Version (for Production/Store)
+#### Building from Command Line
 
-1. Clone the repository (if not already done)
-
-2. Open `LlamaRun.sln` in Visual Studio
-
-3. Set `LlamaRun.Packaged` as the startup project
-
-4. Build and deploy (F5)
-   - Creates MSIX package
-   - Installs the app on your system
-   - Suitable for distribution
-
-### Command Line Builds
-
-#### Build Unpackaged:
 ```powershell
-msbuild LlamaRun\LlamaRun.csproj /p:Configuration=Release /p:Platform=x64
+# Build the entire solution
+msbuild LlamaRun.sln /p:Configuration=Release /p:Platform=x64
 ```
 
-#### Build Packaged:
+#### Customizing Python Version
+
+To build with a different Python version, set the `PythonVersion` property:
+
 ```powershell
-msbuild LlamaRun.Packaged\LlamaRun.Packaged.wapproj /p:Configuration=Release /p:Platform=x64 /p:AppxBundle=Always /p:AppxPackageDir="PackageOutput"
+# Build with Python 3.12.0
+msbuild LlamaRun.sln /p:Configuration=Release /p:Platform=x64 /p:PythonVersion=3.12.0
 ```
+
+**Default:** Python 3.13.0
+
+#### Manual Build
+
+If you prefer to set up Python components manually or the automated build doesn't work:
+
+1. Clone Python source with your desired version (replace v3.13.0 with the version you want):
+   ```powershell
+   git clone --depth 1 --branch v3.13.0 https://github.com/python/cpython.git build/python-src
+   ```
+2. Build using `build/python-src/PCbuild/build.bat -p x64` (or your platform)
+3. Copy headers from `build/python-src/Include/` to `include/Python/`
+4. Copy `build/python-src/PC/pyconfig.h` to `include/Python/`
+5. Copy libraries from `build/python-src/PCbuild/amd64/` to `libs/`
+6. Copy DLLs from `build/python-src/PCbuild/amd64/` to `CPythonIntrop/DLL/`
+7. Copy standard library from `build/python-src/Lib/` to `Lib/`
+
+#### Cleaning Build Artifacts
+
+To force a clean rebuild of Python components, delete the `build/` directory:
+
+```powershell
+Remove-Item -Recurse -Force build/
+```
+
+The next build will re-clone and rebuild Python from scratch.
+
+#### Troubleshooting
+
+**Build fails with "git is not recognized"**
+- Install Git for Windows from [git-scm.com](https://git-scm.com/)
+- Ensure git is in your PATH
+
+**Build fails with "Cannot clone Python source"**
+- Ensure you have internet connectivity
+- Check that the `build/` directory is writable
+- Try cloning manually: `git clone --depth 1 --branch v3.13.0 https://github.com/python/cpython.git build/python-src`
+
+**Build fails during Python compilation**
+- Verify Visual Studio 2022 or MSBuild 17.0+ is installed
+- Ensure Windows SDK 10.0.26100.0 or higher is installed
+- Check that the platform (x64, Win32, ARM64) matches your system architecture
+
+**Build reports "requires v140 toolkit" or toolset mismatch errors**
+- This happens when CPython auto-detects and uses a different platform toolset than CPythonIntrop
+- **Solution:** Ensure Visual Studio 2022 with v143 toolset is installed and is the primary/default version
+- The build system now explicitly passes the platform toolset to CPython to avoid mismatches
+- If you need to use a different toolset, modify both:
+  - `CPythonIntrop.vcxproj`: Change `<PlatformToolset>v143</PlatformToolset>` 
+  - The toolset will automatically be passed to CPython during build
+- Common toolset versions:
+  - v143 = Visual Studio 2022 (recommended)
+  - v142 = Visual Studio 2019
+  - v141 = Visual Studio 2017
+  - v140 = Visual Studio 2015
+
+**Build fails with "Could not copy pyconfig.h" or file not found errors**
+- This error occurs if the Python build didn't complete successfully
+- **Solution:** Delete the `build/` directory and rebuild: `Remove-Item -Recurse -Force build/`
+- The build system automatically copies `pyconfig.h` from the Python build output after compilation
+- If the error persists, check that:
+  - The Python build completed without errors (check build output)
+  - You have write permissions to the `build/` directory
+  - Anti-virus software isn't blocking file operations
+
+**External dependencies download fails**
+- The Python build requires external dependencies (OpenSSL, Tcl/Tk, etc.)
+- Ensure `build/python-src/PCbuild/get_externals.bat` can access the internet
+- Some corporate firewalls may block the download; check your network settings
 
 ## Installation
 Download Llama Run from the [Microsoft Store](https://apps.microsoft.com/store/detail/9NW950ZX02CQ?cid=DevShareMCLPCB).
