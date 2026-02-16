@@ -88,7 +88,7 @@ class FutureTest(unittest.TestCase):
         """
         self.assertSyntaxError(
             code, lineno=2,
-            message='future feature rested_snopes is not defined', offset=24,
+            message='future feature rested_snopes is not defined',
         )
 
     def test_future_import_not_on_top(self):
@@ -137,19 +137,19 @@ class FutureTest(unittest.TestCase):
         code = """
             from __future__ import *
         """
-        self.assertSyntaxError(code, message='future feature * is not defined', offset=24)
+        self.assertSyntaxError(code, message='future feature * is not defined')
 
     def test_future_import_braces(self):
         code = """
             from __future__ import braces
         """
         # Congrats, you found an easter egg!
-        self.assertSyntaxError(code, message='not a chance', offset=24)
+        self.assertSyntaxError(code, message='not a chance')
 
         code = """
             from __future__ import nested_scopes, braces
         """
-        self.assertSyntaxError(code, message='not a chance', offset=39)
+        self.assertSyntaxError(code, message='not a chance')
 
     def test_module_with_future_import_not_on_top(self):
         with self.assertRaises(SyntaxError) as cm:

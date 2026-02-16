@@ -491,26 +491,12 @@ def register_readline():
     This can be overridden in the sitecustomize or usercustomize module,
     or in a PYTHONSTARTUP file.
     """
-    if not sys.flags.ignore_environment:
-        PYTHON_BASIC_REPL = os.getenv("PYTHON_BASIC_REPL")
-    else:
-        PYTHON_BASIC_REPL = False
-
     import atexit
     try:
         import readline
         import rlcompleter
-        if PYTHON_BASIC_REPL:
-            CAN_USE_PYREPL = False
-        else:
-            original_path = sys.path
-            sys.path = [p for p in original_path if p != '']
-            try:
-                import _pyrepl.readline
-                import _pyrepl.unix_console
-                from _pyrepl.main import CAN_USE_PYREPL
-            finally:
-                sys.path = original_path
+        import _pyrepl.readline
+        import _pyrepl.unix_console
     except ImportError:
         return
 
@@ -531,6 +517,7 @@ def register_readline():
         pass
 
     if readline.get_current_history_length() == 0:
+        from _pyrepl.main import CAN_USE_PYREPL
         # If no history was loaded, default to .python_history,
         # or PYTHON_HISTORY.
         # The guard is necessary to avoid doubling history size at
@@ -538,17 +525,13 @@ def register_readline():
         # through a PYTHONSTARTUP hook, see:
         # http://bugs.python.org/issue5845#msg198636
         history = gethistoryfile()
-
-        if CAN_USE_PYREPL:
-            readline_module = _pyrepl.readline
-            exceptions = (OSError, *_pyrepl.unix_console._error)
-        else:
+        if os.getenv("PYTHON_BASIC_REPL") or not CAN_USE_PYREPL:
             readline_module = readline
-            exceptions = OSError
-
+        else:
+            readline_module = _pyrepl.readline
         try:
             readline_module.read_history_file(history)
-        except exceptions:
+        except (OSError,* _pyrepl.unix_console._error):
             pass
 
         def write_history():
