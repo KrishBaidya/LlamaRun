@@ -399,40 +399,14 @@ class TestFrameLocals(unittest.TestCase):
     def test_delete(self):
         x = 1
         d = sys._getframe().f_locals
-
-        # This needs to be tested before f_extra_locals is created
-        with self.assertRaisesRegex(KeyError, 'non_exist'):
-            del d['non_exist']
-
-        with self.assertRaises(KeyError):
-            d.pop('non_exist')
-
-        with self.assertRaisesRegex(ValueError, 'local variables'):
+        with self.assertRaises(TypeError):
             del d['x']
 
         with self.assertRaises(AttributeError):
             d.clear()
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(AttributeError):
             d.pop('x')
-
-        with self.assertRaises(ValueError):
-            d.pop('x', None)
-
-        # 'm', 'n' is stored in f_extra_locals
-        d['m'] = 1
-        d['n'] = 1
-
-        with self.assertRaises(KeyError):
-            d.pop('non_exist')
-
-        del d['m']
-        self.assertEqual(d.pop('n'), 1)
-
-        self.assertNotIn('m', d)
-        self.assertNotIn('n', d)
-
-        self.assertEqual(d.pop('n', 2), 2)
 
     @support.cpython_only
     def test_sizeof(self):

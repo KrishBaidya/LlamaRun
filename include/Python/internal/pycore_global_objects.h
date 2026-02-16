@@ -67,7 +67,7 @@ struct _Py_interp_cached_objects {
     PyObject *interned_strings;
 
     /* AST */
-    PyObject *_unused_str_replace_inf;  // kept in 3.13 for ABI compatibility
+    PyObject *str_replace_inf;
 
     /* object.__reduce__ */
     PyObject *objreduce;

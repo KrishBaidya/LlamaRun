@@ -10,7 +10,6 @@ class DumpTests(MemoryDatabaseMixin, unittest.TestCase):
 
     def test_table_dump(self):
         expected_sqls = [
-                "PRAGMA foreign_keys=OFF;",
                 """CREATE TABLE "index"("index" blob);"""
                 ,
                 """INSERT INTO "index" VALUES(X'01');"""
@@ -49,7 +48,7 @@ class DumpTests(MemoryDatabaseMixin, unittest.TestCase):
         expected_sqls = [
             "PRAGMA foreign_keys=OFF;",
             "BEGIN TRANSACTION;",
-            *expected_sqls[1:],
+            *expected_sqls,
             "COMMIT;",
         ]
         [self.assertEqual(expected_sqls[i], actual_sqls[i])
