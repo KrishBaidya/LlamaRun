@@ -1,0 +1,48 @@
+# This workflow builds the unpackaged LlamaRun application
+
+name: Build Unpackaged App
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+  workflow_dispatch:
+
+env:
+  SOLUTION_FILE_PATH: .
+  BUILD_CONFIGURATION: Release
+
+permissions:
+  contents: read
+
+jobs:
+  build-unpackaged:
+    runs-on: windows-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - uses: ChristopheLav/windows-sdk-install@v1
+      with:
+        version-sdk: 26100
+        features: 'OptionId.UWPCPP,OptionId.DesktopCPParm64'
+
+    - name: Add MSBuild to PATH
+      uses: microsoft/setup-msbuild@v2
+      with:
+        msbuild-architecture: "x64"
+
+    - name: Restore NuGet packages
+      working-directory: ${{env.GITHUB_WORKSPACE}}
+      run: nuget restore ${{env.SOLUTION_FILE_PATH}}
+
+    - name: Build Unpackaged App
+      working-directory: ${{env.GITHUB_WORKSPACE}}
+      run: msbuild /m /p:Configuration=${{env.BUILD_CONFIGURATION}} LlamaRun\LlamaRun.csproj /p:Platform=x64
+      
+    - name: 'Upload unpackaged build artifact'
+      uses: actions/upload-artifact@v4
+      with:
+        name: LlamaRun-Unpackaged-x64
+        path: ${{env.SOLUTION_FILE_PATH}}\\LlamaRun\\bin\\x64\\${{env.BUILD_CONFIGURATION}}
