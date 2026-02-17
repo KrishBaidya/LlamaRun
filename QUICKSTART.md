@@ -20,6 +20,7 @@ Use the **unpackaged** build for:
 **Or from command line:**
 ```powershell
 msbuild LlamaRun\LlamaRun.csproj /p:Configuration=Debug /p:Platform=x64
+# Run the built executable (path may vary based on target framework)
 .\LlamaRun\bin\x64\Debug\net9.0-windows10.0.26100.0\LlamaRun.exe
 ```
 
@@ -174,6 +175,7 @@ LlamaRun/
 
 4. **Run:**
    ```powershell
+   # Path may vary based on target framework configuration
    .\LlamaRun\bin\x64\Debug\net9.0-windows10.0.26100.0\LlamaRun.exe
    ```
 
