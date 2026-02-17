@@ -193,6 +193,24 @@ First build takes 10-15 minutes as it builds Python. Be patient!
 ### Build is very slow
 Switch to unpackaged build for development—it's much faster.
 
+### Application crashes with error 0xC000027B
+This is a WinUI 3 initialization error. The application includes error handling that creates a crash log at:
+```
+%LOCALAPPDATA%\LlamaRun\crash.log
+```
+
+Check this file for detailed error information. Common solutions:
+1. **Install WebView2 Runtime**: Required for WebView controls
+   - Download: https://developer.microsoft.com/microsoft-edge/webview2/
+2. **Clean and rebuild**: `msbuild /t:Clean && msbuild /t:Build`
+3. **Update NuGet packages**: Ensure all packages are current
+4. **Check Windows App SDK**: Verify version 1.8 or later is installed
+
+### Application shows blank window or doesn't load resources
+1. Ensure you're running the built executable from the correct output directory
+2. Check that Assets folder is properly deployed
+3. Verify app.manifest is included in the build
+
 ## Getting Help
 
 - **Documentation:** See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed info

@@ -215,6 +215,19 @@ Previously, LlamaRun was a single-project MSIX app with `EnableMsixTooling=true`
 **Problem**: Missing dependencies  
 **Solution**: Check that all required NuGet packages are restored
 
+**Problem**: Error 0xC000027B (application-internal exception)  
+**Solution**: This error indicates a WinUI 3 initialization issue. The project includes a custom Program.cs with proper error handling that will create a crash log at `%LOCALAPPDATA%\LlamaRun\crash.log`. Check this file for detailed error information. Common causes:
+- Missing or corrupted Windows App SDK runtime files
+- Incorrect app.manifest configuration
+- Missing XAML resources
+- WebView2 runtime not installed (required for WebView controls)
+  
+To resolve:
+1. Clean and rebuild the solution: `msbuild /t:Clean && msbuild /t:Build`
+2. Ensure WebView2 runtime is installed: [Download WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)
+3. Check the crash log for specific error details
+4. Verify all NuGet packages are up to date
+
 ### Packaged Build Issues
 
 **Problem**: Build fails with "Cannot find EntryPointProjectUniqueName"  
