@@ -1,6 +1,32 @@
 # Llama Run 🦙
 **Llama Run** is an AI-powered desktop assistant designed to help you automate tasks and streamline your workflow. Built with support for Python plugins, Llama Run allows you to create custom functionality and extend the app in ways that suit your needs.
 
+## Project Structure 📁
+
+The repository is organized into two main projects to support both development and production workflows:
+
+### **LlamaRun** (Unpackaged)
+- **Purpose**: Standalone unpackaged WinUI 3 application
+- **Output**: Native `.exe` executable
+- **Use Case**: Development, debugging, and testing without MSIX packaging requirements
+- **Benefits**:
+  - No dependencies on MSIX tooling
+  - Faster iteration during development
+  - Can run directly without installation
+  - Compatible with CI/CD environments where packaging isn't needed
+
+### **LlamaRun.Packaged** (Packaged)
+- **Purpose**: Windows Application Packaging Project (MSIX)
+- **Output**: MSIX package for distribution
+- **Use Case**: Production deployment via Microsoft Store or enterprise distribution
+- **Benefits**:
+  - Professional installation experience
+  - Automatic updates
+  - Sandboxed security model
+  - Microsoft Store compatibility
+
+Both projects share the same core codebase, with the packaged version serving as a thin wrapper around the unpackaged application.
+
 ## Features ✨
 * Python Plugin Support (in progress): Write Python scripts to automate tasks and integrate third-party libraries.
 * AI-Powered: Powered by Ollama and Llama (from Meta) for intelligent responses and automation.
@@ -21,15 +47,53 @@ Make sure you have these installed and configured properly before running the pr
 
 ### Building the Project
 
+The project supports two build configurations:
+1. **Unpackaged Build**: For development and testing
+2. **Packaged Build**: For production deployment
+
 The CPythonIntrop project includes automated Python build integration. When you build the project in Visual Studio or via MSBuild, Python components will be automatically set up if not already present.
 
-#### Building from Visual Studio (Recommended)
+#### Building the Unpackaged App (Development)
 
+For rapid development and testing without MSIX packaging:
+
+**From Visual Studio (Recommended)**
 1. Open `LlamaRun.sln` in Visual Studio 2022
-2. Select your desired configuration (Debug/Release) and platform (x64/ARM64)
-3. Build the solution (F7 or Build > Build Solution)
+2. Set **LlamaRun** as the startup project
+3. Select your desired configuration (Debug/Release) and platform (x64/ARM64)
+4. Build and run (F5)
 
-The build process will automatically:
+**From Command Line**
+```powershell
+# Build the unpackaged application
+msbuild LlamaRun\LlamaRun.csproj /p:Configuration=Release /p:Platform=x64
+```
+
+The unpackaged app will be available in `LlamaRun\bin\<Platform>\<Configuration>\` and can be run directly without installation.
+
+#### Building the Packaged App (Production)
+
+For creating MSIX packages for distribution:
+
+**From Visual Studio (Recommended)**
+
+**From Visual Studio (Recommended)**
+1. Open `LlamaRun.sln` in Visual Studio 2022
+2. Set **LlamaRun.Packaged** as the startup project
+3. Select your desired configuration (Debug/Release) and platform (x64/ARM64)
+4. Build the solution (F7 or Build > Build Solution)
+
+**From Command Line**
+```powershell
+# Build the packaged application (MSIX)
+msbuild LlamaRun.Packaged\LlamaRun.Packaged.wapproj /p:Configuration=Release /p:Platform=x64 /p:AppxBundle=Always
+```
+
+The packaged output will be available in `LlamaRun.Packaged\AppPackages\` or `LlamaRun.Packaged\Package\`.
+
+#### What Gets Built Automatically
+
+For both build configurations, the build process will automatically:
 1. Clone Python source code from GitHub using git (if not already cloned)
 2. Build Python DLLs and import libraries for your selected platform
 3. Copy headers to `include/Python/`
@@ -39,11 +103,26 @@ The build process will automatically:
 
 **Note:** The first build typically takes 10-15 minutes (depending on network speed and machine performance) as it clones and builds Python. Subsequent builds will be much faster as the Python components are cached.
 
-#### Building from Command Line
+#### Building from Command Line (Alternative)
 
+For CI/CD or automated builds:
+
+**Unpackaged App**
 ```powershell
-# Build the entire solution
-msbuild LlamaRun.sln /p:Configuration=Release /p:Platform=x64
+# Restore NuGet packages
+nuget restore LlamaRun.sln
+
+# Build the unpackaged app
+msbuild LlamaRun\LlamaRun.csproj /p:Configuration=Release /p:Platform=x64
+```
+
+**Packaged App**
+```powershell
+# Restore NuGet packages
+nuget restore LlamaRun.sln
+
+# Build the packaged app
+msbuild LlamaRun.Packaged\LlamaRun.Packaged.wapproj /p:Configuration=Release /p:Platform=x64 /p:AppxBundle=Always
 ```
 
 #### Customizing Python Version
@@ -129,6 +208,24 @@ The next build will re-clone and rebuild Python from scratch.
 Download Llama Run from the [Microsoft Store](https://apps.microsoft.com/store/detail/9NW950ZX02CQ?cid=DevShareMCLPCB).
 
 Once installed, open the app and follow the on-screen instructions to start automating tasks and using Python plugins (coming soon!).
+
+## Development vs Production 🔧
+
+### When to Use the Unpackaged Build
+- During active development and debugging
+- For quick testing of new features
+- In CI/CD environments where you only need to verify code compiles
+- When you don't have MSIX tooling installed
+- For manual testing without installation
+
+### When to Use the Packaged Build  
+- For production releases to the Microsoft Store
+- For enterprise distribution via MSIX
+- When you need the full sandboxed security model
+- For testing the complete installation and update experience
+- For final validation before release
+
+Both builds produce functionally identical applications; the only difference is the deployment mechanism.
 
 ## Plugin Development (Coming Soon)
 Plugin support is currently in progress. Soon, you'll be able to create and share Python plugins to extend Llama Run's functionality. Stay tuned for updates!

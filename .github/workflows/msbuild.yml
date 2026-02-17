@@ -1,9 +1,6 @@
-# This workflow uses actions that are not certified by GitHub.
-# They are provided by a third-party and are governed by
-# separate terms of service, privacy policy, and support
-# documentation.
+# This workflow builds the packaged LlamaRun application (MSIX)
 
-name: MSBuild
+name: Build Packaged App
 
 on:
   push:
@@ -25,7 +22,7 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  build-packaged:
     runs-on: windows-latest
 
     steps:
@@ -53,18 +50,17 @@ jobs:
         [IO.File]::WriteAllBytes("$certificatePath", $pfx_cert_byte)
 
     # Python components are now automatically built as part of the CPythonIntrop project
-    - name: Build
+    - name: Build Packaged App
       working-directory: ${{env.GITHUB_WORKSPACE}}
-      # Add additional options to the MSBuild command line here (like platform or verbosity level).
-      # See https://docs.microsoft.com/visualstudio/msbuild/msbuild-command-line-reference
-      run: msbuild /m /p:Configuration=${{env.BUILD_CONFIGURATION}} ${{env.SOLUTION_FILE_PATH}} /p:Platform=x64 /p:AppxBundle=Always /p:PackageCertificateKeyFile=GitHubActionsWorkflow.pfx /p:GenerateAppxPackageOnBuild=true /p:EnableMsixTooling=true /p:AppxPackageDir="Package"
+      # Build the packaged app project which wraps the unpackaged app
+      run: msbuild /m /p:Configuration=${{env.BUILD_CONFIGURATION}} LlamaRun.Packaged\LlamaRun.Packaged.wapproj /p:Platform=x64 /p:AppxBundle=Always /p:PackageCertificateKeyFile=GitHubActionsWorkflow.pfx /p:AppxPackageDir="Package"
       
     # Remove the pfx
     - name: Remove the pfx
       run: Remove-Item -path GitHubActionsWorkflow.pfx
 
-    - name: 'Upload unpacked artifact'
+    - name: 'Upload packaged artifact'
       uses: actions/upload-artifact@v4
       with:
-        name: LlamaRun-x64
-        path: ${{env.SOLUTION_FILE_PATH}}\\Package
+        name: LlamaRun-Packaged-x64
+        path: ${{env.SOLUTION_FILE_PATH}}\\LlamaRun.Packaged\\Package

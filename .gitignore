@@ -372,3 +372,7 @@ build/
 /Lib/
 /libs/
 /include/Python/
+
+# MSIX Package output
+Package/
+**/Package/
