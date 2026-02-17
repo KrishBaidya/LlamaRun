@@ -257,7 +257,7 @@ If none of these solutions work:
 
 1. **Check Crash Log**: `%LOCALAPPDATA%\LlamaRun\crash.log`
 2. **Enable Diagnostic Logging**: Run with debugger attached
-3. **Check GitHub Issues**: https://github.com/KrishBaidya/LlamaRun/issues
+3. **Check GitHub Issues**: Search the repository's issue tracker
 4. **Create New Issue**: Include:
    - Error message and crash log
    - Steps to reproduce

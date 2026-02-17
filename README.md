@@ -177,6 +177,15 @@ The next build will re-clone and rebuild Python from scratch.
 - Ensure Windows SDK 10.0.26100.0 or higher is installed
 - Check that the platform (x64, Win32, ARM64) matches your system architecture
 
+**Application crashes with error 0xC000027B on startup**
+- This is a WinUI 3 initialization error - see [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for detailed solutions
+- Quick fixes:
+  - Install WebView2 Runtime: https://developer.microsoft.com/microsoft-edge/webview2/
+  - Clean and rebuild: `msbuild /t:Clean && msbuild /t:Build`
+  - Check crash log at `%LOCALAPPDATA%\LlamaRun\crash.log` for details
+
+**For more troubleshooting help, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md)**
+
 **Build reports "requires v140 toolkit" or toolset mismatch errors**
 - This happens when CPython auto-detects and uses a different platform toolset than CPythonIntrop
 - **Solution:** Ensure Visual Studio 2022 with v143 toolset is installed and is the primary/default version

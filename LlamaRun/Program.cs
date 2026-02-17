@@ -39,12 +39,12 @@ namespace LlamaRun
                 // Also write to a log file
                 try
                 {
-                    string logPath = System.IO.Path.Combine(
+                    string logDir = System.IO.Path.Combine(
                         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                        "LlamaRun",
-                        "crash.log");
+                        "LlamaRun");
+                    string logPath = System.IO.Path.Combine(logDir, "crash.log");
                     
-                    System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(logPath));
+                    System.IO.Directory.CreateDirectory(logDir);
                     System.IO.File.WriteAllText(logPath, $"{DateTime.Now}: {errorMessage}");
                 }
                 catch
