@@ -13,7 +13,6 @@
     <Nullable>enable</Nullable>
     <WindowsPackageType>None</WindowsPackageType>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
-    <EnableDefaultApplicationDefinition>false</EnableDefaultApplicationDefinition>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)'=='Release'">
     <PublishAot>False</PublishAot>
