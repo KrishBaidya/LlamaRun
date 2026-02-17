@@ -186,6 +186,21 @@ After applying this fix:
 4. **Proper Configuration**: Enhanced app.manifest ensures correct unpackaged app behavior
 5. **User-Friendly**: Error dialogs provide clear guidance instead of silent failures
 
+## Common Issues After Fix
+
+### Duplicate Program Class Error
+
+If you encounter "The namespace 'LlamaRun' already contains a definition for 'Program'":
+
+**Cause**: The `EnableDefaultApplicationDefinition=false` property was incorrectly added to the project file. This property is for WPF/Windows Forms, not WinUI 3.
+
+**Solution**:
+1. Remove `<EnableDefaultApplicationDefinition>false</EnableDefaultApplicationDefinition>` from LlamaRun.csproj
+2. WinUI 3 automatically detects custom Program.cs files
+3. Clean and rebuild the solution
+
+This has been fixed in the latest version of the project.
+
 ## Prevention
 
 To prevent similar issues in the future:

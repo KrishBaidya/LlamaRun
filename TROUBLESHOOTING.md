@@ -116,6 +116,27 @@ Ensure `app.manifest` contains proper configuration:
 
 ## Build Issues
 
+### Duplicate Program Class Definition
+
+**Problem**: Build fails with "The namespace 'LlamaRun' already contains a definition for 'Program'"
+
+**Root Cause**: The project has `EnableDefaultApplicationDefinition=false` set, which is incorrect for WinUI 3 apps. This property is for WPF/Windows Forms applications.
+
+**Solution**:
+1. Remove the `EnableDefaultApplicationDefinition` property from the project file
+2. WinUI 3 apps automatically detect and use custom Program.cs files
+3. Clean and rebuild:
+   ```powershell
+   msbuild /t:Clean LlamaRun.sln
+   msbuild LlamaRun\LlamaRun.csproj /p:Configuration=Debug /p:Platform=x64
+   ```
+
+**Technical Details**:
+- WinUI 3 uses a different build system than WPF/Windows Forms
+- Custom Program.cs is auto-detected without special properties
+- The custom Program.cs provides error handling and crash logging
+- No additional configuration needed for custom entry points
+
 ### Python Build Fails
 
 **Problem**: First build fails during Python component building

@@ -206,6 +206,15 @@ Check this file for detailed error information. Common solutions:
 3. **Update NuGet packages**: Ensure all packages are current
 4. **Check Windows App SDK**: Verify version 1.8 or later is installed
 
+### Build error: Duplicate Program class definition
+**Error**: "The namespace 'LlamaRun' already contains a definition for 'Program'"
+
+**Solution**: 
+This occurs if `EnableDefaultApplicationDefinition=false` is set in the project file. This property is for WPF/Windows Forms, not WinUI 3. For WinUI apps:
+- Simply have a custom Program.cs file - the build system auto-detects it
+- Do NOT set `EnableDefaultApplicationDefinition` property
+- Clean and rebuild after removing the incorrect property
+
 ### Application shows blank window or doesn't load resources
 1. Ensure you're running the built executable from the correct output directory
 2. Check that Assets folder is properly deployed
