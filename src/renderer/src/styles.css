@@ -1,0 +1,327 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@import './theme-inline.css';
+
+/*
+ * Design tokens follow T3 Code (pingdotgg/t3code): quiet zinc hierarchy,
+ * indigo primary, compact 0.5rem controls, glassy composer.
+ * On Windows a Fluent layer (below) swaps in Segoe UI Variable, the system
+ * accent colour and translucent surfaces over Mica/Acrylic.
+ */
+:root {
+  --radius: 0.625rem;
+  --control-radius: 0.5rem;
+  --titlebar-height: 40px;
+  --glass-blur: 12px;
+  --glass-opacity: 80%;
+
+  --background: oklch(99.2% 0 0);
+  --foreground: var(--color-zinc-800);
+  --card: var(--color-white);
+  --card-foreground: var(--color-zinc-800);
+  --popover: var(--color-white);
+  --popover-foreground: var(--color-zinc-800);
+  --primary: oklch(0.488 0.217 264);
+  --primary-foreground: var(--color-white);
+  --secondary: var(--color-zinc-50);
+  --secondary-foreground: var(--color-zinc-800);
+  --muted: var(--color-zinc-50);
+  --muted-foreground: var(--color-zinc-500);
+  --accent: var(--color-zinc-100);
+  --accent-foreground: var(--color-zinc-900);
+  --destructive: var(--color-red-600);
+  --border: var(--color-zinc-200);
+  --input: var(--color-zinc-300);
+  --ring: var(--primary);
+  --message: var(--color-zinc-100);
+  --code-background: var(--color-zinc-50);
+
+  --sidebar: var(--color-zinc-50);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-muted-foreground: var(--muted-foreground);
+  --sidebar-row-hover: var(--color-zinc-100);
+  --sidebar-row-selected: var(--color-white);
+  --sidebar-border: var(--border);
+
+  --composer-surface: var(--card);
+  --composer-outline: rgb(0 0 0 / 8%);
+  --shadow-composer: 0 12px 28px -18px rgb(0 0 0 / 40%);
+  --scrollbar-thumb: rgb(217 217 217);
+
+  --brand-from: #ff00cc;
+  --brand-to: #333399;
+}
+
+.dark {
+  color-scheme: dark;
+  --glass-blur: 16px;
+  --background: var(--color-neutral-950);
+  --foreground: var(--color-neutral-100);
+  --card: color-mix(in srgb, var(--color-neutral-950) 97%, white);
+  --card-foreground: var(--color-neutral-100);
+  --popover: color-mix(in srgb, var(--color-neutral-950) 95%, white);
+  --popover-foreground: var(--color-neutral-100);
+  --primary: oklch(0.571 0.21 264);
+  --primary-foreground: var(--color-white);
+  --secondary: rgb(255 255 255 / 3%);
+  --secondary-foreground: var(--color-neutral-100);
+  --muted: rgb(255 255 255 / 3%);
+  --muted-foreground: color-mix(in srgb, var(--color-neutral-500) 90%, white);
+  --accent: rgb(255 255 255 / 5%);
+  --accent-foreground: var(--color-neutral-100);
+  --destructive: color-mix(in srgb, var(--color-red-500) 90%, white);
+  --border: rgb(255 255 255 / 7%);
+  --input: rgb(255 255 255 / 9%);
+  --message: rgb(255 255 255 / 6%);
+  --code-background: rgb(255 255 255 / 4%);
+
+  --sidebar: var(--card);
+  --sidebar-row-hover: rgb(255 255 255 / 4%);
+  --sidebar-row-selected: rgb(255 255 255 / 7%);
+
+  --composer-surface: color-mix(in srgb, var(--color-neutral-950) 94%, white);
+  --composer-outline: rgb(255 255 255 / 6%);
+  --shadow-composer: 0 14px 32px -18px rgb(0 0 0 / 75%);
+  --scrollbar-thumb: rgb(255 255 255 / 10%);
+}
+
+/* ---- Windows 11 Fluent layer ------------------------------------------- */
+.platform-win {
+  --font-sans: 'Segoe UI Variable Text', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+  --control-radius: 0.25rem; /* Fluent uses 4px controls, 8px surfaces */
+  --radius: 0.5rem;
+}
+/* Surfaces are translucent so Mica/Acrylic shows through, like WinUI's layering.
+   Only when the backdrop exists (Windows 11 22H2+); otherwise the opaque T3 palette stays. */
+.platform-win.has-material {
+  --background: rgb(243 243 243 / 55%);
+  --sidebar: transparent;
+  --card: rgb(255 255 255 / 70%);
+  --popover: rgb(249 249 249 / 96%);
+  --sidebar-row-hover: rgb(0 0 0 / 3.7%);
+  --sidebar-row-selected: rgb(0 0 0 / 5.6%);
+  --message: rgb(0 0 0 / 5%);
+  --composer-surface: rgb(255 255 255 / 80%);
+  --border: rgb(0 0 0 / 8%);
+  --input: rgb(0 0 0 / 14%);
+}
+.platform-win.has-material.dark {
+  --background: rgb(32 32 32 / 45%);
+  --card: rgb(255 255 255 / 5%);
+  --popover: rgb(44 44 44 / 96%);
+  --sidebar-row-hover: rgb(255 255 255 / 6%);
+  --sidebar-row-selected: rgb(255 255 255 / 8%);
+  --message: rgb(255 255 255 / 7%);
+  --composer-surface: rgb(45 45 45 / 75%);
+  --border: rgb(255 255 255 / 8%);
+  --input: rgb(255 255 255 / 12%);
+}
+/* The system accent colour replaces the indigo primary when Windows reports one. */
+.platform-win[style*='--os-accent'] {
+  --primary: var(--os-accent);
+  --ring: var(--os-accent);
+}
+.platform-win.dark[style*='--os-accent'] {
+  --primary: color-mix(in oklab, var(--os-accent) 75%, white);
+  --primary-foreground: var(--color-black);
+}
+
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-background font-sans text-sm text-foreground antialiased;
+    user-select: none;
+  }
+  input,
+  textarea,
+  [data-selectable] {
+    user-select: text;
+  }
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@utility glass {
+  background: color-mix(in srgb, var(--composer-surface) var(--glass-opacity), transparent);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.1);
+}
+
+/* ---- Markdown ------------------------------------------------------------ */
+.markdown {
+  @apply text-sm leading-relaxed;
+  user-select: text;
+  overflow-wrap: anywhere;
+}
+.markdown > * + * {
+  margin-top: 0.75em;
+}
+.markdown h1 {
+  @apply mt-5 text-xl font-semibold;
+}
+.markdown h2 {
+  @apply mt-5 text-lg font-semibold;
+}
+.markdown h3 {
+  @apply mt-4 text-base font-semibold;
+}
+.markdown ul {
+  @apply list-disc space-y-1 pl-5;
+}
+.markdown ol {
+  @apply list-decimal space-y-1 pl-5;
+}
+.markdown a {
+  @apply text-primary underline underline-offset-2;
+}
+.markdown blockquote {
+  @apply border-l-2 pl-4 text-muted-foreground;
+}
+.markdown :not(pre) > code {
+  @apply rounded-md border border-border/60 bg-(--code-background) px-1 py-px font-mono text-[0.85em];
+}
+.markdown pre {
+  @apply overflow-x-auto rounded-lg border border-border/70 bg-(--code-background) p-3 font-mono text-[0.8rem] leading-5;
+}
+.markdown table {
+  @apply w-full border-collapse text-sm;
+}
+.markdown th,
+.markdown td {
+  @apply border px-2 py-1 text-left;
+}
+.markdown hr {
+  @apply border-t;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-built_in {
+  color: #a626a4;
+}
+.hljs-string,
+.hljs-attr {
+  color: #50a14f;
+}
+.hljs-number,
+.hljs-literal {
+  color: #986801;
+}
+.hljs-comment {
+  color: #a0a1a7;
+  font-style: italic;
+}
+.hljs-title,
+.hljs-function {
+  color: #4078f2;
+}
+.hljs-type,
+.hljs-class {
+  color: #c18401;
+}
+.dark .hljs-keyword,
+.dark .hljs-selector-tag,
+.dark .hljs-built_in {
+  color: #c678dd;
+}
+.dark .hljs-string,
+.dark .hljs-attr {
+  color: #98c379;
+}
+.dark .hljs-number,
+.dark .hljs-literal {
+  color: #d19a66;
+}
+.dark .hljs-comment {
+  color: #7f848e;
+}
+.dark .hljs-title,
+.dark .hljs-function {
+  color: #61afef;
+}
+.dark .hljs-type,
+.dark .hljs-class {
+  color: #e5c07b;
+}
+
+/* ---- Motion ------------------------------------------------------------ */
+@keyframes llamarun-gradient {
+  0% {
+    background-position: 0% 0%;
+  }
+  100% {
+    background-position: 100% 100%;
+  }
+}
+.loading-gradient {
+  background: linear-gradient(135deg, var(--brand-from), var(--brand-to), var(--brand-from), var(--brand-to));
+  background-size: 300% 300%;
+  animation: llamarun-gradient 3s ease-in-out infinite alternate;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 150% 0;
+  }
+  to {
+    background-position: -50% 0;
+  }
+}
+.shimmer-text {
+  background: linear-gradient(
+      90deg,
+      var(--muted-foreground) 35%,
+      var(--foreground) 50%,
+      var(--muted-foreground) 65%
+    )
+    0 0 / 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 2s linear infinite;
+}
+
+.drag {
+  -webkit-app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Indeterminate progress bars in plugin UI. */
+@keyframes progress-indeterminate {
+  from {
+    left: -35%;
+  }
+  to {
+    left: 100%;
+  }
+}
+
+/* Speaking bars in plugin HUD cards. */
+@keyframes hud-bar {
+  0%,
+  100% {
+    transform: scaleY(0.3);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "name": "UI Showcase",
+  "description": "Every kind of plugin UI: settings, a status HUD, dialogs, toasts, a Python panel and a TSX panel.",
+  "version": "1.0.0",
+  "author": "LlamaRun",
+  "sdk_version": "1.1",
+  "entry": { "module": "ui_showcase", "class": "Showcase" },
+  "permissions": ["llm"],
+  "ui": {
+    "panels": { "Notes": "ui/Notes.tsx" }
+  },
+  "actions": {
+    "Open counter (Python panel)": "on_counter",
+    "Open notes (TSX panel)": "on_notes",
+    "Show a status HUD": "on_hud",
+    "Ask the model": "on_ask"
+  }
+}

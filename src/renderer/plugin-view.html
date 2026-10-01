@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' llamarun-plugin:; style-src 'self' 'unsafe-inline' llamarun-plugin:; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws://localhost:*; frame-src 'none'; object-src 'none'"
+    />
+    <title>Plugin</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/plugin-view/main.tsx"></script>
+  </body>
+</html>

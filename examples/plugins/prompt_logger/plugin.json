@@ -1,0 +1,15 @@
+{
+  "name": "Prompt Logger",
+  "description": "Logs prompts and responses, expands shortcuts, and can cancel generation.",
+  "version": "1.1.0",
+  "author": "LlamaRun",
+  "sdk_version": "1.1",
+  "entry": {
+    "module": "prompt_logger",
+    "class": "PromptLogger"
+  },
+  "permissions": ["hooks", "llm", "mcp"],
+  "actions": {
+    "clearHistory": "on_clear_history"
+  }
+}

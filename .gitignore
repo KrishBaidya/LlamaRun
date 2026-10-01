@@ -1,0 +1,10 @@
+node_modules/
+out/
+dist/
+resources/python/
+*.log
+__pycache__/
+*.pyc
+.pytest_cache/
+.deps/
+.devdata/

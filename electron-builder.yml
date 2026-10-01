@@ -1,0 +1,47 @@
+appId: com.krishbaidya.llamarun
+productName: Llama Run
+copyright: Copyright © Krish Baidya
+directories:
+  buildResources: resources
+  output: dist
+files:
+  - out/**
+  - package.json
+  - '!**/*.map'
+asar: true
+# esbuild-wasm (compiles plugin TSX panels) loads its .wasm and worker from real files.
+asarUnpack:
+  - node_modules/esbuild-wasm/**
+extraResources:
+  # Bundled CPython (downloaded by scripts/fetch-python.mjs) and the plugin SDK.
+  - from: resources/python/${os}-${arch}
+    to: python/${os}-${arch}
+    filter: ['**/*', '!**/__pycache__/**', '!**/test/**', '!**/tests/**', '!**/idlelib/**', '!**/tkinter/**', '!**/turtledemo/**']
+  - from: sdk/python
+    to: sdk
+    filter: ['llamarun/**', 'plugin_host.py', '!**/__pycache__/**']
+  - from: resources
+    to: .
+    filter: ['icon.png', 'icon.ico', 'tray.png']
+protocols:
+  - name: Llama Run
+    schemes: [llama-run]
+win:
+  icon: resources/icon.ico
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  artifactName: LlamaRun-Setup-${version}-${arch}.${ext}
+  shortcutName: Llama Run
+mac:
+  icon: resources/icon.png
+  category: public.app-category.productivity
+  target: [dmg]
+linux:
+  icon: resources/icon.png
+  category: Utility
+  target: [AppImage]

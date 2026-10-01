@@ -1,0 +1,40 @@
+name: Build
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies (downloads bundled Python for x64)
+        run: npm ci
+
+      - name: Fetch bundled Python for arm64
+        run: node scripts/fetch-python.mjs --arch arm64
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Python SDK tests
+        run: npm run test:sdk
+
+      - name: Build installers
+        run: npm run build:win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LlamaRun-windows
+          path: dist/*.exe

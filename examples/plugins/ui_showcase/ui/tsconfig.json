@@ -1,0 +1,21 @@
+{
+  // Editor support only: Llama Run compiles panels itself.
+  // Point "paths" at the SDK's type definitions (sdk/ts in the Llama Run repo).
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": [],
+    "paths": {
+      "@llamarun/ui": ["../../../../sdk/ts/llamarun-ui.d.ts"],
+      "@llamarun/plugin": ["../../../../sdk/ts/llamarun-plugin.d.ts"],
+      "react": ["../../../../node_modules/@types/react"],
+      "react/jsx-runtime": ["../../../../node_modules/@types/react/jsx-runtime"]
+    }
+  },
+  "include": ["./**/*.tsx", "./**/*.ts"]
+}
