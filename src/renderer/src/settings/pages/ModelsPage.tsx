@@ -184,7 +184,7 @@ export function ModelsPage() {
   const refresh = async (): Promise<void> => {
     setRefreshing(true)
     try {
-      await refreshModelCatalog()
+      await refreshModelCatalog(true)
     } catch (err) {
       toast.error(errorMessage(err))
     } finally {

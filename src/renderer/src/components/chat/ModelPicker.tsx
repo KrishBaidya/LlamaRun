@@ -10,9 +10,9 @@ import { cn } from '@/lib/utils'
 let cache: ModelCatalog | null = null
 const listeners = new Set<(c: ModelCatalog) => void>()
 
-/** Reloads the catalog and updates every mounted picker. */
-export async function refreshModelCatalog(): Promise<ModelCatalog> {
-  const catalog = await api.models.list()
+/** Reloads the catalog and updates every mounted picker. `force` bypasses the cloud catalog cache. */
+export async function refreshModelCatalog(force = false): Promise<ModelCatalog> {
+  const catalog = await api.models.list({ force })
   cache = catalog
   for (const listener of listeners) listener(catalog)
   return catalog

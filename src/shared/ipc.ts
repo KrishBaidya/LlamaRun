@@ -41,7 +41,7 @@ export interface InvokeChannels {
   'settings:reset': () => Settings
   'settings:hotkeyStatus': () => { active: string | null; requested: string }
 
-  'models:list': () => ModelCatalog
+  'models:list': (options?: { force?: boolean }) => ModelCatalog
 
   'chats:list': () => ChatSummary[]
   'chats:get': (id: string) => Chat | null

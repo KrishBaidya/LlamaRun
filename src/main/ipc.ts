@@ -82,7 +82,7 @@ export function registerIpc(): void {
   handle('settings:reset', () => settings.reset())
   handle('settings:hotkeyStatus', () => ({ active: activeHotkey(), requested: settings.get('hotkey') }))
 
-  handle('models:list', () => modelCatalog())
+  handle('models:list', (_e, options) => modelCatalog({ force: options?.force === true }))
 
   handle('chats:list', () => chatService.list())
   handle('chats:get', (_e, id) => chatService.get(id))

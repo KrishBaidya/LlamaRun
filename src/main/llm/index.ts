@@ -10,11 +10,15 @@ export { GenerationError, MAX_TOOL_ROUNDS, type HistoryMessage, type ToolPause }
 export { isCloudModel, loadCloudCatalog } from './models'
 
 /**
- * Cloud groups come from the server-driven catalog, which refreshes itself when its
- * cache is older than 10 minutes, so opening the Models page or a picker keeps it current.
+ * Cloud groups come from the server-driven catalog. It is served from a 10-minute cache
+ * unless `force` is set (the Models page Refresh button), which always hits the server.
  */
-export async function modelCatalog(): Promise<ModelCatalog> {
-  const [cloud, running, ollama] = await Promise.all([loadCloudCatalog(), isOllamaRunning(), listOllamaModels()])
+export async function modelCatalog({ force = false }: { force?: boolean } = {}): Promise<ModelCatalog> {
+  const [cloud, running, ollama] = await Promise.all([
+    loadCloudCatalog({ force }),
+    isOllamaRunning(),
+    listOllamaModels()
+  ])
   return {
     groups: [...cloud.groups, { provider: 'ollama', label: 'Ollama (Local)', models: ollama }],
     ollamaRunning: running
