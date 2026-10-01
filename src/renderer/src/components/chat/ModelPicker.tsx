@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { Check, ChevronDown, Download, Search, Settings2 } from 'lucide-react'
 import type { ModelCatalog, ModelInfo } from '@shared/types'
-import { CapabilityIcons, ProviderIcon, modelSummary } from '@/components/models/model-meta'
+import { CapabilityIcons, ModelBadges, ProviderIcon, formatContextWindow, modelSummary } from '@/components/models/model-meta'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { api } from '@/hooks/use-llamarun'
@@ -145,8 +145,15 @@ export function ModelPicker({
                     >
                       <ProviderIcon provider={m.provider} className="size-7" />
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm">{m.name}</span>
-                        <span className="block truncate text-2xs text-muted-foreground">{modelSummary(m) || m.id}</span>
+                        <span className="flex min-w-0 items-center gap-1.5">
+                          <span className="truncate text-sm">{m.name}</span>
+                          <ModelBadges model={m} />
+                        </span>
+                        <span className="block truncate text-2xs text-muted-foreground">
+                          {[modelSummary(m) || m.id, m.contextWindow ? `${formatContextWindow(m.contextWindow)} ctx` : null]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </span>
                       </span>
                       <CapabilityIcons capabilities={m.capabilities} />
                       <Check className={cn('size-3.5 shrink-0', m.id === value ? 'opacity-100' : 'opacity-0')} />

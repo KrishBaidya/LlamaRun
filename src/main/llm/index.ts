@@ -2,17 +2,21 @@ import type { ModelCatalog } from '@shared/types'
 import { auth } from '../auth'
 import { mcp } from '../mcp/manager'
 import { generateCloud } from './cloud'
-import { cloudModelGroups, isCloudModel } from './models'
+import { isCloudModel, loadCloudCatalog } from './models'
 import { generateOllama, isOllamaRunning, listOllamaModels } from './ollama'
 import { GenerationError, type GenerateInput, type GenerateOptions, type ToolBridge } from './types'
 
 export { GenerationError, MAX_TOOL_ROUNDS, type HistoryMessage, type ToolPause } from './types'
-export { isCloudModel } from './models'
+export { isCloudModel, loadCloudCatalog } from './models'
 
+/**
+ * Cloud groups come from the server-driven catalog, which refreshes itself when its
+ * cache is older than 10 minutes, so opening the Models page or a picker keeps it current.
+ */
 export async function modelCatalog(): Promise<ModelCatalog> {
-  const [running, ollama] = await Promise.all([isOllamaRunning(), listOllamaModels()])
+  const [cloud, running, ollama] = await Promise.all([loadCloudCatalog(), isOllamaRunning(), listOllamaModels()])
   return {
-    groups: [...cloudModelGroups(), { provider: 'ollama', label: 'Ollama (Local)', models: ollama }],
+    groups: [...cloud.groups, { provider: 'ollama', label: 'Ollama (Local)', models: ollama }],
     ollamaRunning: running
   }
 }

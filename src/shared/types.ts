@@ -91,7 +91,12 @@ export interface AppearanceInfo {
 
 export type ModelProvider = 'gemini' | 'openai' | 'ollama'
 
-export type ModelCapability = 'tools' | 'vision' | 'thinking' | 'fast'
+export type ModelCapability = 'tools' | 'vision' | 'thinking' | 'fast' | 'search'
+
+/** Cloud models: which plan can use the model. */
+export type ModelTier = 'free' | 'pro'
+/** Cloud models: release channel. `dev` models are hidden in packaged builds. */
+export type ModelStatus = 'stable' | 'preview' | 'dev'
 
 export interface ModelInfo {
   id: string
@@ -101,6 +106,12 @@ export interface ModelInfo {
   /** One-line summary shown on model cards. */
   description?: string
   capabilities?: ModelCapability[]
+  /** Cloud models: plan required to use the model. */
+  tier?: ModelTier
+  /** Cloud models: maximum context length in tokens. */
+  contextWindow?: number
+  /** Cloud models: release channel. */
+  status?: ModelStatus
   /** Local models: size on disk in bytes. */
   size?: number
   /** Local models, e.g. "8B". */

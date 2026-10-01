@@ -1,0 +1,97 @@
+{
+  "version": "snapshot",
+  "groups": [
+    {
+      "provider": "gemini",
+      "label": "Google Gemini",
+      "models": [
+        {
+          "id": "gemini-2.0-flash",
+          "name": "Gemini 2.0 Flash",
+          "provider": "gemini",
+          "description": "Quick, capable all-rounder",
+          "capabilities": ["tools", "vision", "fast"],
+          "tier": "free",
+          "contextWindow": 1048576,
+          "status": "stable"
+        },
+        {
+          "id": "gemini-2.5-flash",
+          "name": "Gemini 2.5 Flash",
+          "provider": "gemini",
+          "description": "Balances speed with step-by-step reasoning",
+          "capabilities": ["tools", "vision", "thinking"],
+          "tier": "free",
+          "contextWindow": 1048576,
+          "status": "stable"
+        },
+        {
+          "id": "gemini-2.0-flash-lite",
+          "name": "Gemini 2.0 Flash Lite",
+          "provider": "gemini",
+          "description": "Lowest latency for short answers",
+          "capabilities": ["fast"],
+          "tier": "free",
+          "contextWindow": 1048576,
+          "status": "stable"
+        },
+        {
+          "id": "gemini-2.5-pro",
+          "name": "Gemini 2.5 Pro",
+          "provider": "gemini",
+          "description": "Google's most capable model for complex, multi-step work",
+          "capabilities": ["tools", "vision", "thinking"],
+          "tier": "pro",
+          "contextWindow": 1048576,
+          "status": "stable"
+        },
+        {
+          "id": "gemini-3.8-flash",
+          "name": "Gemini 3.8 Flash",
+          "provider": "gemini",
+          "description": "Best in class from Google",
+          "capabilities": ["tools", "fast"],
+          "tier": "pro",
+          "contextWindow": 1048576,
+          "status": "preview"
+        }
+      ]
+    },
+    {
+      "provider": "openai",
+      "label": "OpenAI",
+      "models": [
+        {
+          "id": "gpt-4o-mini",
+          "name": "GPT-4o mini",
+          "provider": "openai",
+          "description": "Small, fast multimodal model",
+          "capabilities": ["tools", "vision", "fast"],
+          "tier": "free",
+          "contextWindow": 128000,
+          "status": "dev"
+        },
+        {
+          "id": "gpt-4.1-mini",
+          "name": "GPT-4.1 mini",
+          "provider": "openai",
+          "description": "Strong at instructions and long context",
+          "capabilities": ["tools", "vision"],
+          "tier": "free",
+          "contextWindow": 1047576,
+          "status": "stable"
+        },
+        {
+          "id": "gpt-4.1-nano",
+          "name": "GPT-4.1 nano",
+          "provider": "openai",
+          "description": "Fastest and lightest OpenAI model",
+          "capabilities": ["tools", "fast"],
+          "tier": "free",
+          "contextWindow": 1047576,
+          "status": "stable"
+        }
+      ]
+    }
+  ]
+}

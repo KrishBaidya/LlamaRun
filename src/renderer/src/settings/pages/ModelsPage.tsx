@@ -1,9 +1,17 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Check, Cloud, Download, HardDrive, LayoutGrid, List, LogIn, RefreshCw, Search } from 'lucide-react'
 import { toast } from 'sonner'
 import type { ModelCapability, ModelInfo } from '@shared/types'
 import { refreshModelCatalog, useModelCatalog } from '@/components/chat/ModelPicker'
-import { CAPABILITIES, CapabilityIcons, ProviderIcon, formatBytes, modelSummary } from '@/components/models/model-meta'
+import {
+  CAPABILITIES,
+  CapabilityIcons,
+  ModelBadges,
+  ProviderIcon,
+  formatBytes,
+  formatContextWindow,
+  modelSummary
+} from '@/components/models/model-meta'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -17,6 +25,8 @@ type Source = 'all' | 'cloud' | 'local'
 type Layout = 'grid' | 'list'
 
 const LAYOUT_KEY = 'llamarun.models.layout'
+/** While the page is open, re-ask main for the catalog; it refetches once its cache is stale. */
+const CATALOG_REFRESH_MS = 10 * 60_000
 
 function readLayout(): Layout {
   try {
@@ -31,17 +41,20 @@ export const CARD_GRID = 'grid grid-cols-1 gap-3 @xl:grid-cols-2 @3xl:grid-cols-
 
 function ModelCard({
   model,
+  providerLabel,
   selected,
   layout,
   onSelect
 }: {
   model: ModelInfo
+  /** The group's label from the catalog, e.g. "Google Gemini". */
+  providerLabel: string
   selected: boolean
   layout: Layout
   onSelect: () => void
 }) {
   const details = model.cloud
-    ? [model.provider === 'gemini' ? 'Google' : 'OpenAI', 'Cloud']
+    ? [providerLabel, model.contextWindow ? `${formatContextWindow(model.contextWindow)} ctx` : 'Cloud']
     : [model.parameters, model.quantization, model.size ? formatBytes(model.size) : null].filter(Boolean)
   return (
     <Card
@@ -61,6 +74,7 @@ function ModelCard({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <span className="truncate text-sm font-medium">{model.name}</span>
+            <ModelBadges model={model} />
           </div>
           <div className="truncate font-mono text-2xs text-muted-foreground" data-selectable>
             {model.id}
@@ -135,6 +149,11 @@ export function ModelsPage() {
   const [capability, setCapability] = useState<ModelCapability | null>(null)
   const [layout, setLayoutState] = useState<Layout>(readLayout)
   const [refreshing, setRefreshing] = useState(false)
+
+  useEffect(() => {
+    const timer = setInterval(() => void refreshModelCatalog().catch(() => {}), CATALOG_REFRESH_MS)
+    return () => clearInterval(timer)
+  }, [])
 
   const setLayout = (next: Layout): void => {
     setLayoutState(next)
@@ -283,6 +302,7 @@ export function ModelsPage() {
                     <ModelCard
                       key={m.id}
                       model={m}
+                      providerLabel={group.label}
                       layout={layout}
                       selected={m.id === selected}
                       onSelect={() => void select(m)}
