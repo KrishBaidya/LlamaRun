@@ -4,7 +4,7 @@ import type { ChatMessage } from '@shared/types'
 import { Markdown } from '@/components/markdown'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { api } from '@/hooks/use-llamarun'
+import { api, useProfile } from '@/hooks/use-llamarun'
 import { cn } from '@/lib/utils'
 import { modelName, useModelCatalog } from './ModelPicker'
 
@@ -57,29 +57,56 @@ function UserMessage({ message }: { message: ChatMessage }) {
   )
 }
 
+/** Extra line under a plan or quota error explaining the way out. */
+function planHint(message: ChatMessage, pro: boolean, resets: string | null): string | null {
+  if (message.errorCode === 'PLAN_REQUIRED') {
+    return 'Upgrade to LlamaRun Pro to use this model, or pick a free one.'
+  }
+  if (message.errorCode === 'QUOTA_EXCEEDED') {
+    const when = resets ? ` Your allowance resets on ${resets}.` : ''
+    return pro
+      ? `You’ve used this month’s cloud messages.${when} Local Ollama models keep working.`
+      : `You’ve used this month’s free cloud messages.${when} Upgrade to Pro for more, or use a local Ollama model.`
+  }
+  return null
+}
+
 function ErrorCallout({ message, onRetry }: { message: ChatMessage; onRetry?: () => void }) {
+  const code = message.errorCode
+  const planError = code === 'PLAN_REQUIRED' || code === 'QUOTA_EXCEEDED'
+  const profile = useProfile()
+  const pro = profile?.plan?.tier === 'pro'
+  const periodEnd = profile?.usage?.periodEnd
+  const resets = periodEnd && !Number.isNaN(Date.parse(periodEnd)) ? new Date(periodEnd).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : null
+  const hint = planError ? planHint(message, pro, resets) : null
   return (
     <div className="flex items-start gap-2.5 rounded-xl border border-destructive/25 bg-destructive/8 px-3.5 py-2.5 text-sm">
       <AlertCircle className="mt-0.5 size-4 shrink-0 text-destructive" />
       <div className="min-w-0 flex-1 space-y-2">
         <p data-selectable>{message.error}</p>
+        {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
         <div className="flex flex-wrap gap-1.5">
+          {planError && !(code === 'QUOTA_EXCEEDED' && pro) && (
+            <Button size="sm" onClick={() => void api.account.openUpgrade()}>
+              <Sparkles /> Upgrade
+            </Button>
+          )}
           {onRetry && (
             <Button size="sm" variant="outline" onClick={onRetry}>
               <RotateCcw /> Retry
             </Button>
           )}
-          {message.errorCode === 'OLLAMA_UNAVAILABLE' && (
+          {code === 'OLLAMA_UNAVAILABLE' && (
             <Button size="sm" variant="outline" onClick={() => void api.app.openExternal('https://ollama.com/download')}>
               Get Ollama
             </Button>
           )}
-          {message.errorCode === 'NOT_AUTHENTICATED' && (
+          {code === 'NOT_AUTHENTICATED' && (
             <Button size="sm" variant="outline" onClick={() => void api.auth.signIn()}>
               Sign in
             </Button>
           )}
-          {(message.errorCode === 'NO_MODEL' || message.errorCode === 'OLLAMA_UNAVAILABLE' || message.errorCode === 'NOT_AUTHENTICATED') && (
+          {(code === 'NO_MODEL' || code === 'OLLAMA_UNAVAILABLE' || code === 'NOT_AUTHENTICATED' || planError) && (
             <Button size="sm" variant="ghost" onClick={() => void api.app.openSettings('/')}>
               Choose another model
             </Button>

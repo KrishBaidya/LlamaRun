@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { Boxes, RotateCcw, Save } from 'lucide-react'
+import { Boxes, ExternalLink, LogIn, RotateCcw, Save, Sparkles } from 'lucide-react'
 import { toast } from 'sonner'
-import type { Settings } from '@shared/types'
+import type { Settings, UserProfile } from '@shared/types'
 import { findModel, useModelCatalog } from '@/components/chat/ModelPicker'
 import { CapabilityIcons, ProviderIcon, modelSummary } from '@/components/models/model-meta'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -12,8 +13,8 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { Slider } from '@/components/ui/slider'
-import { api, useSettings } from '@/hooks/use-llamarun'
-import { errorMessage } from '@/lib/utils'
+import { api, useProfile, useSettings } from '@/hooks/use-llamarun'
+import { cn, errorMessage } from '@/lib/utils'
 import heart from '@/assets/heart.gif'
 import { Page, PageHeader, SettingRow } from '../components'
 import { HotkeyRecorder, prettyAccelerator } from '../HotkeyRecorder'
@@ -36,11 +37,125 @@ function pick(s: Settings): Draft {
   return { appOpacity, startupEnabled, hotkey, windowWidthPct, windowHeightPct, overlayNewChatAfterMinutes }
 }
 
+function shortDate(iso: string | null | undefined): string | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+/** One line under the plan badge: what happens next with the subscription. */
+function planNote(plan: NonNullable<UserProfile['plan']>): string | null {
+  const end = shortDate(plan.currentPeriodEnd)
+  if (plan.tier === 'free') return plan.status === 'pending' ? 'Your Pro subscription is being activated.' : null
+  switch (plan.status) {
+    case 'cancelled':
+      return end ? `Cancels on ${end}` : 'Cancelled'
+    case 'halted':
+      return 'Payment failed. Update your payment method to keep Pro.'
+    case 'pending':
+      return 'Activating…'
+    default:
+      return end ? `Renews on ${end}` : null
+  }
+}
+
+function AccountCard({ profile }: { profile: UserProfile }) {
+  useEffect(() => {
+    // Usage changes as the user chats; read it fresh whenever the page opens.
+    if (profile.signedIn) void api.account.refresh()
+  }, [profile.signedIn])
+
+  if (!profile.signedIn) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Account</CardTitle>
+          <CardDescription>
+            Sign in to use cloud models like Gemini and OpenAI. The free plan includes 200 messages a month.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button onClick={() => void api.auth.signIn()}>
+            <LogIn /> Sign In
+          </Button>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  const { plan, usage } = profile
+  const pro = plan?.tier === 'pro'
+  const note = plan ? planNote(plan) : null
+  const pct = usage && usage.limit > 0 ? Math.min(100, (usage.used / usage.limit) * 100) : 0
+  const resets = shortDate(usage?.periodEnd)
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          Plan
+          {plan && (
+            <Badge variant={pro ? 'default' : 'secondary'}>
+              {pro && <Sparkles />}
+              {pro ? 'Pro' : 'Free'}
+            </Badge>
+          )}
+        </CardTitle>
+        <CardDescription>
+          {note ?? (pro ? 'Thanks for supporting LlamaRun.' : 'Cloud models run through your LlamaRun account.')}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        {usage ? (
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-baseline justify-between gap-3 text-xs">
+              <span className="font-medium">Cloud messages this month</span>
+              <span className="text-muted-foreground tabular-nums">
+                {usage.used.toLocaleString()} / {usage.limit.toLocaleString()}
+              </span>
+            </div>
+            <div
+              className="relative h-1.5 overflow-hidden rounded-full bg-muted"
+              role="progressbar"
+              aria-label="Cloud messages used"
+              aria-valuemin={0}
+              aria-valuemax={usage.limit}
+              aria-valuenow={usage.used}
+            >
+              <div
+                className={cn('h-full rounded-full transition-[width]', pct >= 90 ? 'bg-destructive' : 'bg-primary')}
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+            {resets && <div className="text-2xs text-muted-foreground">Resets {resets}</div>}
+          </div>
+        ) : (
+          !plan && <p className="text-xs text-muted-foreground">Plan details aren’t available from this server.</p>
+        )}
+        {plan && (
+          <div className="flex flex-wrap gap-2">
+            {pro ? (
+              <Button variant="outline" onClick={() => void api.account.openAccount()}>
+                <ExternalLink /> Manage subscription
+              </Button>
+            ) : (
+              <Button onClick={() => void api.account.openUpgrade()}>
+                <Sparkles /> Upgrade to Pro
+              </Button>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 export function HomePage() {
   const [settings, update] = useSettings()
   const [draft, setDraft] = useState<Draft | null>(null)
   const catalog = useModelCatalog()
   const navigate = useNavigate()
+  const profile = useProfile()
   const [activeHotkey, setActiveHotkey] = useState<string | null | undefined>(undefined)
 
   useEffect(() => {
@@ -99,6 +214,8 @@ export function HomePage() {
           </>
         }
       />
+
+      {profile && <AccountCard profile={profile} />}
 
       <Card>
         <CardHeader>

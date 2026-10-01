@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events'
 import { BASE_SERVER_URL } from '@shared/constants'
 import { JsonObjectStreamParser } from './streamParser'
 import { toolResultToText, toolSpecs } from './toolPayload'
@@ -11,6 +12,51 @@ import {
 } from './types'
 
 type Pair = { Key: string; Value: unknown }
+
+export const GENERATE_URL = `${BASE_SERVER_URL}/api/v1/llm/generate`
+/** Servers from before /api/v1. */
+export const LEGACY_GENERATE_URL = `${BASE_SERVER_URL}/api/llm/generate`
+
+/**
+ * Fires when the server has counted a request against the account's usage
+ * (a reply started, or the plan/quota check answered), so the account can be re-read.
+ */
+export const cloudUsage = new EventEmitter<{ changed: [] }>()
+
+/** A 404 for the route itself (an older server), not a JSON error the new route chose to send. */
+async function isMissingRoute(res: Response): Promise<boolean> {
+  if (res.status !== 404) return false
+  try {
+    const body = (await res.clone().json()) as { error?: unknown; code?: unknown } | null
+    return !body || (body.error === undefined && body.code === undefined)
+  } catch {
+    return true
+  }
+}
+
+/** Turns a non-OK generate response into the error the chat shows. */
+export async function responseError(res: Response): Promise<GenerationError> {
+  if (res.status === 401 || res.status === 403) {
+    return new GenerationError('Not Authenticated. Try Signing In Again!!', 'NOT_AUTHENTICATED')
+  }
+  const text = await res.text().catch(() => '')
+  let detail = text.slice(0, 200)
+  let code: string | undefined
+  try {
+    const parsed = JSON.parse(text) as { error?: string; message?: string; code?: string }
+    detail = parsed.error ?? parsed.message ?? detail
+    code = parsed.code
+  } catch {
+    // not JSON
+  }
+  if (res.status === 402 || code === 'PLAN_REQUIRED') {
+    return new GenerationError(detail || 'This model needs LlamaRun Pro.', 'PLAN_REQUIRED')
+  }
+  if (res.status === 429 || code === 'QUOTA_EXCEEDED') {
+    return new GenerationError(detail || 'You have used all of this month’s cloud messages.', 'QUOTA_EXCEEDED')
+  }
+  return new GenerationError(`LlamaRun server returned HTTP ${res.status}${detail ? `: ${detail}` : ''}`)
+}
 
 /** What a cloud pause holds: the conversation pairs and the tool calls not yet run. */
 interface CloudPauseState {
@@ -122,6 +168,7 @@ ${String(last.Value)}` }
   }
 
   let output = ''
+  let url = GENERATE_URL
   if (resumed) await runTools(resumed.pending)
   if (opts.signal?.aborted) return output
 
@@ -133,30 +180,29 @@ ${String(last.Value)}` }
 
     let res: Response
     try {
-      res = await fetch(`${BASE_SERVER_URL}/api/llm/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${opts.token}` },
-        body: JSON.stringify(body),
-        signal: opts.signal
-      })
+      const request = (target: string): Promise<Response> =>
+        fetch(target, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${opts.token}` },
+          body: JSON.stringify(body),
+          signal: opts.signal
+        })
+      res = await request(url)
+      if (url === GENERATE_URL && (await isMissingRoute(res))) {
+        // An older server without /api/v1: use the legacy route for the rest of this reply.
+        url = LEGACY_GENERATE_URL
+        res = await request(url)
+      }
     } catch (err) {
       if (opts.signal?.aborted) return output
       throw new GenerationError(`Could not reach LlamaRun server: ${(err as Error).message}`)
     }
-    if (res.status === 401 || res.status === 403) {
-      throw new GenerationError('Not Authenticated. Try Signing In Again!!', 'NOT_AUTHENTICATED')
-    }
     if (!res.ok || !res.body) {
-      const body = await res.text().catch(() => '')
-      let detail = body.slice(0, 200)
-      try {
-        const parsed = JSON.parse(body) as { error?: string; message?: string }
-        detail = parsed.error ?? parsed.message ?? detail
-      } catch {
-        // not JSON
-      }
-      throw new GenerationError(`LlamaRun server returned HTTP ${res.status}${detail ? `: ${detail}` : ''}`)
+      const error = await responseError(res)
+      if (error.code === 'PLAN_REQUIRED' || error.code === 'QUOTA_EXCEEDED') cloudUsage.emit('changed')
+      throw error
     }
+    cloudUsage.emit('changed')
 
     // A model can ask for several tools in one step; run them all.
     const toolCalls: CloudToolCall[] = []

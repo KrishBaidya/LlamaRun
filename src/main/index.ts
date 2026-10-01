@@ -5,9 +5,11 @@ import { PROTOCOL } from '@shared/constants'
 import { auth } from './auth'
 import { registerHotkey } from './hotkey'
 import { applyStartup, registerIpc } from './ipc'
+import { cloudUsage } from './llm/cloud'
 import { mcp } from './mcp/manager'
 import { logsDir } from './paths'
 import { pluginHost } from './plugins/host'
+import { hudHost } from './plugins/ui/hud'
 import { registerPanelScheme } from './plugins/ui/panels'
 import { settings } from './settings'
 import { createTray } from './tray'
@@ -35,6 +37,52 @@ if (process.env.LLAMARUN_USER_DATA) app.setPath('userData', resolve(process.env.
 // Plugin panels load from their own scheme; it must be registered before 'ready'.
 registerPanelScheme()
 
+// ------------------------------------------------------------- deep links
+
+/** How long to wait before re-reading a just-paid plan the payment webhook may not have activated yet. */
+const BILLING_RECHECK_MS = 5000
+
+/** `llama-run://billing?status=success|cancelled`: the website's checkout finished. */
+async function handleBillingReturn(status: string | null): Promise<void> {
+  if (status !== 'success') {
+    hudHost.toast('Llama Run', { message: 'Checkout cancelled', description: 'Your plan hasn’t changed.', kind: 'info' })
+    return
+  }
+  let profile = await auth.refreshProfile()
+  if (profile.signedIn && profile.plan?.tier !== 'pro') {
+    hudHost.toast('Llama Run', { message: 'Payment received', description: 'Activating LlamaRun Pro…', kind: 'info' })
+    await new Promise((r) => setTimeout(r, BILLING_RECHECK_MS))
+    profile = await auth.refreshProfile()
+  }
+  if (!profile.signedIn) {
+    hudHost.toast('Llama Run', { message: 'Payment received', description: 'Sign in to see your LlamaRun Pro plan.', kind: 'info' })
+  } else if (profile.plan?.tier === 'pro') {
+    hudHost.toast('Llama Run', { message: 'Welcome to LlamaRun Pro', description: 'Your new limits are active.', kind: 'success' })
+  } else {
+    hudHost.toast('Llama Run', {
+      message: 'Still activating LlamaRun Pro',
+      description: 'Your payment is being confirmed. Your plan updates in Settings within a few minutes.',
+      kind: 'info',
+      duration: 8
+    })
+    auth.scheduleRefresh(30_000)
+  }
+}
+
+function handleProtocolUrl(rawUrl: string): void {
+  let url: URL
+  try {
+    url = new URL(rawUrl)
+  } catch {
+    return
+  }
+  if (url.protocol === `${PROTOCOL}:` && url.hostname === 'billing') {
+    void handleBillingReturn(url.searchParams.get('status'))
+    return
+  }
+  void auth.handleProtocolUrl(rawUrl)
+}
+
 // ---------------------------------------------------------- single instance
 
 if (!app.requestSingleInstanceLock()) {
@@ -51,13 +99,13 @@ if (!app.requestSingleInstanceLock()) {
 
   app.on('second-instance', (_e, argv) => {
     const url = protocolUrlIn(argv)
-    if (url) void auth.handleProtocolUrl(url)
+    if (url) handleProtocolUrl(url)
     else if (settings.get('isFirstRun')) openOnboarding()
     else showOverlay()
   })
   app.on('open-url', (e, url) => {
     e.preventDefault()
-    if (app.isReady()) void auth.handleProtocolUrl(url)
+    if (app.isReady()) handleProtocolUrl(url)
     else pendingUrl = url
   })
 
@@ -84,8 +132,10 @@ if (!app.requestSingleInstanceLock()) {
 
     void mcp.start()
     void pluginHost.start()
+    // Re-read plan usage shortly after cloud replies (and plan/quota refusals).
+    cloudUsage.on('changed', () => auth.scheduleRefresh())
     void auth.refreshProfile()
-    if (pendingUrl) void auth.handleProtocolUrl(pendingUrl)
+    if (pendingUrl) handleProtocolUrl(pendingUrl)
 
     const hidden = process.argv.includes('--hidden')
     if (settings.get('isFirstRun')) openOnboarding()
