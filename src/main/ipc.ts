@@ -111,6 +111,9 @@ export function registerIpc(): void {
   handle('auth:signIn', () => auth.openLogin())
   handle('auth:signOut', () => auth.signOut())
   handle('auth:profile', () => auth.profile())
+  handle('account:openUpgrade', () => auth.openUpgrade())
+  handle('account:openAccount', () => auth.openAccount())
+  handle('account:refresh', () => auth.refreshProfile())
 
   handle('mcp:list', () => mcp.servers())
   handle('mcp:status', () => mcp.statuses())

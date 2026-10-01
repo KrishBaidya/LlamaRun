@@ -123,11 +123,33 @@ export interface ModelCatalog {
   ollamaRunning: boolean
 }
 
+export type PlanTier = 'free' | 'pro'
+export type PlanStatus = 'active' | 'pending' | 'halted' | 'cancelled' | 'none'
+
+/** The account's LlamaRun subscription (from GET /api/v1/me). */
+export interface PlanInfo {
+  tier: PlanTier
+  status: PlanStatus
+  /** ISO date the current paid period ends (renewal, or end of access when cancelled). */
+  currentPeriodEnd: string | null
+}
+
+/** Cloud messages used in the current billing period. */
+export interface UsageInfo {
+  used: number
+  limit: number
+  /** ISO date the counter resets. */
+  periodEnd: string
+}
+
 export interface UserProfile {
   signedIn: boolean
   name: string
   email: string
   photoURL: string
+  /** Absent when signed out or when the server predates /api/v1/me. */
+  plan?: PlanInfo
+  usage?: UsageInfo
 }
 
 export type McpType = 'STDIO' | 'SSE'
@@ -347,6 +369,10 @@ export type GenerationErrorCode =
   | 'OLLAMA_UNAVAILABLE'
   | 'NOT_AUTHENTICATED'
   | 'NO_MODEL'
+  /** The model needs a paid plan (HTTP 402). */
+  | 'PLAN_REQUIRED'
+  /** The monthly cloud message allowance is used up (HTTP 429). */
+  | 'QUOTA_EXCEEDED'
   | 'UNKNOWN'
 
 export interface OverlayShownPayload {

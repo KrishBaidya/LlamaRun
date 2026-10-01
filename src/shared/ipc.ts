@@ -66,6 +66,13 @@ export interface InvokeChannels {
   'auth:signOut': () => void
   'auth:profile': () => UserProfile
 
+  /** Opens the website's pricing page to subscribe to Pro. */
+  'account:openUpgrade': () => void
+  /** Opens the website's account page (manage or cancel the subscription). */
+  'account:openAccount': () => void
+  /** Re-reads plan and usage from the server. */
+  'account:refresh': () => UserProfile
+
   'mcp:list': () => McpServerConfig[]
   'mcp:status': () => McpServerStatus[]
   'mcp:tools': () => McpToolInfo[]
@@ -166,6 +173,9 @@ export const INVOKE_CHANNELS = [
   'auth:signIn',
   'auth:signOut',
   'auth:profile',
+  'account:openUpgrade',
+  'account:openAccount',
+  'account:refresh',
   'mcp:list',
   'mcp:status',
   'mcp:tools',

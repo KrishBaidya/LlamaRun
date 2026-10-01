@@ -2,6 +2,7 @@ import { useCallback } from 'react'
 import { createHashRouter, NavLink, Outlet, RouterProvider, useNavigate } from 'react-router'
 import { Blocks, Boxes, Home, LogIn, LogOut, MessagesSquare, Plug } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -29,7 +30,7 @@ function UserCard() {
   if (!profile.signedIn) {
     return (
       <div className="space-y-2 rounded-lg border bg-card p-3">
-        <p className="text-2xs text-muted-foreground">Sign in to use Gemini and OpenAI models.</p>
+        <p className="text-2xs text-muted-foreground">Sign in to use cloud models like Gemini and OpenAI. Free plan included.</p>
         <Button className="w-full" size="sm" onClick={() => void api.auth.signIn()}>
           <LogIn /> Sign In
         </Button>
@@ -43,7 +44,14 @@ function UserCard() {
         <AvatarFallback>{profile.name.slice(0, 1).toUpperCase()}</AvatarFallback>
       </Avatar>
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-medium">{profile.name}</div>
+        <div className="flex items-center gap-1.5">
+          <span className="truncate text-sm font-medium">{profile.name}</span>
+          {profile.plan && (
+            <Badge variant={profile.plan.tier === 'pro' ? 'default' : 'secondary'} className="px-1.5 py-0 text-2xs">
+              {profile.plan.tier === 'pro' ? 'Pro' : 'Free'}
+            </Badge>
+          )}
+        </div>
         <div className="truncate text-2xs text-muted-foreground">{profile.email || 'Signed in'}</div>
       </div>
       <Button

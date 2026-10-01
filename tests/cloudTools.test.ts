@@ -32,7 +32,9 @@ describe('generateCloud tool calls', () => {
 
   it('passes the model’s arguments to every tool it calls, then continues', async () => {
     const bodies: { prompt: string }[] = []
-    const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+    const urls: string[] = []
+    const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
+      urls.push(url)
       bodies.push(JSON.parse(String(init.body)))
       if (bodies.length === 1) {
         return streamResponse([
@@ -61,6 +63,8 @@ describe('generateCloud tool calls', () => {
     } as never)
 
     expect(out).toBe('Added a cube.')
+    expect(urls).toHaveLength(2)
+    expect(urls.every((u) => u.endsWith('/api/v1/llm/generate'))).toBe(true)
     expect(call.mock.calls).toEqual([
       ['get_scene_info', {}],
       ['execute_blender_code', { code: 'bpy.ops.mesh.primitive_cube_add()' }]
