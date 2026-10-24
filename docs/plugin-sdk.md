@@ -2,11 +2,12 @@
 
 LlamaRun plugins are Python packages that hook into chats, talk to your models in chats, and use MCP tools, storage and notifications. They can also build UI that the app draws with its own components: a settings page, status cards, dialogs, toasts and windows. Plugins run on the **bundled CPython 3.13**, so users don't need Python installed. Each plugin runs **in its own process with only the permissions the user allowed**.
 
-- SDK version: **1.2** (`llamarun.__version__`). 1.2 adds [`llamarun.chats`](#llamarunchats-needs-chats) and [global shortcuts](#llamarunapp).
+- SDK version: **1.3** (`llamarun.__version__`). 1.3 adds [tools for your models](#tools-for-your-models-needs-tools) and [installing MCP servers and plugins](#installing-mcp-servers-and-plugins-needs-install). 1.2 added [`llamarun.chats`](#llamarunchats-needs-chats) and [global shortcuts](#llamarunapp).
 - Examples:
   - [`examples/plugins/prompt_logger`](../examples/plugins/prompt_logger) uses the chat hooks and a settings page.
   - [`examples/plugins/ui_showcase`](../examples/plugins/ui_showcase) uses every kind of UI and exposes a service to other plugins.
   - Edith, the voice assistant in the LlamaRunPythonSamples repository, uses `chats`, MCP tools, a HUD, a settings page and a global shortcut.
+  - Plugin Creator, also in LlamaRunPythonSamples, gives models tools to find and add MCP servers, and to write and install plugins.
 
 ## Quick start
 
@@ -86,6 +87,8 @@ Every plugin runs in its own Python process. A plugin that crashes or hangs affe
 | `llm` | `llm.generate`, `llm.get_available_models`, `llm.get_selected_model` | The app checks each call. |
 | `chats` | `llamarun.chats`: sending messages as the user and reading their chats | The app checks each call. |
 | `mcp` | `mcp.list_tools`, `mcp.call_tool`, and MCP tools in `chats.send` | The app checks each call. |
+| `tools` | Offering `@llamarun.tool` methods to models in chats | The app only offers tools of plugins that have this. |
+| `install` | Browsing the MCP directory, and asking to add MCP servers and install plugins | The app checks each call, and shows its own dialog before adding anything. |
 | `network` | Internet access: sockets and DNS | The sandbox. Loopback connections the plugin itself sets up (such as asyncio's internal socket pair) are allowed without it. |
 | `subprocess` | Starting programs and signalling processes | The sandbox. |
 | `filesystem` | Files outside the plugin's own folders, and registry writes | The sandbox. Without it, a plugin can read its own folder (including `.deps`) and the Python install, and it can read and write its data folder and its temp folder. |
@@ -413,6 +416,51 @@ mcp.list_tools() -> list[McpToolInfo]      # name, description, server, input_sc
 mcp.call_tool(tool_name: str, arguments: dict) -> dict   # {"content": [...], "isError": bool}
 ```
 
+### Tools for your models (needs `tools`)
+
+SDK 1.3. Mark methods with `@llamarun.tool` and every chat model can call them, alongside the user's MCP tools:
+
+```python
+class DiceRoller(llamarun.Plugin):
+    @llamarun.tool
+    def roll_dice(self, sides: int = 6, count: int = 1) -> dict:
+        """Roll dice.
+
+        Args:
+            sides: Faces on each die.
+            count: How many dice, 1 to 100.
+        """
+        if not 1 <= count <= 100:
+            raise llamarun.ToolError("Roll between 1 and 100 dice.")
+        rolls = [random.randint(1, sides) for _ in range(count)]
+        return {"rolls": rolls, "total": sum(rolls)}
+```
+
+- The description is the docstring's first paragraph, and parameter descriptions come from its `Args:` section. The input schema comes from the type hints: `str`, `int`, `float`, `bool`, `list[...]`, `dict`, `Optional[...]` and `Literal[...]`. Parameters without a default are required.
+- `@llamarun.tool(name=..., description=..., parameters={...JSON Schema...})` overrides any of them. Names are 1 to 64 letters, digits, `_` or `-`.
+- A returned string goes to the model as is; anything else as JSON. Raise `llamarun.ToolError(message)` to report a failure the model should explain. Other exceptions are reported to the model and logged.
+- Tools run on the plugin's worker threads with its own permissions. They can block, for example on a dialog, for up to 15 minutes.
+- In chats, tools show the plugin's name like an MCP server's. A tool whose name an MCP tool, or a plugin earlier in load order, already uses is not offered; a warning is logged.
+- Turns sent with `chats.send` include plugin tools only if the sending plugin has `mcp`, as for MCP tools.
+
+### Installing MCP servers and plugins (needs `install`)
+
+SDK 1.3. Adding a server or installing a plugin always shows a Llama Run dialog listing exactly what will run or which permissions are asked for. The plugin only supplies a `reason`. The calls block until the user answers and return `None` if they decline.
+
+```python
+mcp.search_directory(query="", cursor=None) -> DirectoryPage   # .servers, .next_cursor (also with "mcp")
+mcp.get_directory_server(server_id) -> DirectoryServer         # name, description, config {command, args, url, env}, installed…
+mcp.list_servers() -> list[McpServer]                          # name, state, tool_count, error (also with "mcp")
+mcp.add_server(name=None, *, directory_id=None, command=None, args=None, env=None, url=None, reason="") -> McpServer | None
+
+plugins.installed() -> list[InstalledPlugin]                   # id, name, module, state, error, tools, granted
+plugins.install(folder, *, reason="") -> InstalledPlugin | None
+plugins.search_marketplace(query) -> MarketplaceResults         # available=False until the marketplace opens
+```
+
+- `add_server` lets the user type the server's environment variables (API keys) into the dialog, so plugins and models never see them. It returns once the server has tried to connect; check `state` and `error`. New MCP tools reach the model from the next message.
+- `install` takes a folder inside your data folder, unless you also have `filesystem`. A folder with the same name as an installed plugin updates it, and the dialog says so. Dev-linked plugins and your own plugin can't be replaced. Only the installed plugin is started; other plugins keep running.
+
 ### Also
 
 `llamarun.ui`, `llamarun.settings`, `llamarun.plugins` / `llamarun.expose`, `llamarun.events`, `llamarun.shared` and `llamarun.permissions` are described in the sections above.
@@ -451,7 +499,7 @@ If your plugin folder contains `requirements.txt`, LlamaRun installs it into `<p
 
 ## Migrating from SDK 1.0
 
-1. Set `"sdk_version": "1.1"` (or `"1.2"` to use `chats` and shortcuts) and list `"permissions"`. Run the plugin, then add whatever the sandbox reports as blocked.
+1. Set `"sdk_version": "1.1"` (`"1.2"` to use `chats` and shortcuts, `"1.3"` for tools and installing) and list `"permissions"`. Run the plugin, then add whatever the sandbox reports as blocked.
 2. Replace tkinter windows with `ui.hud`, `ui.panel` or the dialogs. Replace config files you asked users to edit with `ui.settings`, and import the old file once in `on_load`.
 3. Plugins no longer share a process. To call another plugin, list it under `dependencies` and use `plugins.get()`, events or shared state instead of module globals.
 4. `start_thread` is optional now, and `app.get_data_dir()` is always available.

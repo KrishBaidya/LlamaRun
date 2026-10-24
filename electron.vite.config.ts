@@ -33,6 +33,7 @@ export default defineConfig({
       rollupOptions: {
         input: {
           overlay: resolve('src/renderer/overlay.html'),
+          'model-menu': resolve('src/renderer/model-menu.html'),
           settings: resolve('src/renderer/settings.html'),
           onboarding: resolve('src/renderer/onboarding.html'),
           chat: resolve('src/renderer/chat.html'),

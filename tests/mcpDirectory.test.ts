@@ -50,6 +50,18 @@ describe('MCP directory cache', () => {
     expect(fresh.stale).toBe(false)
   })
 
+  it('answers a stale server from the cache and refreshes it in the background', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    respond({ servers: [server('a')], nextCursor: null })
+    await listDirectory({})
+    vi.setSystemTime(Date.now() + 11 * 60_000)
+    respond({ ...server('a'), name: 'A2' })
+    expect(await getDirectoryServer('a')).toEqual(server('a'))
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    await new Promise((r) => setImmediate(r))
+    expect((await getDirectoryServer('a')).name).toBe('A2')
+  })
+
   it('falls back to the cached copy when offline', async () => {
     respond({ servers: [server('a')], nextCursor: null })
     await listDirectory({})

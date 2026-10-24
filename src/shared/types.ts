@@ -231,6 +231,8 @@ export type PluginPermission =
   | 'llm'
   | 'chats'
   | 'mcp'
+  | 'tools'
+  | 'install'
   | 'network'
   | 'subprocess'
   | 'filesystem'
@@ -275,6 +277,8 @@ export interface PluginInfo {
   dependencies: Record<string, string>
   /** Methods other plugins can call. */
   services: string[]
+  /** Tools it offers your models (with the "tools" permission). */
+  tools: string[]
   /** Event topics the plugin listens to. */
   subscriptions: string[]
   hooks: string[]
@@ -386,8 +390,25 @@ export type GenerationErrorCode =
   | 'QUOTA_EXCEEDED'
   | 'UNKNOWN'
 
+/** Where to open a dropdown window: an element's rect in the opening page's coordinates. */
+export interface MenuAnchor {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+/** The overlay's model menu closed: what was chosen, if anything. */
+export interface OverlayModelMenuPayload {
+  chosen: string | null
+}
+
 export interface OverlayShownPayload {
   opacity: number
+  /** The overlay is never shorter than this (px); short content is padded to it. */
+  minHeight: number
+  /** The tallest the overlay may grow (px); longer conversations scroll inside it. */
+  maxHeight: number
   /** Chat the overlay should display (null = start fresh). */
   chatId: string | null
 }

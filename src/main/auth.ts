@@ -15,6 +15,14 @@ interface StoredAuth {
   /** Cached from /api/v1/me so the UI has something to show offline. */
   plan?: PlanInfo
   usage?: UsageInfo
+  /** When the account was last read from the server (ms since epoch). */
+  fetchedAt?: number
+}
+
+/** The profile photo, kept on disk so it shows offline and isn't downloaded on every open. */
+interface CachedAvatar {
+  url: string
+  dataUrl: string
 }
 
 const EMPTY: StoredAuth = { token: '', encrypted: false, name: 'User', email: '', photoURL: '' }
@@ -71,13 +79,53 @@ export function parseAccount(body: unknown): AccountInfo {
 
 /** How long to wait after a cloud reply before re-reading usage, so bursts make one request. */
 const REFRESH_DEBOUNCE_MS = 2000
+/**
+ * A profile read this recently is reused instead of asking the server again. Usage stays
+ * current anyway: every cloud reply schedules a forced refresh.
+ */
+export const PROFILE_FRESH_MS = 5 * 60_000
+const MAX_AVATAR_BYTES = 512 * 1024
 
 class AuthService extends EventEmitter<{ changed: [UserProfile] }> {
   private refreshTimer: ReturnType<typeof setTimeout> | undefined
   private inflight: Promise<UserProfile> | undefined
+  // undefined = not read from disk yet.
+  private avatarCache: CachedAvatar | null | undefined
+  /** Photo URLs already tried this session, so a broken one isn't fetched on every refresh. */
+  private avatarTried = new Set<string>()
 
   private get path(): string {
     return userDataPath('auth.json')
+  }
+
+  private get avatarPath(): string {
+    return userDataPath('cache', 'avatar.json')
+  }
+
+  private cachedAvatar(url: string): string | undefined {
+    if (this.avatarCache === undefined) {
+      const stored = readJson<Partial<CachedAvatar>>(this.avatarPath, {})
+      this.avatarCache = stored.url && stored.dataUrl ? { url: stored.url, dataUrl: stored.dataUrl } : null
+    }
+    return url && this.avatarCache?.url === url ? this.avatarCache.dataUrl : undefined
+  }
+
+  /** Downloads the profile photo once; returns true when a new copy was saved. */
+  private async cacheAvatar(url: string): Promise<boolean> {
+    if (!url || this.cachedAvatar(url) || this.avatarTried.has(url)) return false
+    this.avatarTried.add(url)
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(10_000) })
+      const type = res.headers.get('content-type')?.split(';')[0].trim() ?? ''
+      if (!res.ok || !type.startsWith('image/')) return false
+      const bytes = Buffer.from(await res.arrayBuffer())
+      if (bytes.length > MAX_AVATAR_BYTES || this.read().photoURL !== url) return false
+      this.avatarCache = { url, dataUrl: `data:${type};base64,${bytes.toString('base64')}` }
+      writeJson(this.avatarPath, this.avatarCache)
+      return true
+    } catch {
+      return false
+    }
   }
 
   private read(): StoredAuth {
@@ -102,7 +150,7 @@ class AuthService extends EventEmitter<{ changed: [UserProfile] }> {
       signedIn,
       name: s.name,
       email: s.email,
-      photoURL: s.photoURL,
+      photoURL: this.cachedAvatar(s.photoURL) ?? s.photoURL,
       ...(signedIn && s.plan ? { plan: s.plan } : {}),
       ...(signedIn && s.usage ? { usage: s.usage } : {})
     }
@@ -149,8 +197,18 @@ class AuthService extends EventEmitter<{ changed: [UserProfile] }> {
     await this.refreshProfile()
   }
 
-  /** Re-reads the account (plan and usage) from the server. Concurrent calls share one request. */
-  refreshProfile(): Promise<UserProfile> {
+  /**
+   * Re-reads the account (plan and usage) from the server. Concurrent calls share one request.
+   * With `maxAgeMs`, a profile read that recently is returned without asking the server.
+   */
+  refreshProfile({ maxAgeMs = 0 }: { maxAgeMs?: number } = {}): Promise<UserProfile> {
+    const s = this.read()
+    const age = Date.now() - (s.fetchedAt ?? 0)
+    if (!this.inflight && maxAgeMs > 0 && s.token && age >= 0 && age < maxAgeMs) {
+      // Fresh enough; still pick up a photo saved before the avatar cache existed.
+      void this.cacheAvatar(s.photoURL).then((saved) => saved && this.emit('changed', this.profile()))
+      return Promise.resolve(this.profile())
+    }
     this.inflight ??= this.fetchProfile().finally(() => (this.inflight = undefined))
     return this.inflight
   }
@@ -180,7 +238,8 @@ class AuthService extends EventEmitter<{ changed: [UserProfile] }> {
           const account = parseAccount(await res.json())
           if (this.token === token) {
             const { plan: _plan, usage: _usage, ...rest } = this.read()
-            writeJson(this.path, { ...rest, ...account } satisfies StoredAuth)
+            writeJson(this.path, { ...rest, ...account, fetchedAt: Date.now() } satisfies StoredAuth)
+            await this.cacheAvatar(account.photoURL)
           }
         }
       } catch {
@@ -195,6 +254,9 @@ class AuthService extends EventEmitter<{ changed: [UserProfile] }> {
   private clear(): void {
     clearTimeout(this.refreshTimer)
     writeJson(this.path, EMPTY)
+    this.avatarCache = null
+    this.avatarTried.clear()
+    writeJson(this.avatarPath, {})
   }
 
   signOut(): void {

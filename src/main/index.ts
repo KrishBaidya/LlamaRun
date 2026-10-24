@@ -2,12 +2,13 @@ import { appendFileSync, mkdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { app, dialog } from 'electron'
 import { PROTOCOL } from '@shared/constants'
-import { auth } from './auth'
+import { auth, PROFILE_FRESH_MS } from './auth'
 import { registerHotkey } from './hotkey'
 import { applyStartup, registerIpc } from './ipc'
 import { cloudUsage } from './llm/cloud'
 import { mcp } from './mcp/manager'
 import { logsDir } from './paths'
+import { installBundledPlugins } from './plugins/bundled'
 import { pluginHost } from './plugins/host'
 import { hudHost } from './plugins/ui/hud'
 import { registerPanelScheme } from './plugins/ui/panels'
@@ -132,9 +133,10 @@ if (!app.requestSingleInstanceLock()) {
 
     void mcp.start()
     void pluginHost.start()
+    void installBundledPlugins()
     // Re-read plan usage shortly after cloud replies (and plan/quota refusals).
     cloudUsage.on('changed', () => auth.scheduleRefresh())
-    void auth.refreshProfile()
+    void auth.refreshProfile({ maxAgeMs: PROFILE_FRESH_MS })
     if (pendingUrl) handleProtocolUrl(pendingUrl)
 
     const hidden = process.argv.includes('--hidden')

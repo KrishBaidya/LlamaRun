@@ -26,7 +26,7 @@ function run(cmd: string, args: string[]): Promise<string> {
  * which the plugin host adds to sys.path. Only prebuilt wheels are accepted,
  * so installing a plugin never runs a package's build scripts.
  */
-async function installRequirements(folder: string): Promise<void> {
+export async function installRequirements(folder: string): Promise<void> {
   const req = join(folder, 'requirements.txt')
   if (!existsSync(req)) return
   try {

@@ -61,7 +61,8 @@ export function useChat(chatId: string | null, onCreated?: (id: string) => void)
 
   useEffect(() => {
     setError(null)
-    if (chatId !== createdRef.current) setAwaitingReply(false)
+    // A new chat (null) never starts out waiting; only the chat this hook just created keeps the flag.
+    if (!chatId || chatId !== createdRef.current) setAwaitingReply(false)
     createdRef.current = null
     if (!chatId) {
       setChat(null)
@@ -88,6 +89,13 @@ export function useChat(chatId: string | null, onCreated?: (id: string) => void)
   // Waiting only counts until an assistant message (of any status) follows the last user turn.
   const last = chat?.messages[chat.messages.length - 1]
   const waiting = awaitingReply && (!last || last.role === 'user')
+
+  // The reply's first event can arrive before send() learns the new chat's id, so the
+  // listener above misses it. Clear the flag once the reply shows up in the chat instead,
+  // or it lingers and a later new chat looks like it's generating.
+  useEffect(() => {
+    if (awaitingReply && last?.role === 'assistant') setAwaitingReply(false)
+  }, [awaitingReply, last?.role])
 
   const send = useCallback(
     async (text: string, model?: string) => {

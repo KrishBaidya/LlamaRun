@@ -4,7 +4,7 @@ import { app, BrowserWindow, dialog, ipcMain, shell, systemPreferences } from 'e
 import type { EventChannel, EventChannels, InvokeChannel, InvokeChannels } from '@shared/ipc'
 import type { Settings } from '@shared/types'
 import { DEFAULT_CLOUD_MODEL } from '@shared/constants'
-import { auth } from './auth'
+import { auth, PROFILE_FRESH_MS } from './auth'
 import { chatService } from './chats/service'
 import { activeHotkey, registerHotkey } from './hotkey'
 import { modelCatalog } from './llm'
@@ -24,7 +24,8 @@ import { settings } from './settings'
 import { closeOnboarding } from './windows/onboarding'
 import { openChatWindow } from './windows/chat'
 import { appearance } from './windows/load'
-import { hideOverlay, setOverlayChat, showOverlay } from './windows/overlay'
+import { closeModelMenu, openModelMenu, resizeModelMenu } from './windows/modelMenu'
+import { hideOverlay, resizeOverlay, setOverlayChat, showOverlay } from './windows/overlay'
 import { openSettings } from './windows/settings'
 
 export function broadcast<E extends EventChannel>(channel: E, payload: EventChannels[E]): void {
@@ -96,6 +97,19 @@ export function registerIpc(): void {
   handle('chats:continue', (_e, id) => void chatService.continue(id))
 
   handle('overlay:hide', () => hideOverlay())
+  handle('overlay:resize', (_e, height) => resizeOverlay(Number(height)))
+  handle('modelMenu:open', (e, anchor, value) => {
+    const parent = BrowserWindow.fromWebContents(e.sender)
+    if (!parent) return
+    return openModelMenu(parent, anchor, String(value ?? ''), (chosen, refocus) => {
+      if (parent.isDestroyed()) return
+      parent.webContents.send('overlay:modelMenu', { chosen: chosen ?? null })
+      if (refocus && parent.isVisible()) parent.focus()
+    })
+  })
+  handle('modelMenu:choose', (_e, model) => closeModelMenu(String(model)))
+  handle('modelMenu:close', () => closeModelMenu())
+  handle('modelMenu:resize', (_e, height) => resizeModelMenu(Number(height)))
   handle('overlay:setChat', (_e, chatId) => setOverlayChat(chatId))
 
   handle('onboarding:finish', async (_e, mode) => {
@@ -113,7 +127,7 @@ export function registerIpc(): void {
   handle('auth:profile', () => auth.profile())
   handle('account:openUpgrade', () => auth.openUpgrade())
   handle('account:openAccount', () => auth.openAccount())
-  handle('account:refresh', () => auth.refreshProfile())
+  handle('account:refresh', () => auth.refreshProfile({ maxAgeMs: PROFILE_FRESH_MS }))
 
   handle('mcp:list', () => mcp.servers())
   handle('mcp:status', () => mcp.statuses())

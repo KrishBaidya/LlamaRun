@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { app, BrowserWindow, nativeTheme, shell, systemPreferences } from 'electron'
 import type { AppearanceInfo } from '@shared/types'
 
-export type Page = 'overlay' | 'settings' | 'onboarding' | 'chat' | 'hud' | 'dialog' | 'plugin-view'
+export type Page = 'overlay' | 'model-menu' | 'settings' | 'onboarding' | 'chat' | 'hud' | 'dialog' | 'plugin-view'
 
 export function preloadPath(): string {
   return join(__dirname, '../preload/index.js')

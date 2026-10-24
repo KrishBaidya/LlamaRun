@@ -19,6 +19,7 @@ provider come back as :class:`~llamarun.PluginError`.
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, TypeVar, overload
 
 from . import _rpc
@@ -75,3 +76,73 @@ def get(module: str, *, timeout: Optional[float] = 60.0) -> ServiceProxy:
 def available() -> List[Dict[str, Any]]:
     """Plugins you depend on, whether they're running, and the methods they expose."""
     return list(_rpc.call("services.list") or [])
+
+
+# ------------------------------------------------- installing plugins (SDK 1.3)
+
+
+@dataclass
+class InstalledPlugin:
+    id: str
+    name: str
+    description: str
+    version: str
+    module: str
+    state: str
+    """``running``, ``error``, ``disabled``, ``needs-consent``…"""
+    error: str = ""
+    tools: List[str] = field(default_factory=list)
+    """Tools it declares; models get them only if ``"tools"`` is in ``granted``."""
+    granted: List[str] = field(default_factory=list)
+    """The permissions the user allowed."""
+
+
+@dataclass
+class MarketplaceResults:
+    available: bool
+    """False while LlamaRun has no plugin marketplace."""
+    plugins: List[Dict[str, Any]] = field(default_factory=list)
+    message: str = ""
+
+
+def _installed(p: Dict[str, Any]) -> InstalledPlugin:
+    return InstalledPlugin(
+        id=str(p.get("id", "")),
+        name=str(p.get("name", "")),
+        description=str(p.get("description") or ""),
+        version=str(p.get("version") or ""),
+        module=str(p.get("module") or ""),
+        state=str(p.get("state") or ""),
+        error=str(p.get("error") or ""),
+        tools=[str(t) for t in p.get("tools") or []],
+        granted=[str(g) for g in p.get("granted") or []],
+    )
+
+
+def installed() -> List[InstalledPlugin]:
+    """Every installed plugin. Needs the ``install`` permission."""
+    return [_installed(p) for p in _rpc.call("plugins.installed") or []]
+
+
+def install(folder: str, *, reason: str = "") -> Optional[InstalledPlugin]:
+    """Ask the user to install the plugin in ``folder``. Needs the ``install`` permission.
+
+    The folder must be inside your plugin's data folder (``app.get_data_dir()``),
+    unless you also have the ``filesystem`` permission. LlamaRun shows the
+    plugin's name and the permissions it asks for, which the user can untick.
+    Installing over a plugin with the same folder name updates it.
+
+    Returns the plugin after it started (check ``state`` and ``error``), or
+    None if the user said no.
+    """
+    result = _rpc.call("plugins.install", {"path": str(folder), "reason": reason})
+    return _installed(result) if result else None
+
+
+def search_marketplace(query: str) -> MarketplaceResults:
+    """Search the LlamaRun plugin marketplace. Needs the ``install`` permission.
+
+    The marketplace doesn't exist yet: this returns ``available=False`` until it does.
+    """
+    r = _rpc.call("plugins.marketplace.search", {"query": query}) or {}
+    return MarketplaceResults(bool(r.get("available")), list(r.get("plugins") or []), str(r.get("message") or ""))

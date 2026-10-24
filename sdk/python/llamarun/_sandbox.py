@@ -24,6 +24,8 @@ PERMISSIONS = (
     "llm",
     "chats",
     "mcp",
+    "tools",
+    "install",
     "network",
     "subprocess",
     "filesystem",

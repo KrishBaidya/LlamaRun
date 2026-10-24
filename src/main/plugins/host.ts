@@ -2,15 +2,17 @@ import { EventEmitter } from 'node:events'
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, watch, type FSWatcher } from 'node:fs'
 import { join, relative, resolve, sep } from 'node:path'
 import { app, globalShortcut, Notification, shell } from 'electron'
-import type { ChatEvent, ChatMessage, PluginInfo, PluginPermission, PluginRuntimeStatus, PluginState, UiNode } from '@shared/types'
+import type { ChatEvent, ChatMessage, McpToolInfo, PluginInfo, PluginPermission, PluginRuntimeStatus, PluginState, UiNode } from '@shared/types'
 import { chatService } from '../chats/service'
 import { availableModelIds, generate } from '../llm'
-import { mcp } from '../mcp/manager'
+import { mcp, type McpToolResult } from '../mcp/manager'
 import { iconPath, logsDir, pluginDataDir, pluginsDir, pythonExecutable } from '../paths'
 import { settings } from '../settings'
 import { openChatWindow } from '../windows/chat'
 import { Broker, type BrokerPeer } from './broker'
-import { removePluginFolder } from './install'
+import { installPlugin, removePluginFolder } from './install'
+import { confirmPluginInstall, directoryServer, listServers, requestMcpServer, searchDirectory } from './installRequests'
+import { searchMarketplace } from './marketplace'
 import { orderPlugins, readManifest, type PluginManifest } from './manifest'
 import { allows, effectiveGrants } from './permissions'
 import { PluginProcess, type LoadInfo } from './process'
@@ -33,6 +35,8 @@ export interface AfterGenerationResult {
 }
 
 const HOOK_TIMEOUT_MS = 120_000
+/** Tools can ask the user things (an install dialog, say), so they get longer than hooks. */
+const TOOL_TIMEOUT_MS = 15 * 60_000
 const MAX_RESTARTS = 5
 
 interface PluginRecord {
@@ -378,6 +382,14 @@ class PluginHost extends EventEmitter<{ changed: [PluginInfo[]]; status: [Plugin
     return this.list
   }
 
+  /** Picks up a plugin folder that appeared after startup (a bundled plugin that finished setting up). */
+  async adopt(id: string): Promise<void> {
+    await this.start()
+    this.discover()
+    const record = this.records.get(id)
+    if (record) await this.startPlugin(record)
+  }
+
   async setEnabled(id: string, enabled: boolean): Promise<PluginInfo[]> {
     settings.set({ pluginsEnabled: { ...settings.get('pluginsEnabled'), [id]: enabled } })
     await this.start()
@@ -463,6 +475,93 @@ class PluginHost extends EventEmitter<{ changed: [PluginInfo[]]; status: [Plugin
   /** Lets plugins subscribed to app.<topic> know something happened in the app. */
   publishAppEvent(topic: string, data: unknown): void {
     this.broker.publish('app', topic, data)
+  }
+
+  // ------------------------------------------------------------- model tools
+
+  /**
+   * Tools that running plugins with the "tools" permission offer to models,
+   * named as the plugin declared them. A name already in `taken` (an MCP tool,
+   * or an earlier plugin's) is skipped, so a plugin can't shadow another tool.
+   */
+  modelTools(taken: Set<string> = new Set()): McpToolInfo[] {
+    const tools: McpToolInfo[] = []
+    const names = new Set(taken)
+    for (const record of this.toolProviders()) {
+      for (const spec of record.load!.tools) {
+        if (names.has(spec.name)) {
+          this.warnOnce(record, `tool "${spec.name}" is hidden: another tool already has that name`)
+          continue
+        }
+        names.add(spec.name)
+        tools.push({ name: spec.name, description: spec.description, server: record.manifest!.name, inputSchema: spec.inputSchema })
+      }
+    }
+    return tools
+  }
+
+  /** Runs a tool from `modelTools()` in the plugin that offers it. */
+  async callModelTool(name: string, args: Record<string, unknown>): Promise<McpToolResult> {
+    const record = this.toolProviders().find((r) => r.load!.tools.some((t) => t.name === name))
+    if (!record) throw new Error(`Tool not found: ${name}`)
+    const result = await record.process!.request<McpToolResult>('tools.call', { name, arguments: args }, TOOL_TIMEOUT_MS)
+    return { content: Array.isArray(result?.content) ? result.content : [], isError: Boolean(result?.isError) }
+  }
+
+  private toolProviders(): PluginRecord[] {
+    return this.order
+      .map((id) => this.records.get(id)!)
+      .filter((r) => r.process?.running && r.load?.tools?.length && allows(this.grantsOf(r) ?? [], 'tools'))
+  }
+
+  private warned = new Set<string>()
+  private warnOnce(record: PluginRecord, message: string): void {
+    const key = `${record.id}:${message}`
+    if (this.warned.has(key)) return
+    this.warned.add(key)
+    this.log('warning', message, record.manifest?.name)
+  }
+
+  /**
+   * Installs a plugin another plugin made, after the user agreed, and starts
+   * just that plugin: reloading everything would also restart the one asking.
+   */
+  private async installFor(requester: PluginRecord, grants: PluginPermission[], p: Record<string, unknown>): Promise<unknown> {
+    const manifest = requester.manifest!
+    const id = String(p.path ?? '').split(/[\\/]/).filter(Boolean).pop() ?? ''
+    const existing = this.records.get(id)
+    const plan = await confirmPluginInstall(
+      { id: requester.id, name: manifest.name, dataDir: resolve(pluginDataDir(), manifest.module), mayReadAnywhere: allows(grants, 'filesystem') },
+      p,
+      existing?.manifest ? { id, name: existing.manifest.name, version: existing.manifest.version, linked: existing.linked } : undefined
+    )
+    if (!plan) return null
+    const target = this.records.get(plan.inspection.id)
+    if (target) await this.stopPlugin(target)
+    const installedId = await installPlugin(plan.inspection.source, 'folder', plan.approved)
+    this.log('info', `installed plugin ${installedId} for ${manifest.name} with permissions: ${plan.approved.join(', ') || 'none'}`)
+    this.discover()
+    const record = this.records.get(installedId)
+    if (!record) throw new Error('The plugin was installed but could not be found')
+    record.crashes = []
+    await this.startPlugin(record)
+    return this.summary(record)
+  }
+
+  /** What a plugin with the "install" permission learns about another plugin. */
+  private summary(r: PluginRecord): Record<string, unknown> {
+    const info = this.info(r)
+    return {
+      id: info.id,
+      name: info.name,
+      description: info.description,
+      version: info.version,
+      module: info.module,
+      state: info.state,
+      error: info.error ?? null,
+      tools: info.tools,
+      granted: info.granted
+    }
   }
 
   // ------------------------------------------------------------------- hooks
@@ -551,6 +650,9 @@ class PluginHost extends EventEmitter<{ changed: [PluginInfo[]]; status: [Plugin
       if (!allows(grants, permission)) {
         throw new PermissionDenied(`${manifest.name} doesn't have the "${permission}" permission. Add it to "permissions" in plugin.json.`)
       }
+    }
+    const needAny = (...permissions: PluginPermission[]): void => {
+      if (!permissions.some((p) => allows(grants, p))) need(permissions[0])
     }
     const dataDir = resolve(pluginDataDir(), manifest.module)
     const plugin = { id: record.id, name: manifest.name, icon: record.icon }
@@ -649,6 +751,14 @@ class PluginHost extends EventEmitter<{ changed: [PluginInfo[]]; status: [Plugin
         need('mcp')
         return mcp.callTool(String(p.name), (p.arguments as Record<string, unknown>) ?? {})
       },
+      // Browsing and installing: the app asks the user before anything is added.
+      'mcp.directory.search': (p) => (needAny('install', 'mcp'), searchDirectory(p)),
+      'mcp.directory.get': (p) => (needAny('install', 'mcp'), directoryServer(p)),
+      'mcp.list_servers': () => (needAny('install', 'mcp'), listServers()),
+      'mcp.add_server': (p) => (need('install'), requestMcpServer({ id: record.id, name: manifest.name }, p)),
+      'plugins.installed': () => (need('install'), this.order.map((id) => this.summary(this.records.get(id)!))),
+      'plugins.install': (p) => (need('install'), this.installFor(record, grants, p)),
+      'plugins.marketplace.search': (p) => (need('install'), searchMarketplace(String(p.query ?? ''))),
       'services.call': (p) => this.broker.callService(this.peerOf(record), p),
       'services.list': () => this.broker.listServices(this.peerOf(record)),
       'shared.get': (p) => this.broker.sharedRequest(this.peerOf(record), 'shared.get', p),
@@ -749,6 +859,7 @@ class PluginHost extends EventEmitter<{ changed: [PluginInfo[]]; status: [Plugin
       legacy: m?.legacy ?? false,
       dependencies: m?.dependencies ?? {},
       services: r.load?.services ?? [],
+      tools: (r.load?.tools ?? []).map((t) => t.name),
       subscriptions: r.process?.info?.subscriptions ?? r.load?.subscriptions ?? [],
       hooks: r.load?.hooks ?? [],
       panels: Object.keys(m?.panels ?? {}),

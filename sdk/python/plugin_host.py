@@ -38,7 +38,7 @@ from pathlib import Path  # noqa: E402
 from typing import Any, Callable, Dict, List, Optional  # noqa: E402
 
 import llamarun  # noqa: E402
-from llamarun import _rpc, _sandbox, app, chats, events, settings, ui  # noqa: E402
+from llamarun import _rpc, _sandbox, app, chats, events, settings, tools, ui  # noqa: E402
 from llamarun.types import TextGenerationContext, TextGenerationResult  # noqa: E402
 
 IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -223,6 +223,7 @@ class PluginRunner:
         self.instance: Optional[llamarun.Plugin] = None
         self.error: Optional[str] = None
         self.services: Dict[str, str] = {}
+        self.tools: Dict[str, str] = {}
         self._lock = threading.RLock()
         self._log = log or (lambda level, msg: print(f"[{level}] {msg}", file=sys.stderr))
 
@@ -252,6 +253,7 @@ class PluginRunner:
             "error": self.error,
             "hooks": hooks,
             "services": sorted(self.services),
+            "tools": self._tool_specs(),
             "subscriptions": [t for t in events.topics() if not t.startswith("$")],
             "pythonVersion": sys.version.split()[0],
             "sdkVersion": llamarun.__version__,
@@ -312,11 +314,17 @@ class PluginRunner:
     def _bind(self, instance: llamarun.Plugin) -> None:
         """Collect @expose methods, @events.subscribe and @settings.on_change handlers."""
         self.services = {}
+        self.tools = {}
         for attr_name in dir(type(instance)):
             attr = getattr(type(instance), attr_name, None)
             exposed = getattr(attr, "__llamarun_expose__", None)
             if exposed:
                 self.services[str(exposed)] = attr_name
+            meta = getattr(attr, "__llamarun_tool__", None)
+            if meta:
+                if meta["name"] in self.tools:
+                    self._log("warning", f'two methods declare the tool "{meta["name"]}"; using {attr_name}')
+                self.tools[meta["name"]] = attr_name
             if getattr(attr, "__llamarun_settings_listener__", False):
                 settings._add_listener(getattr(instance, attr_name))
         events._bind_methods(instance)
@@ -392,6 +400,29 @@ class PluginRunner:
         if attr is None:
             raise RpcError(f'{self.module} does not expose "{method}" (mark it with @llamarun.expose)')
         return getattr(self.instance, attr)(*args, **kwargs)
+
+    def _tool_specs(self) -> List[dict]:
+        if self.instance is None:
+            return []
+        specs = []
+        for name, attr in sorted(self.tools.items()):
+            try:
+                specs.append(tools.spec(getattr(self.instance, attr)))
+            except Exception:
+                self._report(f"tool {name}")
+        return specs
+
+    def call_tool(self, name: str, arguments: Dict[str, Any]) -> dict:
+        if self.instance is None:
+            raise RpcError(f"{self.name} is not loaded")
+        attr = self.tools.get(name)
+        if attr is None:
+            raise RpcError(f'{self.name} has no tool "{name}"')
+        try:
+            return tools.call(getattr(self.instance, attr), arguments)
+        except Exception as exc:
+            self._report(f"tool {name}")
+            return {"content": [{"type": "text", "text": f"{name} failed: {exc}"}], "isError": True}
 
     def ui_event(self, params: dict) -> Any:
         try:
@@ -470,6 +501,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         "events.custom": lambda p: runner.custom(p["action"]),
         "events.deliver": lambda p: events._deliver(p["topic"], p.get("data"), p.get("source", "")),
         "services.call": lambda p: runner.call_service(p["method"], p.get("args") or [], p.get("kwargs") or {}),
+        "tools.call": lambda p: runner.call_tool(str(p.get("name", "")), p.get("arguments") or {}),
         "settings.changed": lambda p: list(settings._apply(p.get("values") or {})),
         "ui.event": runner.ui_event,
         # Notifications from the app: streamed chat replies and global shortcuts.

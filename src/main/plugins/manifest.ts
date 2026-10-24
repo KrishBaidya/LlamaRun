@@ -5,7 +5,7 @@ import type { PluginPermission } from '@shared/types'
 import { isPermission } from './permissions'
 
 /** SDK version this app provides. Keep in sync with llamarun.__version__. */
-export const SDK_VERSION = '1.2'
+export const SDK_VERSION = '1.3'
 
 const identifier = /^[A-Za-z_][A-Za-z0-9_]*$/
 const versionRange = /^\s*(>=|>|<=|<|==|=|\^|~)?\s*\d+(\.\d+){0,2}\s*$/

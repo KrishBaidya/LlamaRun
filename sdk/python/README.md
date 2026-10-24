@@ -25,9 +25,10 @@ class MyPlugin(llamarun.Plugin):
 Modules:
 - `app`, `llm`, `mcp` and `storage` cover the app (including global shortcuts), your models, MCP tools and private storage.
 - `chats` sends messages into the user's chats and streams the replies, with MCP tools.
+- `tool` (`@llamarun.tool`) offers plugin methods to the user's models as tools.
 - `ui` draws UI with the app's own components: a settings page, a status HUD, dialogs, toasts, and Python or TSX panels.
 - `settings` reads the settings page's values.
-- `plugins`, `events` and `shared` let plugins work together.
+- `plugins`, `events` and `shared` let plugins work together; `plugins.install` and `mcp.add_server` ask the user to install plugins and MCP servers.
 - `permissions` reports what the plugin has been allowed to do.
 
 See [docs/plugin-sdk.md](../../docs/plugin-sdk.md) for the full guide. `plugin_host.py` is the runner the app launches, one process per plugin; `llamarun/_sandbox.py` enforces the permissions. Run the tests with `npm run test:sdk`.

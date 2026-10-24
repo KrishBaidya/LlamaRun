@@ -61,7 +61,7 @@ function planNote(plan: NonNullable<UserProfile['plan']>): string | null {
 
 function AccountCard({ profile }: { profile: UserProfile }) {
   useEffect(() => {
-    // Usage changes as the user chats; read it fresh whenever the page opens.
+    // Re-read the account if the cached copy is more than a few minutes old (cloud replies refresh it too).
     if (profile.signedIn) void api.account.refresh()
   }, [profile.signedIn])
 
@@ -304,11 +304,11 @@ export function HomePage() {
             <span className="w-10 text-right text-sm tabular-nums">{draft.appOpacity}%</span>
           </SettingRow>
           <Separator />
-          <SettingRow title="Overlay size" description="Width and height as a percentage of the screen.">
+          <SettingRow title="Overlay size" description="Width, and how tall it can grow while answering, as a percentage of the screen.">
             <div className="flex flex-col gap-3">
               {(['windowWidthPct', 'windowHeightPct'] as const).map((key) => (
                 <div key={key} className="flex items-center gap-3">
-                  <span className="w-12 text-xs text-muted-foreground">{key === 'windowWidthPct' ? 'Width' : 'Height'}</span>
+                  <span className="w-16 text-xs text-muted-foreground">{key === 'windowWidthPct' ? 'Width' : 'Max height'}</span>
                   <Slider className="w-36" min={25} max={90} step={1} value={[draft[key]]} onValueChange={([v]) => set(key, v)} />
                   <span className="w-10 text-right text-sm tabular-nums">{draft[key]}%</span>
                 </div>

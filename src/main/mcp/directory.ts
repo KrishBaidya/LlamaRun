@@ -111,8 +111,7 @@ export async function listDirectory(query: McpDirectoryQuery): Promise<McpDirect
 export async function getDirectoryServer(id: string): Promise<McpDirectoryServer> {
   const key = `server:${id}`
   const cached = cache.get<McpDirectoryServer>(key)
-  if (cached && Date.now() - cached.at < FRESH_MS) return cached.value
-  return once(key, async () => {
+  const load = (): Promise<McpDirectoryServer> => once(key, async () => {
     try {
       const body = await fetchJson<McpDirectoryServer | { server: McpDirectoryServer }>(
         new URL(`/api/servers/${encodeURIComponent(id)}`, MCP_DIRECTORY_URL)
@@ -125,6 +124,10 @@ export async function getDirectoryServer(id: string): Promise<McpDirectoryServer
       throw err
     }
   })
+  if (!cached) return load()
+  // A stale copy is answered right away and refreshed in the background.
+  if (Date.now() - cached.at >= FRESH_MS) void load().catch(() => {})
+  return cached.value
 }
 
 export function clearDirectoryCache(): void {

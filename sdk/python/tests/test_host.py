@@ -97,12 +97,12 @@ def load(tmp_path, fake):
 
 
 def test_sdk_version_rules():
-    check_sdk_version("1.0", "1.2")
+    check_sdk_version("1.0", "1.3")
     with pytest.raises(ManifestError):
-        check_sdk_version("1.3", "1.2")
+        check_sdk_version("1.4", "1.3")
     with pytest.raises(ManifestError):
-        check_sdk_version("2.0", "1.2")
-    assert llamarun.__version__ == "1.2"
+        check_sdk_version("2.0", "1.3")
+    assert llamarun.__version__ == "1.3"
 
 
 def test_manifest_reports_missing_field(tmp_path):
@@ -545,3 +545,72 @@ def test_background_threads_are_not_blocked_by_the_protocol_pipe(tmp_path):
     unblocked = marker.exists()  # checked before closing stdin, which would release the lock
     assert host.close() == 0
     assert unblocked, "plugin thread stayed blocked until the host received another message"
+
+
+def test_tools_describe_and_run(load, fake):
+    runner = load("""
+        from typing import List, Literal, Optional
+        import llamarun
+        class P(llamarun.Plugin):
+            @llamarun.tool
+            def forecast(self, city: str, days: int = 3, units: Literal["c", "f"] = "c",
+                         tags: Optional[List[str]] = None) -> dict:
+                \"\"\"Weather forecast for a city.
+
+                Args:
+                    city: City name, e.g. "Paris".
+                    days: How many days ahead,
+                        from 1 to 7.
+                \"\"\"
+                return {"city": city, "days": days, "units": units}
+
+            @llamarun.tool(name="fail-now", description="Always fails")
+            def fail(self):
+                raise llamarun.ToolError("no luck")
+
+            @llamarun.tool
+            def crash(self):
+                \"\"\"Crashes.\"\"\"
+                raise RuntimeError("boom")
+    """, module="mod_tools")
+    specs = {s["name"]: s for s in runner.info()["tools"]}
+    assert sorted(specs) == ["crash", "fail-now", "forecast"]
+    f = specs["forecast"]
+    assert f["description"] == "Weather forecast for a city."
+    assert f["inputSchema"]["required"] == ["city"]
+    props = f["inputSchema"]["properties"]
+    assert props["city"] == {"type": "string", "description": 'City name, e.g. "Paris".'}
+    assert props["days"] == {"type": "integer", "description": "How many days ahead, from 1 to 7.", "default": 3}
+    assert props["units"]["enum"] == ["c", "f"]
+    assert props["tags"] == {"type": "array", "items": {"type": "string"}}
+    assert specs["fail-now"]["description"] == "Always fails"
+
+    ok = runner.call_tool("forecast", {"city": "Paris", "extra": 1})
+    assert ok == {"content": [{"type": "text", "text": '{"city": "Paris", "days": 3, "units": "c"}'}], "isError": False}
+    assert runner.call_tool("forecast", {})["isError"]
+    assert runner.call_tool("fail-now", {})["content"][0]["text"] == "no luck"
+    crashed = runner.call_tool("crash", {})
+    assert crashed["isError"] and "boom" in crashed["content"][0]["text"]
+    with pytest.raises(Exception):
+        runner.call_tool("missing", {})
+
+
+def test_tool_names_are_checked():
+    with pytest.raises(ValueError):
+        llamarun.tool(name="has space")(lambda self: None)
+
+
+def test_install_calls(fake):
+    fake.results["mcp.directory.search"] = {"servers": [{"id": "a1", "name": "GitHub", "description": "Repos",
+                                                         "requiresAuth": True, "config": {"type": "command"}}],
+                                            "nextCursor": "c2"}
+    fake.results["mcp.add_server"] = lambda p: None if p.get("directory_id") == "no" else {"name": "GitHub", "state": "connected", "toolCount": 4}
+    fake.results["plugins.install"] = {"id": "x", "name": "X", "state": "running", "tools": ["t"]}
+    fake.results["plugins.marketplace.search"] = {"available": False, "message": "not yet"}
+    page = llamarun.mcp.search_directory("git")
+    assert page.next_cursor == "c2" and page.servers[0].requires_auth and page.servers[0].name == "GitHub"
+    assert llamarun.mcp.add_server(directory_id="no") is None
+    added = llamarun.mcp.add_server(directory_id="a1", reason="for repos")
+    assert added.tool_count == 4 and fake.calls[-1][1] == {"directory_id": "a1", "args": [], "env": {}, "reason": "for repos"}
+    assert llamarun.plugins.install("C:/x", reason="r").tools == ["t"]
+    assert not llamarun.plugins.search_marketplace("q").available

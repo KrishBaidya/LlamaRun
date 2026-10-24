@@ -11,6 +11,8 @@ import type {
   McpToolInfo,
   HudSnapshot,
   ModelCatalog,
+  MenuAnchor,
+  OverlayModelMenuPayload,
   OverlayShownPayload,
   PermissionInfo,
   PluginDialogRequest,
@@ -58,6 +60,13 @@ export interface InvokeChannels {
   'chats:continue': (chatId: string) => void
 
   'overlay:hide': () => void
+  /** The overlay's content changed height; the window follows it (within its limits). */
+  'overlay:resize': (height: number) => void
+  /** Opens the overlay's model dropdown (its own window) under the given button. */
+  'modelMenu:open': (anchor: MenuAnchor, value: string) => void
+  'modelMenu:choose': (model: string) => void
+  'modelMenu:close': () => void
+  'modelMenu:resize': (height: number) => void
   'overlay:setChat': (chatId: string | null) => void
 
   'onboarding:finish': (mode: 'signin' | 'skip') => void
@@ -117,6 +126,8 @@ export interface EventChannels {
   'chats:changed': ChatSummary[]
   'chat:open': string | null
   'overlay:shown': OverlayShownPayload
+  'overlay:modelMenu': OverlayModelMenuPayload
+  'modelMenu:show': { value: string }
   'auth:changed': UserProfile
   'settings:changed': Settings
   'mcp:changed': McpServerStatus[]
@@ -168,6 +179,11 @@ export const INVOKE_CHANNELS = [
   'chats:retry',
   'chats:continue',
   'overlay:hide',
+  'overlay:resize',
+  'modelMenu:open',
+  'modelMenu:choose',
+  'modelMenu:close',
+  'modelMenu:resize',
   'overlay:setChat',
   'onboarding:finish',
   'auth:signIn',
@@ -214,6 +230,8 @@ export const EVENT_CHANNELS = [
   'chats:changed',
   'chat:open',
   'overlay:shown',
+  'overlay:modelMenu',
+  'modelMenu:show',
   'auth:changed',
   'settings:changed',
   'mcp:changed',

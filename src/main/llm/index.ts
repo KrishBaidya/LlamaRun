@@ -1,12 +1,11 @@
 import type { ModelCatalog } from '@shared/types'
 import { auth } from '../auth'
-import { mcp } from '../mcp/manager'
 import { generateCloud } from './cloud'
 import { isCloudModel, loadCloudCatalog } from './models'
 import { generateOllama, isOllamaRunning, listOllamaModels } from './ollama'
-import { GenerationError, type GenerateInput, type GenerateOptions, type ToolBridge } from './types'
+import { GenerationError, type GenerateInput, type GenerateOptions } from './types'
 
-export { GenerationError, MAX_TOOL_ROUNDS, type HistoryMessage, type ToolPause } from './types'
+export { GenerationError, MAX_TOOL_ROUNDS, type HistoryMessage, type ToolBridge, type ToolPause } from './types'
 export { isCloudModel, loadCloudCatalog } from './models'
 
 /**
@@ -28,12 +27,6 @@ export async function modelCatalog({ force = false }: { force?: boolean } = {}):
 export async function availableModelIds(): Promise<string[]> {
   const catalog = await modelCatalog()
   return catalog.groups.flatMap((g) => g.models.map((m) => m.id))
-}
-
-export function mcpToolBridge(): ToolBridge | undefined {
-  const tools = mcp.tools()
-  if (!tools.length) return undefined
-  return { tools, call: (name, args) => mcp.callTool(name, args) }
 }
 
 /**

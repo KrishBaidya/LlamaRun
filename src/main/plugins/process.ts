@@ -17,6 +17,8 @@ export interface LoadInfo {
   error: string | null
   hooks: string[]
   services: string[]
+  /** Tools for models (@llamarun.tool), offered when the plugin has the "tools" permission. */
+  tools: { name: string; description: string; inputSchema: Record<string, unknown> }[]
   subscriptions: string[]
   pythonVersion: string
   sdkVersion: string

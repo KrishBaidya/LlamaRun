@@ -21,7 +21,7 @@ This is the Electron + React + shadcn/ui version of the original C#/WinUI app. I
   - Connections are cached. Both STDIO and URL (Streamable HTTP/SSE) servers are supported.
   - Tool calling works for cloud models and for Ollama models that support tools.
 - **Python plugins:**
-  - Plugins use the `llamarun` SDK: chat hooks, `chats` (talk to your models in your chats, with MCP tools, streaming the reply), `llm`, `mcp`, `storage`, global shortcuts and notifications.
+  - Plugins use the `llamarun` SDK: chat hooks, `chats` (talk to your models in your chats, with MCP tools, streaming the reply), `llm`, `mcp`, `storage`, global shortcuts and notifications. Plugins can also give your models new tools (`@llamarun.tool`), and ask to add MCP servers or install plugins, which you confirm.
   - **UI:** plugins can have a settings page, floating status cards, dialogs, toasts, and panels. Panels can be built in Python or written in TSX. The app draws all of it with its own components, so plugins need no GUI toolkit.
   - **Sandbox:** each plugin runs in its own auto-restarting process on the bundled CPython 3.13, with only the permissions the user approved at install (internet, files, programs, native code, models, MCP, chat messages). An audit-hook sandbox enforces them, and TSX panels run with no network or app access.
   - **Cooperation:** plugins work together through declared dependencies, exposed services, events and shared state.

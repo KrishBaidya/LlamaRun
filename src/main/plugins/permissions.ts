@@ -30,6 +30,20 @@ export const PERMISSIONS: Record<PluginPermission, PermissionInfo> = {
     risk: 'medium',
     enforced: true
   },
+  tools: {
+    id: 'tools',
+    label: 'Give your models new tools',
+    description: 'Adds its own tools that your models can call in chats, like MCP tools. They run inside the plugin, with its other permissions.',
+    risk: 'medium',
+    enforced: true
+  },
+  install: {
+    id: 'install',
+    label: 'Suggest MCP servers and plugins to install',
+    description: 'Browses the MCP directory and asks you to add servers or install plugins. Llama Run shows you exactly what will be added, and nothing is added unless you agree.',
+    risk: 'medium',
+    enforced: true
+  },
   network: {
     id: 'network',
     label: 'Internet access',

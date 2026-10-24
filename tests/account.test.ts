@@ -97,6 +97,29 @@ describe('auth.refreshProfile', () => {
     expect(changed).toHaveBeenCalledWith(expect.objectContaining({ signedIn: false }))
   })
 
+  it('reuses a recently read profile unless forced', async () => {
+    const fetchMock = vi.fn(async (_url: string) => json(200, ME))
+    vi.stubGlobal('fetch', fetchMock)
+    const meCalls = (): number => fetchMock.mock.calls.filter((c) => String(c[0]).endsWith('/api/v1/me')).length
+    expect(await auth.refreshProfile({ maxAgeMs: 60_000 })).toMatchObject({ signedIn: true, usage: { used: 180 } })
+    expect(meCalls()).toBe(0)
+    await auth.refreshProfile()
+    expect(meCalls()).toBe(1)
+  })
+
+  it('keeps the profile photo on disk', async () => {
+    auth.signOut()
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47])
+    const fetchMock = vi.fn(async (url: string) =>
+      url === 'https://x/p.png' ? new Response(png, { headers: { 'Content-Type': 'image/png' } }) : json(200, ME)
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    await auth.setToken('tok')
+    expect(auth.profile().photoURL).toBe('data:image/png;base64,iVBORw==')
+    await auth.refreshProfile()
+    expect(fetchMock.mock.calls.filter((c) => c[0] === 'https://x/p.png')).toHaveLength(1)
+  })
+
   it('keeps the cached profile when offline', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(new Error('offline'))))
     const profile = await auth.refreshProfile()

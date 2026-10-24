@@ -155,6 +155,7 @@ function Facts({ plugin }: { plugin: PluginInfo }) {
   ]
   const deps = Object.entries(plugin.dependencies)
   if (deps.length) rows.push(['Depends on', deps.map(([m, v]) => `${m} ${v}`).join(', ')])
+  if (plugin.tools?.length) rows.push(['Tools for your models', plugin.tools.join(', ')])
   if (plugin.services.length) rows.push(['Offers to other plugins', plugin.services.join(', ')])
   if (plugin.subscriptions.length) rows.push(['Listens to', plugin.subscriptions.join(', ')])
   if (plugin.hooks.length) rows.push(['Chat hooks', plugin.hooks.map((h) => h.replace(/_/g, ' ')).join(', ')])

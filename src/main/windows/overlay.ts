@@ -2,8 +2,22 @@ import { BrowserWindow, screen } from 'electron'
 import { chatStore } from '../chats/store'
 import { settings } from '../settings'
 import { baseWebPreferences, hardenNavigation, loadPage, materialOptions } from './load'
+import { closeModelMenu, isModelMenu } from './modelMenu'
 
 let win: BrowserWindow | null = null
+/** Spotlight-style: a bar near the top of the screen that grows down with its content. */
+/** The overlay is never shorter than this (px); short content is padded to it. */
+const MIN_HEIGHT = 360
+const MIN_WIDTH = 520
+const MAX_WIDTH = 860
+/** Where the bar sits, as a fraction of the work area's height. */
+const TOP = 0.18
+/** Last content height the renderer reported, reused when the overlay shows again. */
+let contentHeight = 320
+let maxHeight = 560
+/** Where the overlay was placed. Resizing only ever changes the height: reading the bounds
+    back and setting them again drifts the width on scaled displays. */
+let placement: { x: number; y: number; width: number } | null = null
 let quitting = false
 /** The thread the hotkey overlay is continuing. */
 let overlayChatId: string | null = null
@@ -32,11 +46,11 @@ export function getOverlay(): BrowserWindow | null {
 export function createOverlay(): BrowserWindow {
   if (getOverlay()) return win!
   win = new BrowserWindow({
-    width: 800,
-    height: 500,
+    width: 720,
+    height: contentHeight,
     show: false,
     frame: false,
-    resizable: true,
+    resizable: false,
     minimizable: false,
     maximizable: false,
     fullscreenable: false,
@@ -47,6 +61,9 @@ export function createOverlay(): BrowserWindow {
     webPreferences: baseWebPreferences()
   })
   win.setAlwaysOnTop(true, 'floating')
+  win.on('show', () => {
+    if (!placement && win) placement = (({ x, y, width }) => ({ x, y, width }))(win.getBounds())
+  })
   hardenNavigation(win)
   loadPage(win, 'overlay')
 
@@ -58,23 +75,46 @@ export function createOverlay(): BrowserWindow {
     }
   })
   win.on('blur', () => {
-    if (win && !win.webContents.isDevToolsOpened()) win.hide()
+    // Focus may be moving into the overlay's own model menu (a separate window); only hide
+    // if it went somewhere else. The menu hides the overlay itself if you click away from both.
+    setTimeout(() => {
+      if (!win || !win.isVisible() || win.webContents.isDevToolsOpened()) return
+      if (isModelMenu(BrowserWindow.getFocusedWindow())) return
+      win.hide()
+    }, 30)
   })
+  win.on('hide', () => closeModelMenu(undefined, false))
   return win
 }
 
-/** Size as a percentage of the work area of the display under the cursor, centered. */
+/**
+ * Centred near the top of the display under the cursor. The width comes from the
+ * "Overlay size" setting; its height setting caps how far the overlay grows.
+ */
 function position(w: BrowserWindow): void {
   const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
   const area = display.workArea
-  const width = Math.round((area.width * settings.get('windowWidthPct')) / 100)
-  const height = Math.round((area.height * settings.get('windowHeightPct')) / 100)
-  w.setBounds({
-    x: Math.round(area.x + (area.width - width) / 2),
-    y: Math.round(area.y + (area.height - height) / 2),
-    width,
-    height
-  })
+  const width = Math.round(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, (area.width * settings.get('windowWidthPct')) / 100)))
+  const y = Math.round(area.y + area.height * TOP)
+  maxHeight = Math.round(
+    Math.max(MIN_HEIGHT, Math.min((area.height * settings.get('windowHeightPct')) / 100, area.y + area.height - y - 24))
+  )
+  placement = { x: Math.round(area.x + (area.width - width) / 2), y, width }
+  w.setBounds({ ...placement, height: clampHeight(contentHeight) })
+}
+
+function clampHeight(height: number): number {
+  return Math.round(Math.max(MIN_HEIGHT, Math.min(maxHeight, height)))
+}
+
+/** The renderer measured its content: grow or shrink downward, keeping the top edge still. */
+export function resizeOverlay(height: number): void {
+  const w = getOverlay()
+  if (!w || !Number.isFinite(height)) return
+  contentHeight = height
+  const next = clampHeight(height)
+  if (!placement || next === w.getBounds().height) return
+  w.setBounds({ ...placement, height: next })
 }
 
 export function showOverlay(): void {
@@ -82,7 +122,7 @@ export function showOverlay(): void {
   position(w)
   w.show()
   w.focus()
-  w.webContents.send('overlay:shown', { opacity: settings.get('appOpacity'), chatId: chatForOverlay() })
+  w.webContents.send('overlay:shown', { opacity: settings.get('appOpacity'), chatId: chatForOverlay(), minHeight: MIN_HEIGHT, maxHeight })
 }
 
 export function hideOverlay(): void {

@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import type { Chat, ChatEvent, ChatMessage, ChatSummary } from '@shared/types'
-import { generate, GenerationError, mcpToolBridge, MAX_TOOL_ROUNDS, type HistoryMessage, type ToolPause } from '../llm'
+import { generate, GenerationError, MAX_TOOL_ROUNDS, type HistoryMessage, type ToolBridge, type ToolPause } from '../llm'
+import { mcp } from '../mcp/manager'
 import { pluginHost } from '../plugins/host'
 import { settings } from '../settings'
 import { chatStore, titleFrom } from './store'
@@ -23,6 +24,18 @@ export interface SendOptions {
   turn?: TurnOptions
   /** A new chat created for this message is kept in memory only. */
   ephemeral?: boolean
+}
+
+/** The tools a chat turn offers: the MCP servers' and the ones plugins provide. */
+export function chatTools(): ToolBridge | undefined {
+  const mcpTools = mcp.tools()
+  const pluginTools = pluginHost.modelTools(new Set(mcpTools.map((t) => t.name)))
+  if (!mcpTools.length && !pluginTools.length) return undefined
+  const fromPlugins = new Set(pluginTools.map((t) => t.name))
+  return {
+    tools: [...mcpTools, ...pluginTools],
+    call: (name, args) => (fromPlugins.has(name) ? pluginHost.callModelTool(name, args) : mcp.callTool(name, args))
+  }
 }
 
 /** Conversation the model sees: user turns (as sent) and completed assistant turns. */
@@ -234,7 +247,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
       const text = await generate(historyFor(chat.messages.slice(0, -1)), {
         model,
         signal: controller.signal,
-        tools: turn?.tools === false ? undefined : mcpToolBridge(),
+        tools: turn?.tools === false ? undefined : chatTools(),
         system: turn?.system,
         resume: resume?.pause,
         onPause: (p) => {

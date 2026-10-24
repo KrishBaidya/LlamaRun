@@ -23,6 +23,10 @@ extraResources:
   - from: resources
     to: .
     filter: ['icon.png', 'icon.ico', 'tray.png']
+  # Plugins installed on first launch (code only, staged by scripts/bundle-plugins.mjs; requirements install on first launch, see src/main/plugins/bundled.ts).
+  - from: bundled-plugins
+    to: plugins
+    filter: ['**/*', '!**/__pycache__/**']
 protocols:
   - name: Llama Run
     schemes: [llama-run]

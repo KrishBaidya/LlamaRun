@@ -21,7 +21,9 @@
     "test": "vitest run",
     "test:sdk": "node scripts/test-sdk.mjs",
     "build:win": "npm run build && electron-builder --win",
-    "build:unpack": "npm run build && electron-builder --dir"
+    "build:unpack": "npm run build && electron-builder --dir",
+    "bundle-plugins": "node scripts/bundle-plugins.mjs",
+    "build:release": "npm run bundle-plugins && npm run build && electron-builder --win --x64"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
