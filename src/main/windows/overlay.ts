@@ -21,6 +21,8 @@ let placement: { x: number; y: number; width: number } | null = null
 let quitting = false
 /** The thread the hotkey overlay is continuing. */
 let overlayChatId: string | null = null
+/** A file picker the overlay opened is showing; it takes focus but the overlay should stay. */
+let holdOpen = false
 
 export function setOverlayChat(chatId: string | null): void {
   overlayChatId = chatId
@@ -74,11 +76,13 @@ export function createOverlay(): BrowserWindow {
       win?.hide()
     }
   })
+  // The picker closed and focus came back.
+  win.on('focus', () => (holdOpen = false))
   win.on('blur', () => {
     // Focus may be moving into the overlay's own model menu (a separate window); only hide
     // if it went somewhere else. The menu hides the overlay itself if you click away from both.
     setTimeout(() => {
-      if (!win || !win.isVisible() || win.webContents.isDevToolsOpened()) return
+      if (!win || !win.isVisible() || win.webContents.isDevToolsOpened() || holdOpen) return
       if (isModelMenu(BrowserWindow.getFocusedWindow())) return
       win.hide()
     }, 30)
@@ -125,7 +129,13 @@ export function showOverlay(): void {
   w.webContents.send('overlay:shown', { opacity: settings.get('appOpacity'), chatId: chatForOverlay(), minHeight: MIN_HEIGHT, maxHeight })
 }
 
+/** Keeps the overlay up while a file picker it opened has focus (cleared when the overlay is focused again). */
+export function holdOverlayOpen(sender: Electron.WebContents): void {
+  if (getOverlay()?.webContents === sender) holdOpen = true
+}
+
 export function hideOverlay(): void {
+  holdOpen = false
   getOverlay()?.hide()
 }
 

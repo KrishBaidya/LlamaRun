@@ -31,7 +31,7 @@ import { closeOnboarding } from './windows/onboarding'
 import { openChatWindow } from './windows/chat'
 import { appearance } from './windows/load'
 import { closeModelMenu, openModelMenu, resizeModelMenu } from './windows/modelMenu'
-import { hideOverlay, resizeOverlay, setOverlayChat, showOverlay } from './windows/overlay'
+import { hideOverlay, holdOverlayOpen, resizeOverlay, setOverlayChat, showOverlay } from './windows/overlay'
 import { openSettings } from './windows/settings'
 
 export function broadcast<E extends EventChannel>(channel: E, payload: EventChannels[E]): void {
@@ -169,6 +169,7 @@ export function registerIpc(): void {
   handle('commands:list', () => chatService.commands())
 
   handle('overlay:hide', () => hideOverlay())
+  handle('overlay:holdOpen', (e) => holdOverlayOpen(e.sender))
   handle('overlay:resize', (_e, height) => resizeOverlay(Number(height)))
   handle('modelMenu:open', (e, anchor, value) => {
     const parent = BrowserWindow.fromWebContents(e.sender)

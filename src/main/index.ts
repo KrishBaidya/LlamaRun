@@ -15,6 +15,7 @@ import { registerPanelScheme } from './plugins/ui/panels'
 import { settings } from './settings'
 import { createTray } from './tray'
 import { openOnboarding } from './windows/onboarding'
+import { attachContextMenu } from './windows/contextMenu'
 import { createOverlay, markQuitting, showOverlay } from './windows/overlay'
 
 // ---------------------------------------------------------------- crash log
@@ -150,6 +151,7 @@ if (!app.requestSingleInstanceLock()) {
 
   app.on('web-contents-created', (_e, contents) => {
     contents.on('render-process-gone', (_ev, details) => logCrash('render-process-gone', details.reason))
+    attachContextMenu(contents)
   })
 }
 
