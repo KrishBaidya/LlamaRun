@@ -255,6 +255,13 @@ export async function callBuiltinTool(name: string, args: Record<string, unknown
 }
 
 /** The part of the system prompt Llama Run adds to every turn: memories and the skill list. */
+/** Skill descriptions in the system prompt are kept short: with many skills installed they add up fast. */
+const MAX_SKILL_DESCRIPTION = 250
+
+function shorten(text: string): string {
+  return text.length <= MAX_SKILL_DESCRIPTION ? text : `${text.slice(0, MAX_SKILL_DESCRIPTION - 1).trimEnd()}…`
+}
+
 export function builtinInstructions(options: BuiltinOptions = {}): string {
   const parts: string[] = [
     [
@@ -284,7 +291,8 @@ export function builtinInstructions(options: BuiltinOptions = {}): string {
         'Skills are folders of instructions and scripts for particular tasks. When a request matches one, call skill_load first and follow its instructions; run its Python scripts with skill_run_script.',
         `Files scripts write go to ${skillWorkspace()}. Tell the user where to find them.`,
         'Available skills:',
-        ...skills.map((s) => `- ${s.name}: ${s.description || '(no description)'}`)
+        // Skills marked disable-model-invocation only run when the user types their /command.
+        ...skills.filter((s) => s.modelInvocable).map((s) => `- ${s.name}: ${shorten(s.description) || '(no description)'}`)
       )
     }
     if (options.shell) {

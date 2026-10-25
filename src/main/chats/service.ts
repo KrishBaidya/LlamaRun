@@ -17,6 +17,7 @@ import {
 import { mcp } from '../mcp/manager'
 import { pluginHost } from '../plugins/host'
 import { settings } from '../settings'
+import { skillStore } from '../skills/store'
 import { COMPACT_SYSTEM, compactionRequest, splitForCompaction, SUMMARY_INTRO, transcriptOf, visibleMessages } from './compact'
 import { contextWindowFor, estimateTokens, usageOf } from './context'
 import { chatStore, titleFrom } from './store'
@@ -39,6 +40,8 @@ export interface SendOptions {
   /** A new chat created for this message is kept in memory only. */
   ephemeral?: boolean
   attachments?: ChatAttachment[]
+  /** The user ran a skill as a /command. */
+  skill?: ChatMessage['skill']
 }
 
 /** Most images one message may carry. */
@@ -46,8 +49,8 @@ export const MAX_IMAGES = 6
 
 /** Commands Llama Run handles itself, ahead of any plugin's. */
 export const BUILTIN_COMMANDS: SlashCommand[] = [
-  { name: 'compact', description: 'Summarise older messages to free up context', plugin: 'Llama Run', args: '[what to focus on]' },
-  { name: 'new', description: 'Start a new chat', plugin: 'Llama Run' }
+  { name: 'compact', description: 'Summarise older messages to free up context', kind: 'builtin', plugin: 'Llama Run', args: '[what to focus on]' },
+  { name: 'new', description: 'Start a new chat', kind: 'builtin', plugin: 'Llama Run' }
 ]
 
 /**
@@ -85,7 +88,8 @@ function imageOf(a: ChatAttachment): HistoryImage | null {
 /** What the model reads for a user turn: the text (as sent) followed by any attached documents. */
 function userContent(m: ChatMessage): string {
   const docs = (m.attachments ?? []).filter((a) => a.kind === 'document').map(documentBlock)
-  const text = m.prompt ?? m.content
+  // A skill run as /command: the model gets the skill's instructions (with the arguments filled in).
+  const text = m.skill ? m.skill.instructions : (m.prompt ?? m.content)
   return docs.length ? [text, ...docs].filter(Boolean).join('\n\n') : text
 }
 
@@ -195,6 +199,11 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     }
     const command = !attachments?.length ? pluginHost.matchCommand(text) : null
     if (command) return this.runCommand(chatId, text, command, model)
+    const invoked = skillStore.matchCommand(text)
+    if (invoked) {
+      const instructions = skillStore.invoke(invoked.skill, invoked.args)
+      return this.start(chatId, text.trim(), { model, attachments, skill: { name: invoked.skill.name, instructions } }).chatId
+    }
     return this.start(chatId, text, { model, attachments }).chatId
   }
 
@@ -205,9 +214,13 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     return this.start(chat.id, brief, {}).chatId
   }
 
-  /** Built-in and plugin /commands for the chat box. */
+  /**
+   * Everything the chat box's / menu offers: built-in commands, plugin
+   * commands and skills, checked in that order when a name is shared.
+   */
   commands(): SlashCommand[] {
-    return [...BUILTIN_COMMANDS, ...pluginHost.commands()]
+    const seen = new Set<string>()
+    return [...BUILTIN_COMMANDS, ...pluginHost.commands(), ...skillStore.commands()].filter((c) => !seen.has(c.name) && !!seen.add(c.name))
   }
 
   /**
@@ -334,6 +347,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     const user: ChatMessage = { id: randomUUID(), role: 'user', content, status: 'done', createdAt: Date.now() }
     if (options.via) user.via = options.via
     if (attachments.length) user.attachments = attachments
+    if (options.skill) user.skill = options.skill
     if (!chat.messages.length) chat.title = titleFrom(content || attachments[0].name)
     chat.messages.push(user)
     chatStore.save(chat)

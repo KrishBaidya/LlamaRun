@@ -369,6 +369,7 @@ class PluginHost extends EventEmitter<{
       return [...(r.commands?.entries() ?? [])].map(([name, [description, args]]) => ({
         name,
         description,
+        kind: 'plugin' as const,
         plugin: r.manifest?.name ?? id,
         ...(args ? { args } : {})
       }))

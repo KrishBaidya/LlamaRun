@@ -48,6 +48,11 @@ function UserMessage({ message }: { message: ChatMessage }) {
           </div>
         </div>
       )}
+      {message.skill && (
+        <span className="inline-flex items-center gap-1 pe-1 text-2xs text-muted-foreground">
+          <Sparkles className="size-3" /> Ran the {message.skill.name} skill
+        </span>
+      )}
       {message.via && (
         <span className="inline-flex items-center gap-1 pe-1 text-2xs text-muted-foreground">
           {message.via.voice ? <Mic className="size-3" /> : <Bot className="size-3" />}

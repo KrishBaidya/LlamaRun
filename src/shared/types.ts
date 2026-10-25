@@ -122,6 +122,8 @@ export interface ChatMessage {
   attachments?: ChatAttachment[]
   /** Assistant messages a plugin posted itself, not written by a model. */
   from?: { plugin: string }
+  /** User messages that ran a skill as a /command: the model gets its instructions instead of the typed text. */
+  skill?: { name: string; instructions: string }
   createdAt: number
 }
 
@@ -284,6 +286,14 @@ export interface SkillInfo {
   location: SkillLocation
   /** Where it was installed from (a link, ZIP or folder), if known. */
   source?: string
+  /** The /command that runs it from the chat box. */
+  command: string
+  /** Shown after the command while typing it, e.g. "[file] [format]" (argument-hint). */
+  argumentHint?: string
+  /** Listed in the / menu (user-invocable, default true). */
+  userInvocable: boolean
+  /** The model may load it on its own (not disable-model-invocation). */
+  modelInvocable: boolean
   /** Python files the model may run. */
   scripts: string[]
   /** Every file in the skill, relative to its folder. */
@@ -298,7 +308,8 @@ export interface SkillInfo {
 export interface SlashCommand {
   name: string
   description: string
-  /** Plugin name, or 'Llama Run' for built-in commands. */
+  kind: 'builtin' | 'plugin' | 'skill'
+  /** Who provides it: 'Llama Run', a plugin's name, or where a skill comes from. */
   plugin: string
   /** Text after the name, e.g. "[focus]". */
   args?: string
