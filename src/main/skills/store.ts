@@ -1,8 +1,9 @@
 import { spawn } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { delimiter, extname, join, relative, resolve, sep } from 'node:path'
-import type { SkillInfo } from '@shared/types'
+import type { SkillInfo, SkillLocation } from '@shared/types'
 import { askApproval } from '../assistant/approval'
 import { readJson } from '../jsonFile'
 import { pythonExecutable, userDataPath } from '../paths'
@@ -11,7 +12,23 @@ import { parseFrontMatter } from './frontMatter'
 
 export { parseFrontMatter } from './frontMatter'
 
-export const skillsDir = (): string => userDataPath('Skills')
+/**
+ * Where skills are installed: the cross-agent folder from the Agent Skills
+ * standard (~/.agents/skills), which Codex, Cursor and other agents also read,
+ * so a skill installed once works everywhere.
+ */
+export const skillsDir = (): string => process.env.LLAMARUN_SKILLS_DIR || join(homedir(), '.agents', 'skills')
+
+/** Every folder skills are read from, first match wins when two share a name. */
+export function skillRoots(): { dir: string; location: SkillLocation }[] {
+  return [
+    { dir: skillsDir(), location: 'shared' },
+    // Claude Code's personal skills, so what you set up there works here too.
+    { dir: process.env.LLAMARUN_CLAUDE_SKILLS_DIR || join(homedir(), '.claude', 'skills'), location: 'claude' },
+    // Where Llama Run kept skills before it used the shared folder.
+    { dir: userDataPath('Skills'), location: 'app' }
+  ]
+}
 /** Where skill scripts run, so the files they write end up in one place the user can open. */
 export const skillWorkspace = (): string => userDataPath('SkillWorkspace')
 
@@ -89,34 +106,36 @@ export function cut(text: string, limit = MAX_READ_CHARS): string {
 /** Installed skills: Skills/<id>/SKILL.md, read fresh each time (they are small and few). */
 class SkillStore extends EventEmitter<{ changed: [SkillInfo[]] }> {
   list(): SkillInfo[] {
-    const dir = skillsDir()
-    if (!existsSync(dir)) return []
     const disabled = settings.get('skillsDisabled') ?? {}
     const trusted = settings.get('skillsTrusted') ?? {}
-    const skills: SkillInfo[] = []
-    for (const id of readdirSync(dir)) {
-      const folder = join(dir, id)
-      const file = join(folder, 'SKILL.md')
-      if (!existsSync(file)) continue
-      const { data } = parseFrontMatter(readFileSync(file, 'utf8'))
-      const meta = readJson<SkillMeta>(join(folder, SKILL_META), {})
-      const files = listFiles(folder)
-      skills.push({
-        id,
-        name: data.name || id,
-        description: data.description || '',
-        enabled: !disabled[id],
-        trusted: !!trusted[id],
-        folder,
-        source: meta.source,
-        installedAt: meta.installedAt,
-        requirementsError: meta.requirementsError,
-        scripts: files.filter((f) => extname(f).toLowerCase() === '.py'),
-        files,
-        hasRequirements: existsSync(join(folder, 'requirements.txt'))
-      })
+    const skills = new Map<string, SkillInfo>()
+    for (const { dir, location } of skillRoots()) {
+      if (!existsSync(dir)) continue
+      for (const id of readdirSync(dir)) {
+        const folder = join(dir, id)
+        const file = join(folder, 'SKILL.md')
+        if (skills.has(id) || !existsSync(file)) continue
+        const { data } = parseFrontMatter(readFileSync(file, 'utf8'))
+        const meta = readJson<SkillMeta>(join(folder, SKILL_META), {})
+        const files = listFiles(folder)
+        skills.set(id, {
+          id,
+          name: data.name || id,
+          description: data.description || '',
+          enabled: !disabled[id],
+          trusted: !!trusted[id],
+          folder,
+          location,
+          source: meta.source,
+          installedAt: meta.installedAt,
+          requirementsError: meta.requirementsError,
+          scripts: files.filter((f) => extname(f).toLowerCase() === '.py'),
+          files,
+          hasRequirements: existsSync(join(folder, 'requirements.txt'))
+        })
+      }
     }
-    return skills.sort((a, b) => a.name.localeCompare(b.name))
+    return [...skills.values()].sort((a, b) => a.name.localeCompare(b.name))
   }
 
   /** Enabled skills the model is offered. */
@@ -266,9 +285,14 @@ class SkillStore extends EventEmitter<{ changed: [SkillInfo[]] }> {
     this.changed()
   }
 
+  /** Deletes a skill's folder. Claude Code's own skills are left alone; turn them off instead. */
   remove(id: string): void {
-    const folder = resolve(skillsDir(), id)
-    if (!folder.startsWith(resolve(skillsDir()) + sep)) throw new Error('Not a skill folder')
+    const skill = this.list().find((s) => s.id === id)
+    if (!skill) return
+    if (skill.location === 'claude') throw new Error(`${skill.name} belongs to Claude Code. Turn it off here, or remove it from ${skill.folder}.`)
+    const root = skillRoots().find((r) => r.location === skill.location)!.dir
+    const folder = resolve(skill.folder)
+    if (!folder.startsWith(resolve(root) + sep)) throw new Error('Not a skill folder')
     rmSync(folder, { recursive: true, force: true })
     this.setTrusted(id, false)
   }

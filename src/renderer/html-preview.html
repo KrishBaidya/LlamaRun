@@ -14,14 +14,16 @@
     <title>Preview</title>
     <script>
       ;(function () {
-        // The parent sends { type: 'render', id, html }; the page then reports its height.
+        // The parent sends { type: 'render', id, html }; the page then reports its height, and
+        // whether it is sized to the window (100vh, a full-screen canvas) so any height fits it.
         window.addEventListener('message', function (e) {
           var data = e.data
           if (!data || data.type !== 'render' || typeof data.html !== 'string') return
           var report =
             '<script>(function(){var id=' +
             JSON.stringify(String(data.id)) +
-            ';function send(){parent.postMessage({llamarunPreview:id,height:Math.ceil(document.documentElement.scrollHeight)},"*")}' +
+            ';function fills(){var b=document.body;if(!b)return false;var els=b.querySelectorAll(":scope>*,:scope>*>*");for(var i=0;i<els.length;i++){var r=els[i].getBoundingClientRect();if(r.height>=innerHeight-1&&r.width>=innerWidth*0.9)return true}return false}' +
+            ';function send(){var d=document.documentElement,b=document.body,h=Math.ceil(Math.max(d.scrollHeight,b?b.scrollHeight:0));parent.postMessage({llamarunPreview:id,height:h,fillsViewport:h<=innerHeight+1&&fills()},"*")}' +
             'new ResizeObserver(send).observe(document.documentElement);addEventListener("load",send);send()})()<\/script>'
           var base = '<base target="_blank">'
           var html = /<html[\s>]/i.test(data.html) ? data.html : '<!doctype html><html><head><meta charset="utf-8"></head><body>' + data.html + '</body></html>'

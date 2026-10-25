@@ -256,7 +256,13 @@ export async function callBuiltinTool(name: string, args: Record<string, unknown
 
 /** The part of the system prompt Llama Run adds to every turn: memories and the skill list. */
 export function builtinInstructions(options: BuiltinOptions = {}): string {
-  const parts: string[] = []
+  const parts: string[] = [
+    [
+      '## Showing things',
+      'The chat draws some code blocks instead of printing them: ```mermaid as a diagram, ```svg as a picture, ```html as a live page.',
+      'For flowcharts, sequence diagrams, timelines, mind maps and similar, use a ```mermaid block. Use ```html only for something interactive.'
+    ].join('\n')
+  ]
   if (memoryOn()) {
     const items = memoryStore.list()
     parts.push(
