@@ -15,7 +15,16 @@ export const DEFAULT_SETTINGS: Settings = {
   pluginLinks: {},
   windowWidthPct: 50,
   windowHeightPct: 50,
-  overlayNewChatAfterMinutes: 30
+  overlayNewChatAfterMinutes: 30,
+  memoryEnabled: true,
+  skillsEnabled: true,
+  skillsDisabled: {},
+  skillsTrusted: {},
+  allowedCommands: [],
+  autoCompact: true,
+  autoCompactPercent: 80,
+  compactKeepTurns: 4,
+  modelContext: {}
 }
 
 class SettingsStore extends EventEmitter<{ changed: [Settings, Partial<Settings>] }> {
@@ -43,8 +52,8 @@ class SettingsStore extends EventEmitter<{ changed: [Settings, Partial<Settings>
 
   /** Restores defaults for user-facing preferences; onboarding state and plugin choices are kept. */
   reset(): Settings {
-    const { isFirstRun, pluginsEnabled, pluginGrants, pluginLinks } = this.all
-    return this.set({ ...DEFAULT_SETTINGS, isFirstRun, pluginsEnabled, pluginGrants, pluginLinks })
+    const { isFirstRun, pluginsEnabled, pluginGrants, pluginLinks, skillsDisabled, skillsTrusted, modelContext } = this.all
+    return this.set({ ...DEFAULT_SETTINGS, isFirstRun, pluginsEnabled, pluginGrants, pluginLinks, skillsDisabled, skillsTrusted, modelContext })
   }
 }
 

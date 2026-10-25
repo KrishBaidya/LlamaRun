@@ -39,7 +39,9 @@ export default defineConfig({
           chat: resolve('src/renderer/chat.html'),
           hud: resolve('src/renderer/hud.html'),
           dialog: resolve('src/renderer/dialog.html'),
-          'plugin-view': resolve('src/renderer/plugin-view.html')
+          'plugin-view': resolve('src/renderer/plugin-view.html'),
+          // Sandboxed page that shows HTML from chat replies (see components/HtmlPreview.tsx).
+          'html-preview': resolve('src/renderer/html-preview.html')
         }
       }
     }

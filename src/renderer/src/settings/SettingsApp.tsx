@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 import { createHashRouter, NavLink, Outlet, RouterProvider, useNavigate } from 'react-router'
-import { Blocks, Boxes, Home, LogIn, LogOut, MessagesSquare, Plug } from 'lucide-react'
+import { Blocks, Boxes, Brain, Home, LogIn, LogOut, MessagesSquare, Plug, Sparkles } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -15,11 +15,15 @@ import { PluginsPage } from './pages/PluginsPage'
 import { McpPage } from './pages/McpPage'
 import { ModelsPage } from './pages/ModelsPage'
 import { McpServerDetailsPage } from './pages/McpServerDetailsPage'
+import { MemoryPage } from './pages/MemoryPage'
+import { SkillsPage } from './pages/SkillsPage'
 import { toast } from 'sonner'
 
 const NAV = [
   { to: '/', label: 'General', icon: Home, end: true },
   { to: '/models', label: 'Models', icon: Boxes, end: false },
+  { to: '/memory', label: 'Memory', icon: Brain, end: false },
+  { to: '/skills', label: 'Skills', icon: Sparkles, end: false },
   { to: '/plugins', label: 'Plugins', icon: Blocks, end: false },
   { to: '/mcp', label: 'MCP Servers', icon: Plug, end: false }
 ]
@@ -126,6 +130,8 @@ const router = createHashRouter([
     children: [
       { index: true, element: <HomePage /> },
       { path: 'models', element: <ModelsPage /> },
+      { path: 'memory', element: <MemoryPage /> },
+      { path: 'skills', element: <SkillsPage /> },
       { path: 'plugins', element: <PluginsPage /> },
       { path: 'plugins/:id', element: <PluginDetailsPage /> },
       { path: 'mcp', element: <McpPage /> },

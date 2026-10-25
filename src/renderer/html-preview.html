@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!--
+      Shows HTML a model or plugin wrote, inside a sandboxed iframe (no allow-same-origin,
+      so it can't reach the app, its storage or its bridge). Scripts, styles, images and
+      fonts from anywhere are allowed so the page works like it would in a browser.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src * data: blob: 'unsafe-inline' 'unsafe-eval'; script-src * data: blob: 'unsafe-inline' 'unsafe-eval'; style-src * data: blob: 'unsafe-inline'; img-src * data: blob:; font-src * data:; connect-src *; media-src * data: blob:"
+    />
+    <title>Preview</title>
+    <script>
+      ;(function () {
+        // The parent sends { type: 'render', id, html }; the page then reports its height.
+        window.addEventListener('message', function (e) {
+          var data = e.data
+          if (!data || data.type !== 'render' || typeof data.html !== 'string') return
+          var report =
+            '<script>(function(){var id=' +
+            JSON.stringify(String(data.id)) +
+            ';function send(){parent.postMessage({llamarunPreview:id,height:Math.ceil(document.documentElement.scrollHeight)},"*")}' +
+            'new ResizeObserver(send).observe(document.documentElement);addEventListener("load",send);send()})()<\/script>'
+          var base = '<base target="_blank">'
+          var html = /<html[\s>]/i.test(data.html) ? data.html : '<!doctype html><html><head><meta charset="utf-8"></head><body>' + data.html + '</body></html>'
+          html = /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, function (m) { return m + base }) : base + html
+          document.open()
+          document.write(html + report)
+          document.close()
+        })
+        parent.postMessage({ llamarunPreview: 'ready' }, '*')
+      })()
+    </script>
+  </head>
+  <body></body>
+</html>

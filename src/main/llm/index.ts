@@ -5,7 +5,7 @@ import { isCloudModel, loadCloudCatalog } from './models'
 import { generateOllama, isOllamaRunning, listOllamaModels } from './ollama'
 import { GenerationError, type GenerateInput, type GenerateOptions } from './types'
 
-export { GenerationError, MAX_TOOL_ROUNDS, type HistoryMessage, type ToolBridge, type ToolPause } from './types'
+export { GenerationError, MAX_TOOL_ROUNDS, type HistoryImage, type HistoryMessage, type ToolBridge, type ToolPause } from './types'
 export { isCloudModel, loadCloudCatalog } from './models'
 
 /**

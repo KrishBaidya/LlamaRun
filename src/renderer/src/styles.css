@@ -117,12 +117,14 @@
   --border: rgb(255 255 255 / 8%);
   --input: rgb(255 255 255 / 12%);
 }
-/* The system accent colour replaces the indigo primary when Windows reports one. */
-.platform-win[style*='--os-accent'] {
+/* The system accent colour replaces the indigo primary when Windows reports one.
+   They have :root's specificity, so they win over the defaults above by coming later, and a plugin
+   theme (`:root { --primary: … }`, added after this stylesheet) wins over them the same way. */
+:where(.platform-win)[style*='--os-accent'] {
   --primary: var(--os-accent);
   --ring: var(--os-accent);
 }
-.platform-win.dark[style*='--os-accent'] {
+:where(.platform-win.dark)[style*='--os-accent'] {
   --primary: color-mix(in oklab, var(--os-accent) 75%, white);
   --primary-foreground: var(--color-black);
 }

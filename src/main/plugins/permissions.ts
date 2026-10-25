@@ -86,6 +86,41 @@ export const PERMISSIONS: Record<PluginPermission, PermissionInfo> = {
     risk: 'medium',
     enforced: false
   },
+  memory: {
+    id: 'memory',
+    label: 'Your AI memory',
+    description: 'Reads and changes what your models remember about you.',
+    risk: 'medium',
+    enforced: true
+  },
+  skills: {
+    id: 'skills',
+    label: 'Skills',
+    description: 'Lists your installed skills and asks to install new ones.',
+    risk: 'medium',
+    enforced: true
+  },
+  context: {
+    id: 'context',
+    label: 'Add context to your chats',
+    description: 'Adds its own instructions or live information (what you are working on, the time, your calendar) to every message your models see.',
+    risk: 'medium',
+    enforced: true
+  },
+  appearance: {
+    id: 'appearance',
+    label: 'Change how Llama Run looks',
+    description: 'Applies its own theme (CSS) to Llama Run’s windows.',
+    risk: 'low',
+    enforced: true
+  },
+  commands: {
+    id: 'commands',
+    label: 'Add / commands and post in chats',
+    description: 'Adds commands you can type in the chat box, like /weather, and posts its own messages (text, images, web previews) in your chats.',
+    risk: 'low',
+    enforced: true
+  },
   unrestricted: {
     id: 'unrestricted',
     label: 'Full access (older plugin)',

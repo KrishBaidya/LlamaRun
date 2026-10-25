@@ -102,7 +102,7 @@ def test_sdk_version_rules():
         check_sdk_version("1.4", "1.3")
     with pytest.raises(ManifestError):
         check_sdk_version("2.0", "1.3")
-    assert llamarun.__version__ == "1.3"
+    assert llamarun.__version__ == "1.4"
 
 
 def test_manifest_reports_missing_field(tmp_path):

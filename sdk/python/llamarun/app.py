@@ -78,6 +78,23 @@ def _write_log(path, line: str) -> None:
             pass
 
 
+# ------------------------------------------------------------------ theme
+
+
+def set_theme(css: str) -> None:
+    """Restyle Llama Run's windows (overlay, chat, settings) with your CSS. Needs ``appearance``.
+
+    The app is styled with CSS variables, so most themes only set a few, e.g.
+    ``:root { --primary: oklch(0.7 0.2 150); --radius: 4px }``. Call again to
+    replace it; it is removed when the plugin stops.
+    """
+    _rpc.call("appearance.set_css", {"css": css})
+
+
+def clear_theme() -> None:
+    _rpc.call("appearance.set_css", {"css": ""})
+
+
 # ------------------------------------------------------------------ shortcuts
 
 _shortcuts: dict = {}

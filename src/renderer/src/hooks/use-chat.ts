@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Chat, ChatEvent, ChatMessage, ChatSummary } from '@shared/types'
+import type { ApprovalRequest, Chat, ChatAttachment, ChatEvent, ChatMessage, ChatSummary } from '@shared/types'
 import { api } from './use-llamarun'
 
 function applyEvent(chat: Chat, e: ChatEvent): Chat {
@@ -29,6 +29,9 @@ function applyEvent(chat: Chat, e: ChatEvent): Chat {
         ...chat,
         messages: chat.messages.map((m) => (m.id === e.messageId ? { ...m, tools: [...(m.tools ?? []), e.tool] } : m))
       }
+    case 'status':
+    case 'approval':
+      return chat
   }
 }
 
@@ -38,7 +41,13 @@ export interface UseChat {
   chat: Chat | null
   /** A reply is being produced (including while plugins run, before the first token). */
   busy: boolean
-  send: (text: string, model?: string) => Promise<string | null>
+  /** The older messages are being summarised (auto-compact or /compact). */
+  compacting: boolean
+  send: (text: string, model?: string, attachments?: ChatAttachment[]) => Promise<string | null>
+  /** Summarises older messages now. */
+  compact: (instructions?: string) => Promise<void>
+  /** The model is waiting for the user to allow a command or script. */
+  approval: ApprovalRequest | null
   stop: () => void
   retry: () => void
   /** Resumes a reply that stopped at the tool-round cap. */
@@ -54,6 +63,8 @@ export function useChat(chatId: string | null, onCreated?: (id: string) => void)
   const [chat, setChat] = useState<Chat | null>(null)
   const [awaitingReply, setAwaitingReply] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [compacting, setCompacting] = useState(false)
+  const [approval, setApproval] = useState<ApprovalRequest | null>(null)
   const idRef = useRef(chatId)
   /** Id of a chat this hook just created by sending; switching to it keeps the pending state. */
   const createdRef = useRef<string | null>(null)
@@ -61,6 +72,9 @@ export function useChat(chatId: string | null, onCreated?: (id: string) => void)
 
   useEffect(() => {
     setError(null)
+    setCompacting(false)
+    setApproval(null)
+    if (chatId) void api.chats.pendingApproval(chatId).then(setApproval)
     // A new chat (null) never starts out waiting; only the chat this hook just created keeps the flag.
     if (!chatId || chatId !== createdRef.current) setAwaitingReply(false)
     createdRef.current = null
@@ -79,6 +93,8 @@ export function useChat(chatId: string | null, onCreated?: (id: string) => void)
     () =>
       api.on('chat:event', (e) => {
         if (eventChatId(e) !== idRef.current) return
+        if (e.type === 'status') setCompacting(e.status === 'compacting')
+        if (e.type === 'approval') setApproval(e.request)
         if (e.type === 'message' && e.message.role === 'assistant') setAwaitingReply(false)
         setChat((c) => (c ? applyEvent(c, e) : e.type === 'chat' ? e.chat : c))
       }),
@@ -98,11 +114,12 @@ export function useChat(chatId: string | null, onCreated?: (id: string) => void)
   }, [awaitingReply, last?.role])
 
   const send = useCallback(
-    async (text: string, model?: string) => {
+    async (text: string, model?: string, attachments?: ChatAttachment[]) => {
       setError(null)
       try {
-        setAwaitingReply(true)
-        const id = await api.chats.send(idRef.current, text, model)
+        // /compact runs before replying to anything, so there is no reply to wait for.
+        setAwaitingReply(!/^\/compact\b/i.test(text))
+        const id = await api.chats.send(idRef.current, text, model, attachments?.length ? attachments : undefined)
         if (id !== idRef.current) {
           idRef.current = id
           createdRef.current = id
@@ -133,7 +150,17 @@ export function useChat(chatId: string | null, onCreated?: (id: string) => void)
     if (idRef.current) void api.chats.continue(idRef.current)
   }, [])
 
-  return { chat, busy: streaming || waiting, send, stop, retry, resume, error }
+  const compact = useCallback(async (instructions?: string) => {
+    if (!idRef.current) return
+    setError(null)
+    try {
+      await api.chats.compact(idRef.current, instructions)
+    } catch (err) {
+      setError(err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (?:\w*Error: )?/, '') : String(err))
+    }
+  }, [])
+
+  return { chat, busy: streaming || waiting || compacting, compacting, approval, send, compact, stop, retry, resume, error }
 }
 
 export function useChatList(): ChatSummary[] | null {

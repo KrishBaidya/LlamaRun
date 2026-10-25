@@ -41,17 +41,37 @@ export async function isOllamaRunning(): Promise<boolean> {
 }
 
 const KNOWN_CAPABILITIES = new Set<ModelCapability>(['tools', 'vision', 'thinking'])
-/** Capabilities per model digest; they never change for a given digest. */
-const capabilityCache = new Map<string, ModelCapability[]>()
 
-async function capabilitiesOf(client: Ollama, name: string, digest: string): Promise<ModelCapability[] | undefined> {
-  const cached = capabilityCache.get(digest)
+interface ModelDetails {
+  capabilities: ModelCapability[]
+  /** The model's own context length (`<family>.context_length` in its model info). */
+  contextLength?: number
+}
+
+/** Details per model digest; they never change for a given digest. */
+const detailsCache = new Map<string, ModelDetails>()
+
+/** `<family>.context_length` from `ollama show`'s model info. */
+export function contextLengthOf(modelInfo: unknown): number | undefined {
+  // Typed as a Map by the client library, but it arrives as a plain JSON object.
+  const entries = modelInfo instanceof Map ? [...modelInfo.entries()] : Object.entries((modelInfo as Record<string, unknown>) ?? {})
+  for (const [key, value] of entries) {
+    if (key.endsWith('.context_length') && typeof value === 'number' && value > 0) return value
+  }
+  return undefined
+}
+
+async function detailsOf(client: Ollama, name: string, digest: string): Promise<ModelDetails | undefined> {
+  const cached = detailsCache.get(digest)
   if (cached) return cached
   try {
-    const info = (await client.show({ model: name })) as { capabilities?: string[] }
-    const caps = (info.capabilities ?? []).filter((c): c is ModelCapability => KNOWN_CAPABILITIES.has(c as ModelCapability))
-    capabilityCache.set(digest, caps)
-    return caps
+    const info = await client.show({ model: name })
+    const details: ModelDetails = {
+      capabilities: ((info as { capabilities?: string[] }).capabilities ?? []).filter((c): c is ModelCapability => KNOWN_CAPABILITIES.has(c as ModelCapability)),
+      contextLength: contextLengthOf(info.model_info)
+    }
+    detailsCache.set(digest, details)
+    return details
   } catch {
     return undefined
   }
@@ -69,7 +89,9 @@ export async function listOllamaModels(): Promise<ModelInfo[]> {
     const client = new Ollama({ host: OLLAMA_HOST })
     const { models } = await client.list()
     return await Promise.all(
-      models.map(async (m): Promise<ModelInfo> => ({
+      models.map(async (m): Promise<ModelInfo> => {
+        const details = await detailsOf(client, m.name, m.digest)
+        return {
         id: m.name,
         name: prettyName(m.name),
         provider: 'ollama',
@@ -79,8 +101,10 @@ export async function listOllamaModels(): Promise<ModelInfo[]> {
         quantization: m.details?.quantization_level || undefined,
         family: m.details?.family || undefined,
         modifiedAt: m.modified_at ? new Date(m.modified_at).getTime() : undefined,
-        capabilities: await capabilitiesOf(client, m.name, m.digest)
-      }))
+        capabilities: details?.capabilities,
+        contextWindow: details?.contextLength
+        }
+      })
     )
   } catch {
     return []
@@ -97,7 +121,11 @@ export async function generateOllama(input: GenerateInput, opts: GenerateOptions
     ? [...resumed.messages]
     : [
         ...(opts.system ? [{ role: 'system', content: opts.system }] : []),
-        ...toHistory(input).map((m) => ({ role: m.role, content: m.content }))
+        ...toHistory(input, opts.historyChars).map((m) => ({
+          role: m.role,
+          content: m.content,
+          ...(m.images?.length ? { images: m.images.map((i) => i.data) } : {})
+        }))
       ]
   let tools: Tool[] | undefined = opts.tools?.tools.length
     ? toolSpecs(opts.tools.tools).map((t) => ({
@@ -122,6 +150,8 @@ export async function generateOllama(input: GenerateInput, opts: GenerateOptions
     }
   }
 
+  // Without num_ctx Ollama uses its own small default and silently drops the start of the conversation.
+  const options = opts.contextTokens ? { num_ctx: opts.contextTokens } : undefined
   let output = ''
   try {
     if (resumed) await runTools(resumed.pending)
@@ -130,12 +160,12 @@ export async function generateOllama(input: GenerateInput, opts: GenerateOptions
       const roundTools = opts.onPause || round < MAX_TOOL_ROUNDS ? tools : undefined
       let stream
       try {
-        stream = await client.chat({ model: opts.model, messages, tools: roundTools, stream: true })
+        stream = await client.chat({ model: opts.model, messages, tools: roundTools, stream: true, options })
       } catch (err) {
         // Models without tool support reject the request; retry as plain chat.
         if (roundTools && /does not support tools/i.test(String((err as Error)?.message))) {
           tools = undefined
-          stream = await client.chat({ model: opts.model, messages, stream: true })
+          stream = await client.chat({ model: opts.model, messages, stream: true, options })
         } else throw err
       }
 

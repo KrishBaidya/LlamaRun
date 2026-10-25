@@ -16,14 +16,14 @@ A minimal plugin::
 See ``docs/plugin-sdk.md`` in the LlamaRun repository for the full guide.
 """
 
-from . import app, chats, events, llm, mcp, permissions, plugins, settings, shared, storage, tools, ui
+from . import app, chats, events, llm, mcp, memory, permissions, plugins, settings, shared, skills, storage, tools, ui
 from .errors import PluginError
 from .plugin import Plugin
 from .plugins import expose
 from .tools import ToolError, tool
 from .types import TextGenerationContext, TextGenerationResult
 
-__version__ = "1.3"
+__version__ = "1.4"
 """SDK API version (MAJOR.MINOR). Plugins declare the version they target in ``sdk_version``."""
 
 __all__ = [
@@ -38,10 +38,12 @@ __all__ = [
     "expose",
     "llm",
     "mcp",
+    "memory",
     "permissions",
     "plugins",
     "settings",
     "shared",
+    "skills",
     "storage",
     "tool",
     "tools",

@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { Slider } from '@/components/ui/slider'
+import { Switch } from '@/components/ui/switch'
 import { api, useProfile, useSettings } from '@/hooks/use-llamarun'
 import { cn, errorMessage } from '@/lib/utils'
 import heart from '@/assets/heart.gif'
@@ -21,7 +22,15 @@ import { HotkeyRecorder, prettyAccelerator } from '../HotkeyRecorder'
 
 type Draft = Pick<
   Settings,
-  'appOpacity' | 'startupEnabled' | 'hotkey' | 'windowWidthPct' | 'windowHeightPct' | 'overlayNewChatAfterMinutes'
+  | 'appOpacity'
+  | 'startupEnabled'
+  | 'hotkey'
+  | 'windowWidthPct'
+  | 'windowHeightPct'
+  | 'overlayNewChatAfterMinutes'
+  | 'autoCompact'
+  | 'autoCompactPercent'
+  | 'compactKeepTurns'
 >
 
 const OVERLAY_TIMEOUTS: [number, string][] = [
@@ -34,7 +43,17 @@ const OVERLAY_TIMEOUTS: [number, string][] = [
 
 function pick(s: Settings): Draft {
   const { appOpacity, startupEnabled, hotkey, windowWidthPct, windowHeightPct, overlayNewChatAfterMinutes } = s
-  return { appOpacity, startupEnabled, hotkey, windowWidthPct, windowHeightPct, overlayNewChatAfterMinutes }
+  return {
+    appOpacity,
+    startupEnabled,
+    hotkey,
+    windowWidthPct,
+    windowHeightPct,
+    overlayNewChatAfterMinutes,
+    autoCompact: s.autoCompact !== false,
+    autoCompactPercent: s.autoCompactPercent ?? 80,
+    compactKeepTurns: s.compactKeepTurns ?? 4
+  }
 }
 
 function shortDate(iso: string | null | undefined): string | null {
@@ -324,6 +343,47 @@ export function HomePage() {
             />
             <Label htmlFor="startup">Launch Llama Run automatically when {window.llamarun.platform === 'darwin' ? 'you log in' : 'Windows starts'}</Label>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card className="gap-0">
+        <CardHeader className="pb-2">
+          <CardTitle>Long conversations</CardTitle>
+          <CardDescription>
+            Like Claude, Llama Run summarises older messages when a chat nears its model's context window, so long chats keep
+            working. Each model has its own window; set per-model overrides on the Models page. Type <code>/compact</code> in a
+            chat to do it now.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <SettingRow title="Auto-compact" description="Summarise older messages automatically when the conversation gets close to the limit.">
+            <Switch checked={draft.autoCompact} onCheckedChange={(v) => set('autoCompact', v)} />
+          </SettingRow>
+          <Separator />
+          <SettingRow title="Compact at" description="How full the model's context window gets before compacting (models can override this).">
+            <Slider
+              className="w-48"
+              min={50}
+              max={95}
+              step={5}
+              disabled={!draft.autoCompact}
+              value={[draft.autoCompactPercent]}
+              onValueChange={([v]) => set('autoCompactPercent', v)}
+            />
+            <span className="w-10 text-right text-sm tabular-nums">{draft.autoCompactPercent}%</span>
+          </SettingRow>
+          <Separator />
+          <SettingRow title="Recent messages kept" description="Your last few messages (and the replies) stay word for word; everything before is summarised.">
+            <Slider
+              className="w-48"
+              min={1}
+              max={10}
+              step={1}
+              value={[draft.compactKeepTurns]}
+              onValueChange={([v]) => set('compactKeepTurns', v)}
+            />
+            <span className="w-10 text-right text-sm tabular-nums">{draft.compactKeepTurns}</span>
+          </SettingRow>
         </CardContent>
       </Card>
 

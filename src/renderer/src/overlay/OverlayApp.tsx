@@ -10,8 +10,10 @@ import {
   type ReactNode
 } from 'react'
 import { ArrowUp, LoaderCircle, Maximize2, Settings2, Sparkles, SquarePen, Square } from 'lucide-react'
-import type { ChatSummary } from '@shared/types'
+import type { ChatAttachment, ChatSummary } from '@shared/types'
+import { AttachButton, AttachmentStrip, useAttachments } from '@/components/chat/attachments'
 import { MessageList } from '@/components/chat/MessageList'
+import { SlashMenu, useSlashMenu } from '@/components/chat/slash'
 import { ModelButton } from '@/components/chat/ModelPicker'
 import { Button } from '@/components/ui/button'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -48,7 +50,7 @@ export function OverlayApp() {
     setChatId(id)
     void api.overlay.setChat(id)
   }, [])
-  const { chat, busy, send, stop, retry, resume, error } = useChat(chatId, onCreated)
+  const { chat, busy, compacting, approval, send, stop, retry, resume, error } = useChat(chatId, onCreated)
   const recent = useChatList()?.slice(0, RECENT_COUNT) ?? []
 
   useEffect(() => {
@@ -174,7 +176,7 @@ export function OverlayApp() {
           ref={input}
           busy={busy}
           placeholder={hasThread ? 'Ask a follow-up…' : 'Ask anything…'}
-          onSend={(text) => send(text, model)}
+          onSend={(text, attachments) => (/^\/new\s*$/i.test(text) ? open(null) : send(text, model, attachments))}
           onStop={stop}
           onEscape={() => void api.overlay.hide()}
           onKeyDown={onInputKey}
@@ -193,7 +195,17 @@ export function OverlayApp() {
 
         {hasThread && (
           <div className="flex min-h-0 flex-1 flex-col border-t" style={{ maxHeight: Math.max(120, maxHeight - CHROME_HEIGHT) }}>
-            <MessageList compact messages={chat!.messages} busy={busy} onRetry={retry} onContinue={resume} className="px-5" />
+            <MessageList
+              compact
+              messages={chat!.messages}
+              busy={busy}
+              onRetry={retry}
+              onContinue={resume}
+              compaction={chat!.compaction}
+              compacting={compacting}
+              approval={approval}
+              className="px-5"
+            />
           </div>
         )}
         {showRecent && <RecentChats chats={recent} picked={picked} onOpen={open} onHover={setPicked} />}
@@ -247,7 +259,7 @@ const SpotlightInput = forwardRef<
     busy: boolean
     placeholder: string
     model: ReactNode
-    onSend: (text: string) => Promise<unknown> | void
+    onSend: (text: string, attachments: ChatAttachment[]) => Promise<unknown> | void
     onStop: () => void
     onEscape: () => void
     onKeyDown: (e: ReactKeyboardEvent<HTMLTextAreaElement>) => void
@@ -255,16 +267,26 @@ const SpotlightInput = forwardRef<
 >(function SpotlightInput({ busy, placeholder, model, onSend, onStop, onEscape, onKeyDown }, ref) {
   const [text, setText] = useState('')
   const area = useRef<HTMLTextAreaElement>(null)
+  const files = useAttachments()
   useImperativeHandle(ref, () => ({ focus: () => area.current?.focus() }), [])
 
-  const submit = (): void => {
-    const value = text.trim()
-    if (!value || busy) return
+  const send = (value: string, attachments: ChatAttachment[]): void => {
     setText('')
-    void onSend(value)
+    files.clear()
+    void onSend(value, attachments)
+  }
+  const slash = useSlashMenu(text, setText, (command) => send(command, []))
+  const canSend = (!!text.trim() || files.items.length > 0) && !files.pending
+
+  const submit = (): void => {
+    if (!canSend || busy) return
+    send(text.trim(), files.items)
   }
 
   return (
+    <div {...files.dropProps} className={cn('relative shrink-0', files.dragging && 'bg-primary/5')}>
+    <SlashMenu menu={slash} className="absolute inset-x-3 top-full z-20 mt-1" />
+    <AttachmentStrip state={files} className="ps-12 pe-3 pt-3" />
     <div className="flex min-h-16 shrink-0 items-start gap-3 ps-5 pe-3">
       <Sparkles className={cn('mt-5.75 size-[18px] shrink-0 text-primary', busy && 'animate-pulse')} aria-hidden />
       <textarea
@@ -277,6 +299,7 @@ const SpotlightInput = forwardRef<
         placeholder={placeholder}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
+          if (slash.onKeyDown(e)) return
           onKeyDown(e)
           if (e.defaultPrevented) return
           if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -291,17 +314,19 @@ const SpotlightInput = forwardRef<
         className="block max-h-32 min-w-0 flex-1 resize-none bg-transparent py-5 text-[17px] leading-[26px] outline-none [field-sizing:content] placeholder:text-muted-foreground"
       />
       <div className="mt-4.75 flex shrink-0 items-center gap-1.5">
+        <AttachButton onFiles={files.add} />
         {model}
         {busy ? (
           <Button size="icon-sm" className="rounded-full" title="Stop (Esc)" aria-label="Stop" onClick={onStop}>
             <Square className="size-3 fill-current" />
           </Button>
         ) : (
-          <Button size="icon-sm" className="rounded-full" title="Send (Enter)" aria-label="Send" disabled={!text.trim()} onClick={submit}>
+          <Button size="icon-sm" className="rounded-full" title="Send (Enter)" aria-label="Send" disabled={!canSend} onClick={submit}>
             <ArrowUp className="size-4" />
           </Button>
         )}
       </div>
+    </div>
     </div>
   )
 })

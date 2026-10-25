@@ -21,13 +21,23 @@ export interface ToolBridge {
 export interface HistoryMessage {
   role: 'user' | 'assistant'
   content: string
+  /** User turns: attached images, for vision models. */
+  images?: HistoryImage[]
+}
+
+export interface HistoryImage {
+  /** Base64, without a data: prefix. */
+  data: string
+  mediaType: string
 }
 
 export type GenerateInput = string | HistoryMessage[]
 
 /**
- * Roughly 15k tokens of earlier conversation. The whole history is sent with
- * every message (and every tool round), so older turns past this are dropped.
+ * Roughly 15k tokens of earlier conversation: the cut for callers that don't
+ * size history to the model (plugins' llm.generate). Chats size it from the
+ * model's context window and compact before it fills (see chats/compact.ts),
+ * so for them this cut is only a last safety net.
  */
 export const MAX_HISTORY_CHARS = 60_000
 
@@ -66,6 +76,10 @@ export interface GenerateOptions {
   system?: string
   /** Carries on from a pause: runs the tool calls it was holding, then continues. `input` is ignored. */
   resume?: ToolPause
+  /** Most characters of history to send (defaults to MAX_HISTORY_CHARS). */
+  historyChars?: number
+  /** Ollama: context window for this request (`num_ctx`), from the model's own size or the user's override. */
+  contextTokens?: number
 }
 
 /** Maximum model -> tool -> model round trips before pausing (or forcing an answer). */

@@ -1,0 +1,12 @@
+{
+  "name": "Chat Studio",
+  "description": "Shows what SDK 1.4 plugins can do: /commands, rich posts with live HTML, context in every message, memory and a theme.",
+  "version": "1.0.0",
+  "author": "LlamaRun",
+  "sdk_version": "1.4",
+  "entry": {
+    "module": "chat_studio",
+    "class": "ChatStudio"
+  },
+  "permissions": ["commands", "context", "memory", "appearance"]
+}
