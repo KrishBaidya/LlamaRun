@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { delimiter, extname, join, relative, resolve, sep } from 'node:path'
-import type { SkillInfo, SkillLocation } from '@shared/types'
+import type { SkillInfo, SkillLocation, SlashCommand } from '@shared/types'
 import { askApproval } from '../assistant/approval'
 import { readJson } from '../jsonFile'
 import { pythonExecutable, userDataPath } from '../paths'
@@ -99,6 +99,35 @@ function pipInstall(folder: string, packages: string[]): Promise<{ ok: boolean; 
   })
 }
 
+/** A skill's name as a /command: lowercase, with hyphens for spaces. */
+export function commandName(name: string): string {
+  return name.trim().toLowerCase().replace(/[^a-z0-9_:.-]+/g, '-').replace(/^-+|-+$/g, '') || 'skill'
+}
+
+/** Splits arguments like a shell: spaces separate them, quotes group them. */
+export function splitArguments(args: string): string[] {
+  return [...args.matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g)].map((m) => m[1] ?? m[2] ?? m[3])
+}
+
+/** Fills in $ARGUMENTS and friends; with no placeholder, appends "ARGUMENTS: …" as Claude Code does. */
+export function renderArguments(text: string, args: string, declared?: string): string {
+  const list = splitArguments(args)
+  const names = (declared ?? '').replace(/^\[|\]$/g, '').split(',').map((n) => n.trim()).filter(Boolean)
+  let used = false
+  const at = (i: number): string => {
+    used = true
+    return list[i] ?? ''
+  }
+  let out = text
+    .replace(/\$ARGUMENTS\[(\d+)\]/g, (_m, n: string) => at(Number(n)))
+    .replace(/\$ARGUMENTS\b/g, () => ((used = true), args))
+    .replace(/\$(\d+)\b/g, (_m, n: string) => at(Number(n)))
+  for (const [i, name] of names.entries()) {
+    if (/^\w+$/.test(name)) out = out.replace(new RegExp(`\\$${name}\\b`, 'g'), () => at(i))
+  }
+  return !used && args ? `${out}\n\nARGUMENTS: ${args}` : out
+}
+
 export function cut(text: string, limit = MAX_READ_CHARS): string {
   return text.length <= limit ? text : `${text.slice(0, limit)}\n…[truncated ${text.length - limit} characters]`
 }
@@ -118,10 +147,15 @@ class SkillStore extends EventEmitter<{ changed: [SkillInfo[]] }> {
         const { data } = parseFrontMatter(readFileSync(file, 'utf8'))
         const meta = readJson<SkillMeta>(join(folder, SKILL_META), {})
         const files = listFiles(folder)
+        const name = data.name || id
         skills.set(id, {
           id,
-          name: data.name || id,
-          description: data.description || '',
+          name,
+          description: [data.description, data.when_to_use].filter(Boolean).join(' ') || '',
+          command: commandName(name),
+          argumentHint: data['argument-hint'] || undefined,
+          userInvocable: data['user-invocable'] !== 'false',
+          modelInvocable: data['disable-model-invocation'] !== 'true',
           enabled: !disabled[id],
           trusted: !!trusted[id],
           folder,
@@ -138,9 +172,42 @@ class SkillStore extends EventEmitter<{ changed: [SkillInfo[]] }> {
     return [...skills.values()].sort((a, b) => a.name.localeCompare(b.name))
   }
 
-  /** Enabled skills the model is offered. */
+  /** Enabled skills (the model is told about the modelInvocable ones). */
   active(): SkillInfo[] {
     return settings.get('skillsEnabled') === false ? [] : this.list().filter((s) => s.enabled)
+  }
+
+  /** Skills the user can run from the chat box, as Claude Code lists them in its / menu. */
+  commands(): SlashCommand[] {
+    const from: Record<SkillLocation, string> = { shared: 'Skill', claude: 'Skill · Claude Code', app: 'Skill' }
+    return this.active()
+      .filter((s) => s.userInvocable)
+      .map((s) => ({
+        name: s.command,
+        description: s.description,
+        kind: 'skill' as const,
+        plugin: from[s.location],
+        ...(s.argumentHint ? { args: s.argumentHint } : {})
+      }))
+  }
+
+  /** The enabled skill a typed "/command args" runs, if any. */
+  matchCommand(text: string): { skill: SkillInfo; args: string } | null {
+    const m = /^\/([\w:.-]+)(?:\s+([\s\S]*))?$/.exec(text.trim())
+    if (!m) return null
+    const skill = this.active().find((s) => s.userInvocable && s.command === m[1].toLowerCase())
+    return skill ? { skill, args: (m[2] ?? '').trim() } : null
+  }
+
+  /**
+   * What the model gets when the user runs a skill: its SKILL.md (with the
+   * same header skill_load gives) with the arguments filled in, the way Claude
+   * Code renders $ARGUMENTS, $ARGUMENTS[N], $N and named arguments.
+   */
+  invoke(skill: SkillInfo, args: string): string {
+    const text = this.load(skill.id)
+    const { data } = parseFrontMatter(readFileSync(join(skill.folder, 'SKILL.md'), 'utf8'))
+    return renderArguments(text, args, data.arguments)
   }
 
   /** A skill by folder id or by its front-matter name. */

@@ -284,7 +284,10 @@ export function registerIpc(): void {
       openChatWindow(chatId)
     }
   })
-  skillStore.on('changed', (list) => broadcast('skills:changed', list))
+  skillStore.on('changed', (list) => {
+    broadcast('skills:changed', list)
+    broadcast('commands:changed', chatService.commands())
+  })
   pluginSettings.on('changed', (id) => broadcast('plugins:settingsChanged', id))
   chatService.on('event', (event) => broadcast('chat:event', event))
   chatService.on('changed', (list) => broadcast('chats:changed', list))
