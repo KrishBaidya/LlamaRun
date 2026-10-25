@@ -42,6 +42,11 @@ function SkillCard({ skill }: { skill: SkillInfo }) {
               {skill.scripts.length} Python script{skill.scripts.length === 1 ? '' : 's'}
             </Badge>
           )}
+          {skill.location !== 'shared' && (
+            <Badge variant="outline" className="px-1.5 py-0 text-2xs font-normal">
+              {skill.location === 'claude' ? 'From Claude Code' : 'Llama Run only'}
+            </Badge>
+          )}
           <Badge variant="outline" className="px-1.5 py-0 text-2xs font-normal">
             {skill.files.length} file{skill.files.length === 1 ? '' : 's'}
           </Badge>
@@ -70,16 +75,19 @@ function SkillCard({ skill }: { skill: SkillInfo }) {
               <ShieldCheck /> Ask before scripts
             </Button>
           )}
-          <Button
-            size="sm"
-            variant="ghost"
-            className="ms-auto h-7 text-xs text-destructive hover:text-destructive"
-            onClick={() => {
-              if (window.confirm(`Remove the ${skill.name} skill?`)) void api.skills.remove(skill.id)
-            }}
-          >
-            <Trash2 /> Remove
-          </Button>
+          {skill.location !== 'claude' && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="ms-auto h-7 text-xs text-destructive hover:text-destructive"
+              onClick={() => {
+                const shared = skill.location === 'shared' ? ' It is in the shared skills folder, so other AI apps lose it too.' : ''
+                if (window.confirm(`Remove the ${skill.name} skill?${shared}`)) void api.skills.remove(skill.id)
+              }}
+            >
+              <Trash2 /> Remove
+            </Button>
+          )}
         </div>
       </CardContent>
     </Card>
@@ -141,7 +149,7 @@ export function SkillsPage() {
     <Page wide>
       <PageHeader
         title="Skills"
-        description="Folders of instructions and Python scripts that teach your AI new tasks, the same format Claude uses (SKILL.md)."
+        description="Folders of instructions and Python scripts that teach your AI new tasks, in the open SKILL.md format. They live in the shared skills folder (~/.agents/skills) that Codex, Cursor and other agents read too, and your Claude Code skills (~/.claude/skills) show up here as well."
         actions={
           <Button variant="outline" size="sm" onClick={() => void api.skills.openFolder()}>
             <FolderOpen /> Skills folder

@@ -3,6 +3,7 @@ import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import { cn } from '@/lib/utils'
+import { MermaidDiagram, SvgImage } from './Diagram'
 import { HtmlPreview, ZoomableImage } from './HtmlPreview'
 
 interface HastNode {
@@ -20,14 +21,15 @@ function textOf(node: HastNode | undefined): string {
   return (node.children ?? []).map(textOf).join('')
 }
 
-/** Fenced code a model wrote as a page: ```html, or ```svg / an <svg> in ```xml. */
-function previewable(pre: HastNode | undefined): { label: string; html: string } | null {
+/** Fenced code a model wrote to be seen: ```html, ```mermaid, or ```svg / an <svg> in ```xml. */
+function previewable(pre: HastNode | undefined): { kind: 'html' | 'svg' | 'mermaid'; text: string } | null {
   const code = pre?.children?.find((c) => c.tagName === 'code')
   const classes = Array.isArray(code?.properties?.className) ? (code!.properties!.className as string[]) : []
   const lang = classes.find((c) => c.startsWith('language-'))?.slice('language-'.length)
   const text = textOf(code)
-  if (lang === 'html' || lang === 'htm') return { label: 'HTML', html: text }
-  if (lang === 'svg' || ((lang === 'xml' || !lang) && /^\s*<svg[\s>]/i.test(text))) return { label: 'SVG', html: text }
+  if (lang === 'html' || lang === 'htm') return { kind: 'html', text }
+  if (lang === 'mermaid') return { kind: 'mermaid', text }
+  if (lang === 'svg' || ((lang === 'xml' || !lang) && /^\s*<svg[\s>]/i.test(text))) return { kind: 'svg', text }
   return null
 }
 
@@ -40,7 +42,10 @@ const components: Components = {
   pre: ({ node, children, ...props }) => {
     const pre = <pre {...props}>{children as ReactNode}</pre>
     const preview = previewable(node as HastNode | undefined)
-    return preview ? <HtmlPreview html={preview.html} label={preview.label} code={pre} /> : pre
+    if (preview?.kind === 'html') return <HtmlPreview html={preview.text} code={pre} />
+    if (preview?.kind === 'mermaid') return <MermaidDiagram source={preview.text} code={pre} />
+    if (preview?.kind === 'svg') return <SvgImage svg={preview.text} code={pre} />
+    return pre
   }
 }
 

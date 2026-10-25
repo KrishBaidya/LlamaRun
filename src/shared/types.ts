@@ -269,6 +269,9 @@ export interface MemoryItem {
 }
 
 /** An installed skill: a folder with a SKILL.md the model can load and scripts it can run. */
+/** shared: ~/.agents/skills (every agent); claude: ~/.claude/skills; app: Llama Run's old private folder. */
+export type SkillLocation = 'shared' | 'claude' | 'app'
+
 export interface SkillInfo {
   /** Folder name inside the Skills directory. */
   id: string
@@ -278,6 +281,7 @@ export interface SkillInfo {
   /** Its scripts run without asking first. */
   trusted: boolean
   folder: string
+  location: SkillLocation
   /** Where it was installed from (a link, ZIP or folder), if known. */
   source?: string
   /** Python files the model may run. */
