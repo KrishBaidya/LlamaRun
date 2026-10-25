@@ -4,14 +4,18 @@ import { app, BrowserWindow, dialog, ipcMain, shell, systemPreferences } from 'e
 import type { EventChannel, EventChannels, InvokeChannel, InvokeChannels } from '@shared/ipc'
 import type { Settings } from '@shared/types'
 import { DEFAULT_CLOUD_MODEL } from '@shared/constants'
+import { approvals } from './assistant/approval'
+import { installBrief } from './assistant/builtins'
+import { readDocument } from './attachments/read'
 import { auth, PROFILE_FRESH_MS } from './auth'
-import { chatService } from './chats/service'
+import { chatService, contextFor } from './chats/service'
 import { activeHotkey, registerHotkey } from './hotkey'
 import { modelCatalog } from './llm'
 import { listOllamaModels } from './llm/ollama'
 import { configFromDirectoryEntry, isServerConfig } from './mcp/config'
 import { clearDirectoryCache, getDirectoryServer, listDirectory, readmeUrl } from './mcp/directory'
 import { mcp } from './mcp/manager'
+import { memoryStore } from './memory/store'
 import { pluginDataDir, pluginsDir } from './paths'
 import { pluginHost } from './plugins/host'
 import { inspectPlugin, installPlugin } from './plugins/install'
@@ -21,6 +25,8 @@ import { hudHost } from './plugins/ui/hud'
 import { pluginWindows, registerPanelIpc } from './plugins/ui/panels'
 import { pluginSettings } from './plugins/ui/settingsForms'
 import { settings } from './settings'
+import { installSkills } from './skills/install'
+import { skillsDir, skillStore } from './skills/store'
 import { closeOnboarding } from './windows/onboarding'
 import { openChatWindow } from './windows/chat'
 import { appearance } from './windows/load'
@@ -43,6 +49,26 @@ function handle<C extends InvokeChannel>(
   ) => ReturnType<InvokeChannels[C]> | Promise<Awaited<ReturnType<InvokeChannels[C]>>>
 ): void {
   ipcMain.handle(channel, (event, ...args) => fn(event, ...(args as Parameters<InvokeChannels[C]>)))
+}
+
+/**
+ * Theme CSS from plugins (the "appearance" permission), in every app window
+ * except plugin panels. It goes in as the page's last <style>, so it wins over
+ * the app's own rules for the same selectors (insertCSS sheets come first).
+ */
+async function injectCss(win: BrowserWindow): Promise<void> {
+  if (win.isDestroyed() || pluginWindows.has(win)) return
+  const css = JSON.stringify(pluginHost.css())
+  await win.webContents.executeJavaScript(
+    `(() => { let s = document.getElementById('llamarun-plugin-theme'); const css = ${css};
+      if (!css) { s?.remove(); return }
+      if (!s) { s = document.createElement('style'); s.id = 'llamarun-plugin-theme' }
+      s.textContent = css; document.head.appendChild(s) })()`
+  )
+}
+
+function applyPluginCss(): void {
+  for (const win of BrowserWindow.getAllWindows()) void injectCss(win).catch(() => {})
 }
 
 export function applyStartup(enabled: boolean): void {
@@ -75,7 +101,14 @@ export function registerIpc(): void {
       'hotkey',
       'windowWidthPct',
       'windowHeightPct',
-      'overlayNewChatAfterMinutes'
+      'overlayNewChatAfterMinutes',
+      'memoryEnabled',
+      'skillsEnabled',
+      'allowedCommands',
+      'autoCompact',
+      'autoCompactPercent',
+      'compactKeepTurns',
+      'modelContext'
     ]
     const clean = Object.fromEntries(Object.entries(patch).filter(([k]) => allowed.includes(k as keyof Settings)))
     return settings.set(clean)
@@ -91,10 +124,49 @@ export function registerIpc(): void {
   handle('chats:rename', (_e, id, title) => chatService.rename(id, title))
   handle('chats:delete', (_e, id) => chatService.delete(id))
   handle('chats:setModel', (_e, id, model) => chatService.setModel(id, model))
-  handle('chats:send', (_e, chatId, text, model) => chatService.send(chatId, text, model))
+  handle('chats:send', (_e, chatId, text, model, attachments) => chatService.send(chatId, text, model, attachments))
+  handle('chats:compact', (_e, id, instructions) => chatService.compact(id, instructions))
+  handle('chats:answerApproval', (_e, id, answer) => approvals.answer(id, answer))
+  handle('chats:pendingApproval', (_e, chatId) => approvals.current(chatId))
+  handle('chats:contextUsage', (_e, id, model) => chatService.contextUsage(id, model))
+  handle('models:context', (_e, models) => Promise.all(models.map((m) => contextFor(m))))
   handle('chats:cancel', (_e, id) => chatService.cancel(id))
   handle('chats:retry', (_e, id) => chatService.retry(id))
   handle('chats:continue', (_e, id) => void chatService.continue(id))
+
+  handle('attachments:read', (_e, name, mimeType, bytes) => readDocument(String(name), String(mimeType ?? ''), bytes))
+
+  handle('memory:list', () => memoryStore.list())
+  handle('memory:add', (_e, text) => (memoryStore.add(String(text), 'user'), memoryStore.list()))
+  handle('memory:update', (_e, id, text) => (memoryStore.update(id, String(text), 'user'), memoryStore.list()))
+  handle('memory:remove', (_e, id) => (memoryStore.remove(id), memoryStore.list()))
+  handle('memory:clear', () => (memoryStore.clear(), memoryStore.list()))
+
+  handle('skills:list', () => skillStore.list())
+  handle('skills:install', (_e, source) => installSkills(String(source)))
+  handle('skills:installWithAi', (_e, source) => {
+    openChatWindow(chatService.startInstaller(installBrief(String(source).trim())))
+  })
+  handle('skills:pick', async (e, kind) => {
+    const parent = BrowserWindow.fromWebContents(e.sender) ?? undefined
+    const options: Electron.OpenDialogOptions =
+      kind === 'zip'
+        ? { title: 'Choose a skill ZIP', properties: ['openFile'], filters: [{ name: 'Skill', extensions: ['zip', 'skill'] }] }
+        : { title: 'Choose a skill folder', properties: ['openDirectory'] }
+    const picked = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options)
+    return picked.canceled ? null : (picked.filePaths[0] ?? null)
+  })
+  handle('skills:remove', (_e, id) => (skillStore.remove(id), skillStore.list()))
+  handle('skills:setEnabled', (_e, id, enabled) => (skillStore.setEnabled(id, enabled), skillStore.list()))
+  handle('skills:setTrusted', (_e, id, trusted) => (skillStore.setTrusted(id, trusted), skillStore.list()))
+  handle('skills:openFolder', (_e, id) => {
+    const folder = id ? skillStore.list().find((s) => s.id === id)?.folder : skillsDir()
+    if (!folder) return
+    mkdirSync(folder, { recursive: true })
+    void shell.openPath(folder)
+  })
+
+  handle('commands:list', () => chatService.commands())
 
   handle('overlay:hide', () => hideOverlay())
   handle('overlay:resize', (_e, height) => resizeOverlay(Number(height)))
@@ -199,6 +271,20 @@ export function registerIpc(): void {
   auth.on('changed', (profile) => broadcast('auth:changed', profile))
   mcp.on('changed', (statuses) => broadcast('mcp:changed', statuses))
   pluginHost.on('changed', (list) => broadcast('plugins:changed', list))
+  pluginHost.on('commands', () => broadcast('commands:changed', chatService.commands()))
+  pluginHost.on('css', applyPluginCss)
+  app.on('browser-window-created', (_e, win) => {
+    win.webContents.on('did-finish-load', () => void injectCss(win).catch(() => {}))
+  })
+  memoryStore.on('changed', (list) => broadcast('memory:changed', list))
+  approvals.on('changed', (chatId, request) => {
+    broadcast('chat:event', { type: 'approval', chatId, request })
+    // Nobody can answer a question in a chat no window shows: open it.
+    if (request && !BrowserWindow.getAllWindows().some((w) => w.isVisible() && w.webContents.getURL().includes(chatId))) {
+      openChatWindow(chatId)
+    }
+  })
+  skillStore.on('changed', (list) => broadcast('skills:changed', list))
   pluginSettings.on('changed', (id) => broadcast('plugins:settingsChanged', id))
   chatService.on('event', (event) => broadcast('chat:event', event))
   chatService.on('changed', (list) => broadcast('chats:changed', list))

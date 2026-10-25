@@ -507,6 +507,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         # Notifications from the app: streamed chat replies and global shortcuts.
         "chats.stream": lambda p: chats._deliver(p),
         "app.shortcut": lambda p: app._shortcut_pressed(p),
+        # A /command the plugin added was typed; the return value is posted as the reply.
+        "commands.run": lambda p: chats._run_command(p),
     }
     peer = JsonRpcPeer(protocol_in, protocol_out, handlers)
     _rpc.set_transport(lambda method, params: peer.request(method, params), peer.notify)

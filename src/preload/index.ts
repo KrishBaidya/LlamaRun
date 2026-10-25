@@ -1,8 +1,9 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 import { EVENT_CHANNELS, INVOKE_CHANNELS, type LlamaRunApi } from '@shared/ipc'
 
 const api: Record<string, unknown> = {
   platform: process.platform,
+  files: { pathFor: (file: File) => webUtils.getPathForFile(file) },
   on(channel: string, listener: (payload: unknown) => void) {
     if (!(EVENT_CHANNELS as readonly string[]).includes(channel)) {
       throw new Error(`Unknown event channel: ${channel}`)

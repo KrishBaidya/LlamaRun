@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { MessageSquare } from 'lucide-react'
+import { FoldVertical, MessageSquare } from 'lucide-react'
+import type { ChatAttachment } from '@shared/types'
 import { Composer, type ComposerHandle } from '@/components/chat/Composer'
+import { ContextRing } from '@/components/chat/ContextRing'
 import { MessageList } from '@/components/chat/MessageList'
 import { ModelPicker } from '@/components/chat/ModelPicker'
 import { TitleBar } from '@/components/TitleBar'
+import { Button } from '@/components/ui/button'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { useChat, useChatList } from '@/hooks/use-chat'
@@ -28,7 +31,7 @@ export function ChatApp() {
     requestAnimationFrame(() => composer.current?.focus())
   }, [])
 
-  const { chat, busy, send, stop, retry, resume, error } = useChat(chatId, select)
+  const { chat, busy, compacting, approval, send, compact, stop, retry, resume, error } = useChat(chatId, select)
 
   useEffect(() => {
     if (settings) setDraftModel((m) => m || settings.selectedModel)
@@ -56,6 +59,12 @@ export function ChatApp() {
     else setDraftModel(m)
   }
   const hasThread = !!chat?.messages.length
+  const onSend = (text: string, attachments: ChatAttachment[]): Promise<unknown> | void => {
+    if (/^\/new\s*$/i.test(text)) return select(null)
+    return send(text, model, attachments)
+  }
+  const last = chat?.messages[chat.messages.length - 1]
+  const version = `${chat?.id}:${chat?.messages.length}:${last?.status}:${chat?.compaction?.createdAt ?? 0}`
 
   const composerEl = (
     <Composer
@@ -64,9 +73,10 @@ export function ChatApp() {
       autoFocus
       size={hasThread ? 'default' : 'hero'}
       placeholder={hasThread ? 'Reply…' : 'Ask anything…'}
-      onSend={(text) => send(text, model)}
+      onSend={onSend}
       onStop={stop}
       toolbar={<ModelPicker value={model} onChange={setModel} />}
+      status={<ContextRing chatId={hasThread ? chat!.id : null} model={model} version={version} onCompact={() => void compact()} />}
     />
   )
 
@@ -77,11 +87,31 @@ export function ChatApp() {
         <main className="flex min-w-0 flex-1 flex-col">
           <TitleBar>
             <span className="min-w-0 truncate text-sm font-medium">{hasThread ? chat!.title : 'New chat'}</span>
+            {hasThread && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="no-drag ms-auto h-7 text-xs text-muted-foreground"
+                title="Summarise older messages to free up context (/compact)"
+                disabled={busy}
+                onClick={() => void compact()}
+              >
+                <FoldVertical className="size-3.5" /> Compact
+              </Button>
+            )}
           </TitleBar>
 
           {hasThread ? (
             <>
-              <MessageList messages={chat!.messages} busy={busy} onRetry={retry} onContinue={resume} />
+              <MessageList
+                messages={chat!.messages}
+                busy={busy}
+                onRetry={retry}
+                onContinue={resume}
+                compaction={chat!.compaction}
+                compacting={compacting}
+                approval={approval}
+              />
               <div className="px-5 pb-5">
                 {error && <p className="mx-auto mb-2 max-w-3xl px-2 text-xs text-destructive">{error}</p>}
                 {composerEl}

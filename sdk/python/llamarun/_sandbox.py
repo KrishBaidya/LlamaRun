@@ -32,6 +32,11 @@ PERMISSIONS = (
     "native",
     "microphone",
     "clipboard",
+    "memory",
+    "skills",
+    "context",
+    "appearance",
+    "commands",
 )
 UNRESTRICTED = "unrestricted"
 

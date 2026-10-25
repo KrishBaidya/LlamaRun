@@ -20,6 +20,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { api, useProfile, useSettings } from '@/hooks/use-llamarun'
 import { cn, errorMessage } from '@/lib/utils'
 import { EmptyState, Page, PageHeader } from '../components'
+import { ModelContextPopover } from '../ModelContextPopover'
 
 type Source = 'all' | 'cloud' | 'local'
 type Layout = 'grid' | 'list'
@@ -98,13 +99,17 @@ function ModelCard({
           </p>
           <div className="mt-auto flex flex-wrap items-center justify-between gap-2">
             <CapabilityIcons capabilities={model.capabilities} labels />
-            <span className="text-2xs text-muted-foreground">{details.join(' · ')}</span>
+            <span className="flex items-center gap-1 text-2xs text-muted-foreground">
+              {details.join(' · ')}
+              <ModelContextPopover model={model} />
+            </span>
           </div>
         </>
       ) : (
         <>
           <span className="hidden w-56 truncate text-xs text-muted-foreground @3xl:block">{modelSummary(model)}</span>
           <CapabilityIcons capabilities={model.capabilities} />
+          <ModelContextPopover model={model} />
           <span className={cn('flex size-5 shrink-0 items-center justify-center', !selected && 'invisible')}>
             <Check className="size-4 text-primary" />
           </span>

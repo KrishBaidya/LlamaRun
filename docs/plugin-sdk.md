@@ -93,6 +93,11 @@ Every plugin runs in its own Python process. A plugin that crashes or hangs affe
 | `subprocess` | Starting programs and signalling processes | The sandbox. |
 | `filesystem` | Files outside the plugin's own folders, and registry writes | The sandbox. Without it, a plugin can read its own folder (including `.deps`) and the Python install, and it can read and write its data folder and its temp folder. |
 | `native` | ctypes: loading libraries and calling foreign functions | The sandbox. Compiled wheels in `.deps` (numpy, onnxruntime…) import without it. |
+| `commands` | `chats.add_command` (/commands in the chat box) and `chats.post` | The app checks each call. |
+| `context` | `chats.set_context`: adding live information to every message models see | The app checks each call. |
+| `memory` | `llamarun.memory`: reading and changing what the AI remembers about the user | The app checks each call. |
+| `skills` | `llamarun.skills`: listing skills, and asking to install new ones | The app checks each call, and asks the user before installing. |
+| `appearance` | `app.set_theme`: restyling Llama Run's windows with CSS | The app checks each call. |
 | `microphone`, `clipboard` | Shown to the user | Declared only. They can't be enforced from Python. |
 
 Things that need no permission:
@@ -396,6 +401,59 @@ reply = chats.send("Summarise my unread email", on_token=lambda t: print(t, end=
 if reply.paused:
     reply = chats.continue_(reply.chat_id)
 chats.open(reply.chat_id)
+```
+
+### Shaping the chat (SDK 1.4)
+
+Plugins can do more than answer through a model: they can add commands to the chat box, post their own rich messages, and feed live context into every turn.
+
+```python
+from llamarun import chats
+
+class Weather(llamarun.Plugin):
+    def on_load(self):
+        # Typing "/weather Pune" calls this instead of a model; the returned Markdown is the reply.
+        chats.add_command("weather", self.weather, description="Current weather", args="[city]")
+        # Every message the user's models see now starts with this block (refresh it whenever you like).
+        chats.set_context("The user is in Pune, India. Local time is shown in IST.", key="location")
+
+    def weather(self, args: str, chat_id: str) -> str:
+        city = args or "Pune"
+        return f"### {city}\n**31°C**, clear skies\n\n```html\n<div style='font:600 40px system-ui'>☀️ 31°C</div>\n```"
+```
+
+- `chats.post(text, chat_id=None, images=[...], open=False)` adds a message from your plugin to a chat, without a model. Markdown renders as usual, and a fenced ```` ```html ```` (or ```` ```svg ````) block shows as a live, sandboxed preview with a Code toggle. `images` are data URLs (`ui.image_file(path)` makes one). Needs `commands` or `chats`.
+- `chats.add_command(name, handler, description="", args="")` adds `/name`. The handler gets the text after the command and the chat id, and may return Markdown to post. Names are letters, digits, `-` and `_`. `/compact` and `/new` are built in. Needs `commands`.
+- `chats.set_context(text, key="default")` / `chats.clear_context(key=None)` add instructions or live facts (the active window, today's meetings, the song playing) to every turn, up to 4,000 characters per block. They are labelled with your plugin's name. Needs `context`.
+- `chats.compact(chat_id, instructions="")` summarises a chat's older messages, like `/compact`. Needs `chats`.
+- Commands, context and themes are removed when the plugin stops.
+
+### `llamarun.memory` (needs `memory`)
+
+What the AI remembers about the user: short facts the model sees on every message, which it adds and corrects itself. Users manage them in Settings → Memory.
+
+```python
+memory.list() -> list[Memory]      # id, text, source ("user", "model" or a plugin name), created_at, updated_at
+memory.add(text) -> Memory          # up to 500 characters; saving the same fact twice keeps one
+memory.update(id, text) -> Memory
+memory.delete(id) -> bool
+```
+
+### `llamarun.skills` (needs `skills`)
+
+Skills are folders with a `SKILL.md`, the format Claude uses. Models load a skill when a request fits it and can run its Python scripts (the user is asked first).
+
+```python
+skills.list() -> list[dict]          # id, name, description, enabled, scripts, files, source
+skills.install(source) -> list[dict] # a GitHub/GitLab/git/.zip/SKILL.md link, a .zip or a folder; the user confirms first
+```
+
+### Themes (needs `appearance`)
+
+`app.set_theme(css)` restyles the overlay, chat and settings windows; `app.clear_theme()` removes it. The UI is built on CSS variables, so a theme is usually a few lines:
+
+```python
+app.set_theme(":root, .dark { --primary: oklch(0.72 0.19 150); --radius: 0.4rem }")
 ```
 
 ### `llamarun.storage`

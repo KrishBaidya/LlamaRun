@@ -11,6 +11,16 @@ in the chat window, live, marked as sent by your plugin::
     follow_up = chats.send("And tomorrow?", chat_id=reply.chat_id)
 
 Needs the ``chats`` permission.
+
+Plugins can also shape the chat itself (SDK 1.4):
+
+* :func:`post` puts the plugin's own message in a chat: Markdown, a live
+  ```html preview, or images. No model is involved. (``commands`` or ``chats``)
+* :func:`add_command` adds a ``/command`` to the chat box; whatever the
+  handler returns is posted as the reply. (``commands``)
+* :func:`set_context` adds live information to every message the user's
+  models see, e.g. the active window or today's calendar. (``context``)
+* :func:`compact` summarises a chat's older messages, like ``/compact``. (``chats``)
 """
 
 from __future__ import annotations
@@ -22,7 +32,24 @@ from typing import Any, Callable, Dict, List, Optional
 
 from . import _rpc
 
-__all__ = ["ChatReply", "ChatSummary", "ToolUse", "cancel", "continue_", "get", "list", "open", "send"]
+__all__ = [
+    "ChatReply",
+    "ChatSummary",
+    "Posted",
+    "ToolUse",
+    "add_command",
+    "cancel",
+    "clear_context",
+    "compact",
+    "continue_",
+    "get",
+    "list",
+    "open",
+    "post",
+    "remove_command",
+    "send",
+    "set_context",
+]
 
 TokenHandler = Callable[[str], None]
 ToolHandler = Callable[["ToolUse"], None]
@@ -217,3 +244,76 @@ def get(chat_id: str) -> Optional[dict]:
 def open(chat_id: str) -> None:  # noqa: A001
     """Show the chat in the chat window."""
     _rpc.call("chats.open", {"chat_id": chat_id})
+
+
+# ------------------------------------------------------------- posts, commands, context
+
+
+@dataclass
+class Posted:
+    chat_id: str
+    message_id: str
+
+
+def post(text: str, *, chat_id: Optional[str] = None, images: Optional[List[str]] = None, open: bool = False) -> Posted:  # noqa: A002
+    """Add your plugin's own message to a chat (a new one when ``chat_id`` is None).
+
+    ``text`` is Markdown: tables, code, ``![](data:image/png;base64,...)`` images,
+    and fenced ```html blocks, which the chat shows as a live, sandboxed preview.
+    ``images`` are data URLs (see :func:`llamarun.ui.image_file`). Set ``open`` to
+    show the chat window. The message is marked as coming from your plugin.
+    """
+    result = _rpc.call("chats.post", {"text": text, "chat_id": chat_id, "images": images or [], "open": open}) or {}
+    return Posted(chat_id=str(result.get("chat_id", "")), message_id=str(result.get("message_id", "")))
+
+
+CommandHandler = Callable[[str, str], Optional[str]]
+_commands: Dict[str, CommandHandler] = {}
+_commands_lock = threading.Lock()
+
+
+def add_command(name: str, handler: CommandHandler, *, description: str = "", args: str = "") -> None:
+    """Add ``/name`` to the chat box. Typing ``/name some text`` calls ``handler("some text", chat_id)``
+    instead of a model; return Markdown to post as the reply (or None and post yourself).
+
+    ``args`` is a hint shown after the name, like ``"[city]"``. Commands are removed when the plugin stops.
+    """
+    key = name.lstrip("/").lower()
+    _rpc.call("commands.register", {"name": key, "description": description, "args": args})
+    with _commands_lock:
+        _commands[key] = handler
+
+
+def remove_command(name: str) -> None:
+    key = name.lstrip("/").lower()
+    with _commands_lock:
+        _commands.pop(key, None)
+    _rpc.call("commands.unregister", {"name": key})
+
+
+def _run_command(params: dict) -> Optional[str]:
+    with _commands_lock:
+        handler = _commands.get(str(params.get("name", "")))
+    if handler is None:
+        return None
+    reply = handler(str(params.get("args", "")), str(params.get("chat_id", "")))
+    return None if reply is None else str(reply)
+
+
+def set_context(text: str, *, key: str = "default") -> None:
+    """Add ``text`` to the instructions of every chat message the user sends (up to 4,000 characters).
+
+    Call it again with new text to update it, e.g. on a timer; each ``key`` is a separate block.
+    Cleared when the plugin stops.
+    """
+    _rpc.call("context.set", {"key": key, "text": text})
+
+
+def clear_context(key: Optional[str] = None) -> None:
+    """Remove one context block, or all of this plugin's when ``key`` is None."""
+    _rpc.call("context.clear", {"key": key})
+
+
+def compact(chat_id: str, instructions: str = "") -> None:
+    """Summarise a chat's older messages now, like typing ``/compact instructions``."""
+    _rpc.call("chats.compact", {"chat_id": chat_id, "instructions": instructions or None})

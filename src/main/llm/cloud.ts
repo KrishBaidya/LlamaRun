@@ -8,6 +8,7 @@ import {
   toHistory,
   type GenerateInput,
   type GenerateOptions,
+  type HistoryImage,
   type ToolPause
 } from './types'
 
@@ -62,6 +63,7 @@ export async function responseError(res: Response): Promise<GenerationError> {
 interface CloudPauseState {
   pairs: Pair[]
   pending: CloudToolCall[]
+  images?: HistoryImage[]
 }
 
 /** One event of the backend's stream (Vercel AI SDK fullStream-style), usually wrapped as `{ text: event }`. */
@@ -141,7 +143,10 @@ export async function generateCloud(
   const tools = opts.tools ? toolSpecs(opts.tools.tools) : undefined
 
   const resumed = opts.resume?.backend === 'cloud' ? (opts.resume.state as CloudPauseState) : undefined
-  const pairs: Pair[] = resumed ? [...resumed.pairs] : toHistory(input).map((m) => ({ Key: m.role, Value: m.content }))
+  const history = resumed ? [] : toHistory(input, opts.historyChars)
+  const pairs: Pair[] = resumed ? [...resumed.pairs] : history.map((m) => ({ Key: m.role, Value: m.content }))
+  // The backend reads images for the newest message only; earlier turns keep their text.
+  const images = resumed ? resumed.images : history[history.length - 1]?.images
   // The backend takes no system prompt, so instructions lead the newest user message.
   if (!resumed && opts.system && pairs.length) {
     const last = pairs[pairs.length - 1]
@@ -175,6 +180,7 @@ ${String(last.Value)}` }
   for (let round = 0; ; round++) {
     const prompt = pairs.length === 1 ? String(pairs[0].Value) : JSON.stringify(pairs)
     const body: Record<string, unknown> = { prompt, model: opts.model }
+    if (images?.length) body.images = images
     // Without a way to pause, the last round goes without tools so the model has to answer.
     if (tools?.length && (opts.onPause || round < MAX_TOOL_ROUNDS)) body.Tools = tools
 
@@ -235,7 +241,7 @@ ${String(last.Value)}` }
 
     if (!toolCalls.length || !bridge) return output
     if (round >= MAX_TOOL_ROUNDS) {
-      const state: CloudPauseState = { pairs: [...pairs], pending: toolCalls }
+      const state: CloudPauseState = { pairs: [...pairs], pending: toolCalls, images }
       opts.onPause?.({ backend: 'cloud', model: opts.model, state } satisfies ToolPause)
       return output
     }

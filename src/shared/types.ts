@@ -21,6 +21,59 @@ export interface Settings {
    * instead of continuing the last one. 0 = always continue.
    */
   overlayNewChatAfterMinutes: number
+  /** The model sees saved memories and may add, change or remove them. */
+  memoryEnabled: boolean
+  /** Installed skills are offered to the model. */
+  skillsEnabled: boolean
+  /** Skill folder name -> true when turned off. Missing entries are on. */
+  skillsDisabled: Record<string, boolean>
+  /** Skill folder name -> its scripts run without asking. */
+  skillsTrusted: Record<string, boolean>
+  /** Shell commands the user chose "Always allow" for (exact text). */
+  allowedCommands: string[]
+  /** Summarise older messages when a chat gets close to the model's context window. */
+  autoCompact: boolean
+  /** Compact when the conversation fills this share (percent) of the model's window. */
+  autoCompactPercent: number
+  /** Most recent user turns kept word for word when compacting. */
+  compactKeepTurns: number
+  /** Per-model overrides, by model id. */
+  modelContext: Record<string, ModelContextOverride>
+}
+
+export interface ModelContextOverride {
+  /** Context window in tokens to use instead of what the model reports. */
+  contextTokens?: number
+  /** Compact at this percent for this model instead of the default. */
+  compactAtPercent?: number
+}
+
+/** The context window a model gets, and where the number came from. */
+export interface ModelContextInfo {
+  model: string
+  tokens: number
+  source: 'override' | 'model' | 'fallback'
+  /** What the model itself reports, if anything. */
+  reported?: number
+  compactAtPercent: number
+}
+
+export interface ContextUsage extends ModelContextInfo {
+  /** Estimated tokens the next request would use. */
+  used: number
+  percent: number
+}
+
+/** Older messages of a chat replaced, for the model, by a summary. */
+export interface ChatCompaction {
+  summary: string
+  /** Messages up to and including this one are covered by the summary. */
+  throughMessageId: string
+  createdAt: number
+  tokensBefore: number
+  tokensAfter: number
+  /** Started by /compact or the menu, not by the threshold. */
+  manual?: boolean
 }
 
 export type ChatRole = 'user' | 'assistant'
@@ -29,6 +82,22 @@ export type MessageStatus = 'streaming' | 'done' | 'error' | 'cancelled'
 export interface ChatToolCall {
   name: string
   server: string
+}
+
+/** A file sent with a message. Images go to vision models; documents are read as text. */
+export interface ChatAttachment {
+  id: string
+  kind: 'image' | 'document'
+  name: string
+  mimeType: string
+  size: number
+  /** Images: data: URL (downscaled before sending). */
+  dataUrl?: string
+  /** Documents: the text the model reads (may be cut short; see `truncated`). */
+  text?: string
+  truncated?: boolean
+  /** PDFs: number of pages. */
+  pages?: number
 }
 
 export interface ChatMessage {
@@ -49,6 +118,10 @@ export interface ChatMessage {
   via?: { plugin: string; voice?: boolean }
   /** Assistant messages: stopped at the tool-round cap and can be continued. */
   toolLimit?: boolean
+  /** Images and documents sent with it (or posted by a plugin). */
+  attachments?: ChatAttachment[]
+  /** Assistant messages a plugin posted itself, not written by a model. */
+  from?: { plugin: string }
   createdAt: number
 }
 
@@ -61,6 +134,10 @@ export interface Chat {
   messages: ChatMessage[]
   /** Kept in memory only: never written to disk or listed (a plugin chose not to save it). */
   ephemeral?: boolean
+  /** The latest summary of older messages the model sees instead of them. */
+  compaction?: ChatCompaction
+  /** Started by "Install with AI": the model may read web pages and run approved commands. */
+  installer?: boolean
 }
 
 export interface ChatSummary {
@@ -80,6 +157,24 @@ export type ChatEvent =
   | { type: 'tool'; chatId: string; messageId: string; tool: ChatToolCall }
   | { type: 'update'; chatId: string; message: ChatMessage }
   | { type: 'chat'; chat: Chat }
+  /** Something is happening to the chat before a reply starts (compacting it). */
+  | { type: 'status'; chatId: string; status: 'compacting' | null }
+  /** The model is waiting for the user to allow a command or script (null: answered). */
+  | { type: 'approval'; chatId: string; request: ApprovalRequest | null }
+
+export type ApprovalAnswer = 'once' | 'always' | 'deny'
+
+/** "May the model run this?", shown as a card in the chat, like Claude Code's permission prompt. */
+export interface ApprovalRequest {
+  id: string
+  title: string
+  /** What exactly will run, shown in monospace. */
+  command: string
+  /** Where it runs, and anything else worth knowing. */
+  detail: string
+  /** Label of the "always" button, e.g. "Always allow this skill". */
+  alwaysLabel: string
+}
 
 export interface AppearanceInfo {
   platform: string
@@ -163,6 +258,48 @@ export interface UserProfile {
   usage?: UsageInfo
 }
 
+/** Something the model remembers about the user, shown to it on every turn. */
+export interface MemoryItem {
+  id: string
+  text: string
+  /** Who wrote it: 'user', 'model', or a plugin's name. */
+  source: string
+  createdAt: number
+  updatedAt: number
+}
+
+/** An installed skill: a folder with a SKILL.md the model can load and scripts it can run. */
+export interface SkillInfo {
+  /** Folder name inside the Skills directory. */
+  id: string
+  name: string
+  description: string
+  enabled: boolean
+  /** Its scripts run without asking first. */
+  trusted: boolean
+  folder: string
+  /** Where it was installed from (a link, ZIP or folder), if known. */
+  source?: string
+  /** Python files the model may run. */
+  scripts: string[]
+  /** Every file in the skill, relative to its folder. */
+  files: string[]
+  hasRequirements: boolean
+  /** pip could not install its requirements. */
+  requirementsError?: string
+  installedAt?: number
+}
+
+/** A /command in the chat box: built in, or added by a plugin. */
+export interface SlashCommand {
+  name: string
+  description: string
+  /** Plugin name, or 'Llama Run' for built-in commands. */
+  plugin: string
+  /** Text after the name, e.g. "[focus]". */
+  args?: string
+}
+
 export type McpType = 'STDIO' | 'SSE'
 
 /** Same on-disk shape as the WinUI app's mcp.json entries. */
@@ -239,6 +376,11 @@ export type PluginPermission =
   | 'native'
   | 'microphone'
   | 'clipboard'
+  | 'memory'
+  | 'skills'
+  | 'context'
+  | 'appearance'
+  | 'commands'
   | 'unrestricted'
 
 export interface PermissionInfo {

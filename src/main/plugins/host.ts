@@ -2,8 +2,22 @@ import { EventEmitter } from 'node:events'
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, watch, type FSWatcher } from 'node:fs'
 import { join, relative, resolve, sep } from 'node:path'
 import { app, globalShortcut, Notification, shell } from 'electron'
-import type { ChatEvent, ChatMessage, McpToolInfo, PluginInfo, PluginPermission, PluginRuntimeStatus, PluginState, UiNode } from '@shared/types'
-import { chatService } from '../chats/service'
+import type {
+  ChatAttachment,
+  ChatEvent,
+  ChatMessage,
+  McpToolInfo,
+  PluginInfo,
+  PluginPermission,
+  PluginRuntimeStatus,
+  PluginState,
+  SlashCommand,
+  UiNode
+} from '@shared/types'
+import { BUILTIN_COMMANDS, chatService } from '../chats/service'
+import { memoryStore } from '../memory/store'
+import { installSkills } from '../skills/install'
+import { skillStore } from '../skills/store'
 import { availableModelIds, generate } from '../llm'
 import { mcp, type McpToolResult } from '../mcp/manager'
 import { iconPath, logsDir, pluginDataDir, pluginsDir, pythonExecutable } from '../paths'
@@ -59,7 +73,33 @@ interface PluginRecord {
   watcher?: FSWatcher
   /** Global shortcuts the plugin registered: its id -> accelerator. */
   shortcuts?: Map<string, string>
+  /** Text the plugin adds to every chat turn's instructions: its key -> text. */
+  context?: Map<string, string>
+  /** Slash commands it added to the chat box: name -> [description, args hint]. */
+  commands?: Map<string, [string, string]>
+  /** Theme CSS it applies to the app's windows. */
+  css?: string
 }
+
+/** Command names: letters, digits, - and _, starting with a letter. */
+const COMMAND_NAME = /^[a-z][a-z0-9_-]{0,31}$/
+const MAX_CONTEXT_CHARS = 4000
+const MAX_CSS_CHARS = 100_000
+const COMMAND_TIMEOUT_MS = 5 * 60_000
+
+/** Images (data: URLs) a plugin posts with a message. */
+function postedImages(value: unknown): ChatAttachment[] {
+  if (!Array.isArray(value)) return []
+  return value.slice(0, 6).flatMap((v, i): ChatAttachment[] => {
+    const src = typeof v === 'string' ? v : (v as { src?: unknown })?.src
+    if (typeof src !== 'string') return []
+    const m = /^data:(image\/[\w.+-]+);base64,/.exec(src)
+    if (!m) return []
+    return [{ id: `${Date.now()}-${i}`, kind: 'image', name: `image-${i + 1}`, mimeType: m[1], size: src.length, dataUrl: src }]
+  })
+}
+
+const withoutFolder = <T extends { folder: string }>({ folder: _folder, ...rest }: T): Omit<T, 'folder'> => rest
 
 /** What a plugin gets back for a chat turn it sent. */
 function turnResult(chatId: string, m: ChatMessage): Record<string, unknown> {
@@ -82,7 +122,12 @@ class PermissionDenied extends Error {}
  * the permissions the user granted; the SDK's host calls (models, MCP, UI,
  * other plugins) come back here over JSON-RPC and are checked per plugin.
  */
-class PluginHost extends EventEmitter<{ changed: [PluginInfo[]]; status: [PluginRuntimeStatus] }> {
+class PluginHost extends EventEmitter<{
+  changed: [PluginInfo[]]
+  status: [PluginRuntimeStatus]
+  commands: [SlashCommand[]]
+  css: [string]
+}> {
   private records = new Map<string, PluginRecord>()
   private order: string[] = []
   private ready: Promise<void> | null = null
@@ -292,6 +337,74 @@ class PluginHost extends EventEmitter<{ changed: [PluginInfo[]]; status: [Plugin
     this.broker.forget(record.id)
     for (const accelerator of record.shortcuts?.values() ?? []) globalShortcut.unregister(accelerator)
     record.shortcuts?.clear()
+    record.context?.clear()
+    if (record.commands?.size) {
+      record.commands.clear()
+      this.emit('commands', this.commands())
+    }
+    if (record.css) {
+      record.css = undefined
+      this.emit('css', this.css())
+    }
+  }
+
+  // ------------------------------------------------- chat context, commands, theme
+
+  /** What running plugins add to every turn's instructions. */
+  contextText(): string {
+    const blocks: string[] = []
+    for (const id of this.order) {
+      const r = this.records.get(id)!
+      const texts = [...(r.context?.values() ?? [])].filter(Boolean)
+      if (r.process && texts.length) blocks.push(`## From the ${r.manifest?.name ?? id} plugin\n${texts.join('\n')}`)
+    }
+    return blocks.join('\n\n')
+  }
+
+  /** Slash commands running plugins added. */
+  commands(): SlashCommand[] {
+    return this.order.flatMap((id) => {
+      const r = this.records.get(id)!
+      if (!r.process) return []
+      return [...(r.commands?.entries() ?? [])].map(([name, [description, args]]) => ({
+        name,
+        description,
+        plugin: r.manifest?.name ?? id,
+        ...(args ? { args } : {})
+      }))
+    })
+  }
+
+  /** The plugin that registered the command typed at the start of `text`, if any. */
+  matchCommand(text: string): { plugin: string; name: string } | null {
+    const m = /^\/([a-z][a-z0-9_-]*)(?:\s|$)/i.exec(text.trim())
+    if (!m) return null
+    const name = m[1].toLowerCase()
+    for (const id of this.order) {
+      const r = this.records.get(id)!
+      if (r.process && r.commands?.has(name)) return { plugin: id, name }
+    }
+    return null
+  }
+
+  async runCommand(pluginId: string, name: string, args: string, chatId: string): Promise<string | null> {
+    const proc = this.records.get(pluginId)?.process
+    if (!proc) throw new Error('The plugin is not running')
+    const reply = await proc.request('commands.run', { name, args, chat_id: chatId }, COMMAND_TIMEOUT_MS)
+    return typeof reply === 'string' && reply.trim() ? reply : null
+  }
+
+  pluginName(id: string): string {
+    return this.records.get(id)?.manifest?.name ?? id
+  }
+
+  /** Theme CSS from every running plugin, in load order. */
+  css(): string {
+    return this.order
+      .map((id) => this.records.get(id)!)
+      .filter((r) => r.css && r.process)
+      .map((r) => `/* ${r.manifest?.name} */\n${r.css}`)
+      .join('\n')
   }
 
   /**
@@ -711,6 +824,77 @@ class PluginHost extends EventEmitter<{ changed: [PluginInfo[]]; status: [Plugin
         return this.followTurn(record, chatId, String(p.stream ?? ''), done)
       },
       'chats.cancel': (p) => (need('chats'), chatService.cancel(String(p.chat_id ?? '')), null),
+      'chats.compact': async (p) => {
+        need('chats')
+        await chatService.compact(String(p.chat_id ?? ''), p.instructions ? String(p.instructions) : undefined)
+        return null
+      },
+      // A message the plugin wrote itself (markdown, ```html previews, images), shown without asking a model.
+      'chats.post': (p) => {
+        needAny('commands', 'chats')
+        const text = String(p.text ?? '')
+        const images = postedImages(p.images)
+        if (!text.trim() && !images.length) throw new Error('Nothing to post')
+        const posted = chatService.post(p.chat_id ? String(p.chat_id) : null, text, manifest.name, images)
+        if (p.open === true) openChatWindow(posted.chatId)
+        return { chat_id: posted.chatId, message_id: posted.messageId }
+      },
+      'commands.register': (p) => {
+        need('commands')
+        const name = String(p.name ?? '').replace(/^\//, '').toLowerCase()
+        if (!COMMAND_NAME.test(name)) throw new Error(`"${name}" is not a valid command name. Use letters, digits, - and _.`)
+        if (BUILTIN_COMMANDS.some((c) => c.name === name)) throw new Error(`/${name} is built into Llama Run`)
+        for (const other of this.records.values()) {
+          if (other !== record && other.commands?.has(name)) throw new Error(`/${name} is already used by ${other.manifest?.name}`)
+        }
+        record.commands ??= new Map()
+        record.commands.set(name, [String(p.description ?? '').slice(0, 200), String(p.args ?? '').slice(0, 60)])
+        this.emit('commands', this.commands())
+        return null
+      },
+      'commands.unregister': (p) => {
+        if (record.commands?.delete(String(p.name ?? '').replace(/^\//, '').toLowerCase())) this.emit('commands', this.commands())
+        return null
+      },
+      'context.set': (p) => {
+        need('context')
+        const text = String(p.text ?? '').trim()
+        if (text.length > MAX_CONTEXT_CHARS) throw new Error(`Keep context under ${MAX_CONTEXT_CHARS} characters`)
+        record.context ??= new Map()
+        if (text) record.context.set(String(p.key ?? 'default'), text)
+        else record.context.delete(String(p.key ?? 'default'))
+        return null
+      },
+      'context.clear': (p) => {
+        if (p.key === undefined || p.key === null) record.context?.clear()
+        else record.context?.delete(String(p.key))
+        return null
+      },
+      'memory.list': () => (need('memory'), memoryStore.list()),
+      'memory.add': (p) => (need('memory'), memoryStore.add(String(p.text ?? ''), manifest.name)),
+      'memory.update': (p) => (need('memory'), memoryStore.update(String(p.id ?? ''), String(p.text ?? ''), manifest.name)),
+      'memory.delete': (p) => (need('memory'), memoryStore.remove(String(p.id ?? ''))),
+      'skills.list': () => (need('skills'), skillStore.list().map(withoutFolder)),
+      'skills.install': async (p) => {
+        need('skills')
+        const source = String(p.source ?? p.url ?? '')
+        const ok = await showPluginDialog(plugin, {
+          kind: 'confirm',
+          title: 'Install skills?',
+          message: `${manifest.name} wants to install skills from ${source}. Skills can run Python scripts on your computer when your models use them (you are asked first).`,
+          confirmLabel: 'Install'
+        })
+        if (ok !== true) throw new Error('The user declined')
+        return (await installSkills(source)).map(withoutFolder)
+      },
+      'appearance.set_css': (p) => {
+        need('appearance')
+        const css = String(p.css ?? '')
+        if (css.length > MAX_CSS_CHARS) throw new Error('That stylesheet is too large')
+        record.css = css.trim() || undefined
+        this.emit('css', this.css())
+        return null
+      },
       'chats.list': () => (need('chats'), chatService.list()),
       'chats.get': (p) => (need('chats'), chatService.get(String(p.chat_id ?? ''))),
       'chats.open': (p) => {

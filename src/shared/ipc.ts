@@ -1,6 +1,10 @@
 import type {
   AppearanceInfo,
   Chat,
+  ChatAttachment,
+  ApprovalAnswer,
+  ApprovalRequest,
+  ContextUsage,
   ChatEvent,
   ChatSummary,
   McpDirectoryPage,
@@ -10,6 +14,8 @@ import type {
   McpServerStatus,
   McpToolInfo,
   HudSnapshot,
+  MemoryItem,
+  ModelContextInfo,
   ModelCatalog,
   MenuAnchor,
   OverlayModelMenuPayload,
@@ -22,6 +28,8 @@ import type {
   PluginRuntimeStatus,
   PluginSettingsView,
   Settings,
+  SkillInfo,
+  SlashCommand,
   UserProfile
 } from './types'
 
@@ -52,12 +60,46 @@ export interface InvokeChannels {
   'chats:delete': (id: string) => void
   'chats:setModel': (id: string, model: string) => void
   /** Sends a user message; creates the chat when chatId is null. Returns the chat id. */
-  'chats:send': (chatId: string | null, text: string, model?: string) => string
+  'chats:send': (chatId: string | null, text: string, model?: string, attachments?: ChatAttachment[]) => string
   'chats:cancel': (chatId: string) => void
   /** Re-runs the last user message (after an error or to get a new answer). */
   'chats:retry': (chatId: string) => void
   /** Resumes a reply that stopped at the tool-round cap, from where it stopped. */
   'chats:continue': (chatId: string) => void
+  /** Answers the model's request to run a command or script in this chat. */
+  'chats:answerApproval': (id: string, answer: ApprovalAnswer) => void
+  /** The open run request for a chat, if any. */
+  'chats:pendingApproval': (chatId: string) => ApprovalRequest | null
+  /** Summarises the older messages now (like /compact). */
+  'chats:compact': (chatId: string, instructions?: string) => void
+  /** How full the model's context window is for this chat (or a new one) with this model. */
+  'chats:contextUsage': (chatId: string | null, model: string) => ContextUsage
+  /** Context windows of these models (for the Models page). */
+  'models:context': (models: string[]) => ModelContextInfo[]
+
+  /** Reads a document the user attached (PDF, Word, text, code…) into text for the model. */
+  'attachments:read': (name: string, mimeType: string, bytes: Uint8Array) => ChatAttachment
+
+  'memory:list': () => MemoryItem[]
+  'memory:add': (text: string) => MemoryItem[]
+  'memory:update': (id: string, text: string) => MemoryItem[]
+  'memory:remove': (id: string) => MemoryItem[]
+  'memory:clear': () => MemoryItem[]
+
+  'skills:list': () => SkillInfo[]
+  /** Installs the skills found at a link (GitHub, GitLab, git, .zip, SKILL.md), a .zip file or a folder. */
+  'skills:install': (source: string) => SkillInfo[]
+  /** Opens a chat where the model reads the source's README and installs it, asking before each command. */
+  'skills:installWithAi': (source: string) => void
+  /** Picks a .zip/.skill file or a folder to install from. */
+  'skills:pick': (kind: 'zip' | 'folder') => string | null
+  'skills:remove': (id: string) => SkillInfo[]
+  'skills:setEnabled': (id: string, enabled: boolean) => SkillInfo[]
+  'skills:setTrusted': (id: string, trusted: boolean) => SkillInfo[]
+  'skills:openFolder': (id?: string) => void
+
+  /** Built-in and plugin /commands for the chat box. */
+  'commands:list': () => SlashCommand[]
 
   'overlay:hide': () => void
   /** The overlay's content changed height; the window follows it (within its limits). */
@@ -136,6 +178,9 @@ export interface EventChannels {
   'plugins:settingsChanged': string
   'hud:state': HudSnapshot
   'settings:navigate': string
+  'memory:changed': MemoryItem[]
+  'skills:changed': SkillInfo[]
+  'commands:changed': SlashCommand[]
 }
 
 export type InvokeChannel = keyof InvokeChannels
@@ -153,6 +198,8 @@ export type LlamaRunApi = {
 } & {
   on<E extends EventChannel>(channel: E, listener: (payload: EventChannels[E]) => void): () => void
   platform: string
+  /** Paths of files dropped or picked in the page (Electron's webUtils). */
+  files: { pathFor(file: File): string }
 }
 
 /** Runtime list of channels so the preload can build the bridge without duplicating it. */
@@ -178,6 +225,26 @@ export const INVOKE_CHANNELS = [
   'chats:cancel',
   'chats:retry',
   'chats:continue',
+  'chats:compact',
+  'chats:answerApproval',
+  'chats:pendingApproval',
+  'chats:contextUsage',
+  'models:context',
+  'attachments:read',
+  'memory:list',
+  'memory:add',
+  'memory:update',
+  'memory:remove',
+  'memory:clear',
+  'skills:list',
+  'skills:install',
+  'skills:installWithAi',
+  'skills:pick',
+  'skills:remove',
+  'skills:setEnabled',
+  'skills:setTrusted',
+  'skills:openFolder',
+  'commands:list',
   'overlay:hide',
   'overlay:resize',
   'modelMenu:open',
@@ -238,5 +305,8 @@ export const EVENT_CHANNELS = [
   'plugins:changed',
   'plugins:settingsChanged',
   'hud:state',
-  'settings:navigate'
+  'settings:navigate',
+  'memory:changed',
+  'skills:changed',
+  'commands:changed'
 ] as const satisfies readonly EventChannel[]
