@@ -102,6 +102,8 @@ export interface InvokeChannels {
   'commands:list': () => SlashCommand[]
 
   'overlay:hide': () => void
+  /** A file picker is opening from the overlay: don't hide it when focus moves to the picker. */
+  'overlay:holdOpen': () => void
   /** The overlay's content changed height; the window follows it (within its limits). */
   'overlay:resize': (height: number) => void
   /** Opens the overlay's model dropdown (its own window) under the given button. */
@@ -246,6 +248,7 @@ export const INVOKE_CHANNELS = [
   'skills:openFolder',
   'commands:list',
   'overlay:hide',
+  'overlay:holdOpen',
   'overlay:resize',
   'modelMenu:open',
   'modelMenu:choose',

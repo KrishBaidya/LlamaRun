@@ -3,6 +3,7 @@ import { FileText, Loader2, Paperclip, X } from 'lucide-react'
 import type { ChatAttachment } from '@shared/types'
 import { ZoomableImage } from '@/components/HtmlPreview'
 import { Button } from '@/components/ui/button'
+import { api } from '@/hooks/use-llamarun'
 import { ACCEPT, formatBytes, toAttachment } from '@/lib/attachments'
 import { cn } from '@/lib/utils'
 
@@ -95,7 +96,11 @@ export function AttachButton({ onFiles, className }: { onFiles: (files: File[]) 
         className={cn('rounded-full text-muted-foreground hover:text-foreground', className)}
         title="Attach images or documents"
         aria-label="Attach files"
-        onClick={() => input.current?.click()}
+        onClick={() => {
+          // The overlay hides when it loses focus; the file picker would close it otherwise.
+          void api.overlay.holdOpen()
+          input.current?.click()
+        }}
       >
         <Paperclip className="size-4" />
       </Button>
