@@ -44,6 +44,8 @@ async function loadMermaid(): Promise<Mermaid> {
       securityLevel: 'strict',
       theme: 'base',
       fontFamily: 'inherit',
+      // Wider labels than Mermaid's 200px, so long steps don't turn into tall, narrow towers.
+      flowchart: { wrappingWidth: 360, rankSpacing: 40, nodeSpacing: 40 },
       themeVariables: {
         darkMode: dark,
         background: colors.background,
@@ -79,6 +81,27 @@ function useSettled(value: string, ms = 200): string {
   return settled
 }
 
+/** Diagrams never shrink below this share of their natural size; wider ones scroll sideways instead. */
+const MIN_SCALE = 0.65
+
+/**
+ * Sets a Mermaid SVG's size. In the chat it is drawn at its natural size (as
+ * wide as the message at most, but never so small the labels can't be read),
+ * however tall that is; expanded it fits the dialog.
+ */
+function sized(svg: string, fit: boolean): string {
+  const viewBox = /viewBox="[-\d.]+ [-\d.]+ ([\d.]+) ([\d.]+)"/.exec(svg)
+  const width = Number(viewBox?.[1]) || 0
+  if (!width) return svg
+  const style = fit
+    ? 'width:100%;height:100%;max-width:100%;max-height:100%'
+    : `display:block;margin:0 auto;width:max(min(100%,${width}px),${Math.round(width * MIN_SCALE)}px);height:auto;max-width:none`
+  return svg.replace(/<svg([^>]*)>/, (_tag, attrs: string) => {
+    const rest = attrs.replace(/\s(width|height)="[^"]*"/g, '').replace(/\sstyle="[^"]*"/, '')
+    return `<svg${rest} style="${style}">`
+  })
+}
+
 /**
  * A ```mermaid block drawn as the diagram itself (flowcharts, sequence
  * diagrams, timelines…), like Claude does. Until the source parses (it may
@@ -109,9 +132,9 @@ export function MermaidDiagram({ source, code }: { source: string; code: ReactNo
   if (!svg) return <>{code}</>
   const drawing = (large: boolean) => (
     <div
-      className={large ? 'flex size-full items-center justify-center [&>svg]:max-h-full [&>svg]:!max-w-full' : 'flex justify-center overflow-x-auto py-2 [&>svg]:h-auto [&>svg]:max-h-[600px] [&>svg]:max-w-full'}
+      className={large ? 'flex size-full items-center justify-center' : 'overflow-x-auto py-2'}
       // Mermaid's own output, sanitized by its strict security level.
-      dangerouslySetInnerHTML={{ __html: svg }}
+      dangerouslySetInnerHTML={{ __html: sized(svg, large) }}
     />
   )
   return (
