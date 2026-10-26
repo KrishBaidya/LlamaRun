@@ -1,35 +1,68 @@
-# Llama Run
+<div align="center">
 
-An AI assistant that is always one shortcut away. Press **Ctrl+Shift+A** anywhere to ask a question. Answers stream in as Markdown from local **Ollama** models or cloud models (Gemini, OpenAI) through your LlamaRun account. You can extend it with **MCP servers** and **Python plugins**.
+<img src="resources/icon.png" width="96" alt="LlamaRun logo">
 
-This is the Electron + React + shadcn/ui version of the original C#/WinUI app. It bundles its own Python, so plugins work on machines without Python installed.
+# LlamaRun
+
+**The extensible AI assistant for Windows.** Press <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>A</kbd> in any app and ask. Run free, private models on your own PC with Ollama, or use cloud models, and extend it with MCP servers, Python plugins and skills.
+
+[![Latest release](https://img.shields.io/github/v/release/KrishBaidya/LlamaRun?label=release&color=0B7A80)](https://github.com/KrishBaidya/LlamaRun/releases/latest)
+[![Build](https://img.shields.io/github/actions/workflow/status/KrishBaidya/LlamaRun/build.yml?branch=master)](https://github.com/KrishBaidya/LlamaRun/actions/workflows/build.yml)
+[![License: GPL-3.0](https://img.shields.io/github/license/KrishBaidya/LlamaRun?color=0B7A80)](LICENSE)
+[![Windows 10/11](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D4)](https://github.com/KrishBaidya/LlamaRun/releases/latest)
+[![Stars](https://img.shields.io/github/stars/KrishBaidya/LlamaRun?style=social)](https://github.com/KrishBaidya/LlamaRun/stargazers)
+
+[**Download for Windows**](https://github.com/KrishBaidya/LlamaRun/releases/latest) · [Website](https://llamarun.krishbaidya.me) · [Plugin SDK](docs/plugin-sdk.md) · [Report a bug](https://github.com/KrishBaidya/LlamaRun/issues/new)
+
+<img src="docs/images/overlay.png" width="720" alt="The LlamaRun overlay answering a question over another app">
+
+</div>
+
+## Why LlamaRun
+
+The overlay opens on top of whatever app you are in, so you can ask a question without switching windows or pasting text into a browser tab. Press Esc and it's gone.
+
+Local models through [Ollama](https://ollama.com) run free on your own PC, and your chats are saved as files on your disk. Cloud models (Gemini, OpenAI) sit in the same model picker for when you want them.
+
+You can connect any [MCP](https://modelcontextprotocol.io) server, install `SKILL.md` skills (the same format Claude uses), or write a Python plugin with its own settings, panels and tools. The bundled Plugin Creator plugin lets the AI build new plugins for itself.
+
+LlamaRun 1 launched on the Microsoft Store in 2024 and reached 1,000+ users. This repository is LlamaRun 2, a full rebuild in Electron, React and TypeScript.
+
+## Install
+
+1. Download `LlamaRun-Setup-<version>-x64.exe` from the [latest release](https://github.com/KrishBaidya/LlamaRun/releases/latest) and run it. The installer isn't code-signed yet, so Windows SmartScreen may warn you: choose **More info**, then **Run anyway**.
+2. For local models, install [Ollama](https://ollama.com/download) and pull a model, for example `ollama pull gemma3`. For cloud models, sign in with Google from Settings. Pro is free during early access.
+3. Press <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>A</kbd> anywhere. <kbd>Esc</kbd> hides the overlay.
+
+## Screenshots
+
+| Chat window | Plugins |
+|---|---|
+| <img src="docs/images/chat.png" alt="Chat window with history and a code answer"> | <img src="docs/images/plugins.png" alt="Plugin settings with installed Python plugins"> |
+
+<p align="center"><img src="docs/images/mcp.png" width="720" alt="Browsing and installing MCP servers from the built-in directory"></p>
 
 ## Features
 
-- **Overlay:** frameless, always-on-top acrylic window that works as a quick chat.
-  - Toggle it with the global shortcut, which is configurable. If the default is taken it falls back to Ctrl+Shift+S.
-  - Follow-up questions continue the same thread. Reopening the overlay continues it until it has been idle for the time set in Settings (30 minutes by default). Ctrl+N starts a new chat, and an empty overlay lists recent chats.
-  - The "Open in Chats" button moves the thread into the full chat window.
-  - It hides when it loses focus. Esc stops a generation or hides the window.
-  - Responses render as streaming Markdown with code highlighting.
-  - An animated gradient plays while the model is generating.
-- **Chat window:** full multi-turn chat with a saved history sidebar (grouped by date, searchable, rename and delete), a model picker for each chat, copy and regenerate buttons, and inline errors with Retry. Open it from the tray, the overlay or Settings.
-- **Design:** layout and tokens follow [T3 Code](https://github.com/pingdotgg/t3code). On Windows 11 a Fluent layer adds Mica/Acrylic backdrops, Segoe UI Variable, native caption buttons and your Windows accent colour. On older Windows versions and other platforms the opaque T3 palette is used.
-- **Models:** Ollama (`127.0.0.1:11434`, or set `OLLAMA_HOST`) and cloud models through the LlamaRun server. Sign-in uses the `llama-run://` deep link.
-- **MCP:**
-  - Browse the MCP directory, review the JSON config, and install servers.
-  - Connections are cached. Both STDIO and URL (Streamable HTTP/SSE) servers are supported.
-  - Tool calling works for cloud models and for Ollama models that support tools.
-- **Python plugins:**
-  - Plugins use the `llamarun` SDK: chat hooks, `chats` (talk to your models in your chats, with MCP tools, streaming the reply), `llm`, `mcp`, `storage`, global shortcuts and notifications. Plugins can also give your models new tools (`@llamarun.tool`), and ask to add MCP servers or install plugins, which you confirm.
-  - **UI:** plugins can have a settings page, floating status cards, dialogs, toasts, and panels. Panels can be built in Python or written in TSX. The app draws all of it with its own components, so plugins need no GUI toolkit.
-  - **Sandbox:** each plugin runs in its own auto-restarting process on the bundled CPython 3.13, with only the permissions the user approved at install (internet, files, programs, native code, models, MCP, chat messages). An audit-hook sandbox enforces them, and TSX panels run with no network or app access.
-  - **Cooperation:** plugins work together through declared dependencies, exposed services, events and shared state.
-  - `requirements.txt` is installed with pip, prebuilt wheels only.
-  - "Link folder for development" hot-reloads a plugin from its source folder.
-- **Other:** tray icon (left-click opens Settings, right-click opens a menu with Quit), launch at login, onboarding, single instance.
+- Overlay: a frameless, always-on-top window for quick questions. Follow-ups continue the same thread, Ctrl+N starts a new one, and "Open in Chats" moves it to the full window.
+- Chat window: saved, searchable history, a model picker per chat, copy and regenerate, and automatic summaries of long chats (or type `/compact`).
+- Attachments: paste, drag or attach images, PDFs, Word documents and text files. Images go to vision models.
+- Rich answers: streaming Markdown with code highlighting, Mermaid diagrams, SVG, and live HTML previews right in the chat.
+- Memory: the AI remembers what you tell it about yourself. You can see, edit or clear it in Settings.
+- Skills and `/` commands: add skills from a ZIP, a folder or a GitHub link. Skills live in the shared `~/.agents/skills` folder, and your Claude Code skills appear automatically. Type `/` to run any skill or plugin command.
+- MCP: browse a directory of MCP servers and install them in one click. STDIO and Streamable HTTP/SSE servers both work, with local and cloud models.
+- Python plugins: each plugin runs on a bundled Python 3.13 in its own sandboxed process, with only the permissions you approve. Plugins can add tools, `/commands`, settings pages, panels (in Python or TSX), dialogs and notifications. See the [Plugin SDK](docs/plugin-sdk.md) and the [examples](examples/plugins).
+- Windows-native feel: Mica and Acrylic backdrops, your accent colour, a tray icon and launch at login.
 
-## Development
+## Roadmap
+
+- Public launch on the Microsoft Store, Product Hunt and Hacker News.
+- A plugin marketplace for sharing AI-built tools.
+- macOS and Linux, then teams.
+
+Ideas and bug reports are welcome in [Issues](https://github.com/KrishBaidya/LlamaRun/issues). If LlamaRun is useful to you, a ⭐ helps other people find it.
+
+## Build from source
 
 Requirements: Node 20+ and Git.
 
@@ -100,8 +133,8 @@ These live in the Electron `userData` folder (`%APPDATA%\llamarun` on Windows):
 
 ## Writing plugins
 
-See [docs/plugin-sdk.md](docs/plugin-sdk.md).
+See [docs/plugin-sdk.md](docs/plugin-sdk.md) and the example plugins in [examples/plugins](examples/plugins).
 
 ## License
 
-GPL-3.0
+[GPL-3.0](LICENSE). Made by [Krish Baidya](https://github.com/KrishBaidya).
