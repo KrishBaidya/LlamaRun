@@ -20,9 +20,11 @@
 
 ## Why LlamaRun
 
-- **One shortcut, any app.** The overlay opens on top of whatever you are doing, answers, and gets out of the way. You don't switch windows or copy and paste into a browser tab.
-- **Private by default.** Local models through [Ollama](https://ollama.com) run on your own PC for free, and your chats stay in a folder on your disk. Cloud models (Gemini, OpenAI) are there when you want them, side by side with local ones.
-- **Built to be extended.** Connect any [MCP](https://modelcontextprotocol.io) server, install `SKILL.md` skills (the same format Claude uses), or write a Python plugin with its own settings, panels and tools. The bundled Plugin Creator lets the AI build new plugins for itself.
+The overlay opens on top of whatever app you are in, so you can ask a question without switching windows or pasting text into a browser tab. Press Esc and it's gone.
+
+Local models through [Ollama](https://ollama.com) run free on your own PC, and your chats are saved as files on your disk. Cloud models (Gemini, OpenAI) sit in the same model picker for when you want them.
+
+You can connect any [MCP](https://modelcontextprotocol.io) server, install `SKILL.md` skills (the same format Claude uses), or write a Python plugin with its own settings, panels and tools. The bundled Plugin Creator plugin lets the AI build new plugins for itself.
 
 LlamaRun 1 launched on the Microsoft Store in 2024 and reached 1,000+ users. This repository is LlamaRun 2, a full rebuild in Electron, React and TypeScript.
 
@@ -42,15 +44,15 @@ LlamaRun 1 launched on the Microsoft Store in 2024 and reached 1,000+ users. Thi
 
 ## Features
 
-- **Overlay:** a frameless, always-on-top window for quick questions. Follow-ups continue the same thread, Ctrl+N starts a new one, and "Open in Chats" moves it to the full window.
-- **Chat window:** saved, searchable history, a model picker per chat, copy and regenerate, and automatic summaries of long chats (or type `/compact`).
-- **Attachments:** paste, drag or attach images, PDFs, Word documents and text files. Images go to vision models.
-- **Rich answers:** streaming Markdown with code highlighting, Mermaid diagrams, SVG, and live HTML previews right in the chat.
-- **Memory:** the AI remembers what you tell it about yourself. You can see, edit or clear it in Settings.
-- **Skills and `/` commands:** add skills from a ZIP, a folder or a GitHub link. Skills live in the shared `~/.agents/skills` folder, and your Claude Code skills appear automatically. Type `/` to run any skill or plugin command.
-- **MCP:** browse a directory of MCP servers and install them in one click. STDIO and Streamable HTTP/SSE servers both work, with local and cloud models.
-- **Python plugins:** each plugin runs on a bundled Python 3.13 in its own sandboxed process, with only the permissions you approve. Plugins can add tools, `/commands`, settings pages, panels (in Python or TSX), dialogs and notifications. See the [Plugin SDK](docs/plugin-sdk.md) and the [examples](examples/plugins).
-- **Windows-native feel:** Mica and Acrylic backdrops, your accent colour, a tray icon and launch at login.
+- Overlay: a frameless, always-on-top window for quick questions. Follow-ups continue the same thread, Ctrl+N starts a new one, and "Open in Chats" moves it to the full window.
+- Chat window: saved, searchable history, a model picker per chat, copy and regenerate, and automatic summaries of long chats (or type `/compact`).
+- Attachments: paste, drag or attach images, PDFs, Word documents and text files. Images go to vision models.
+- Rich answers: streaming Markdown with code highlighting, Mermaid diagrams, SVG, and live HTML previews right in the chat.
+- Memory: the AI remembers what you tell it about yourself. You can see, edit or clear it in Settings.
+- Skills and `/` commands: add skills from a ZIP, a folder or a GitHub link. Skills live in the shared `~/.agents/skills` folder, and your Claude Code skills appear automatically. Type `/` to run any skill or plugin command.
+- MCP: browse a directory of MCP servers and install them in one click. STDIO and Streamable HTTP/SSE servers both work, with local and cloud models.
+- Python plugins: each plugin runs on a bundled Python 3.13 in its own sandboxed process, with only the permissions you approve. Plugins can add tools, `/commands`, settings pages, panels (in Python or TSX), dialogs and notifications. See the [Plugin SDK](docs/plugin-sdk.md) and the [examples](examples/plugins).
+- Windows-native feel: Mica and Acrylic backdrops, your accent colour, a tray icon and launch at login.
 
 ## Roadmap
 
