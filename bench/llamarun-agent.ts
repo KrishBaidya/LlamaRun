@@ -79,6 +79,28 @@ async function main(): Promise<void> {
   })
 
   const steps: StepLog[] = []
+  const started = performance.now()
+  let text = ''
+  let error: string | undefined
+  const usage: GeminiUsage = { inputTokens: 0, outputTokens: 0, requests: 0 }
+  // Written after every tool call too, so a run the bench kills at its time limit still leaves its trajectory.
+  const save = (): { durationMs: number } => {
+    const result = {
+      harness: 'llamarun',
+      model,
+      task,
+      text,
+      error,
+      durationMs: Math.round(performance.now() - started),
+      toolCalls: steps.length,
+      toolErrors: steps.filter((s) => s.isError).length,
+      toolMs: steps.reduce((sum, s) => sum + s.ms, 0),
+      usage,
+      steps
+    }
+    writeFileSync(values.out!, JSON.stringify(result, null, 2))
+    return result
+  }
   const bridge: ToolBridge = {
     tools: computer.tools(),
     sequential: isComputerTool,
@@ -87,16 +109,13 @@ async function main(): Promise<void> {
       const start = performance.now()
       const result = await computer.call(name, args, { screenshots: false })
       steps.push({ tool: name, args, ms: Math.round(performance.now() - start), isError: Boolean(result.isError), result: toolResultToText(result, 2000) })
+      save()
       return result
     }
   }
 
   const prompt = `${task}\n\n${BENCH_NOTE}`
   const opts: GenerateOptions = { model, tools: bridge, system: computerInstructions(), maxToolRounds: Number(values['max-steps']) }
-  const started = performance.now()
-  let text = ''
-  let error: string | undefined
-  const usage: GeminiUsage = { inputTokens: 0, outputTokens: 0, requests: 0 }
   try {
     if (model.startsWith('script/')) {
       // Replays fixed tool calls: checks the sandbox, driver and tools without a model.
@@ -128,20 +147,7 @@ async function main(): Promise<void> {
   } catch (err) {
     error = (err as Error)?.message ?? String(err)
   }
-  const result = {
-    harness: 'llamarun',
-    model,
-    task,
-    text,
-    error,
-    durationMs: Math.round(performance.now() - started),
-    toolCalls: steps.length,
-    toolErrors: steps.filter((s) => s.isError).length,
-    toolMs: steps.reduce((sum, s) => sum + s.ms, 0),
-    usage,
-    steps
-  }
-  writeFileSync(values.out!, JSON.stringify(result, null, 2))
+  const result = save()
   console.log(`llamarun: ${steps.length} tool calls in ${result.durationMs} ms${error ? `, error: ${error}` : ''}`)
   await client.close().catch(() => undefined)
 }

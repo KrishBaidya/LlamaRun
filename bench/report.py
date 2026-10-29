@@ -43,9 +43,31 @@ def load_run(ref: str) -> list[dict]:
                 "agent_s": (detail.get("durationMs") or detail.get("wallMs") or 0) / 1000 or _seconds(result.get("agent_execution")),
                 "tool_calls": detail.get("toolCalls") if "toolCalls" in detail else detail.get("num_turns"),
                 "cost_usd": detail.get("total_cost_usd"),
+                "input_tokens": _tokens(detail, "input"),
+                "output_tokens": _tokens(detail, "output"),
+                "has_detail": bool(detail),
             }
         )
+    # A variant killed at the time limit may have no agent log: it ran the same harness and model as the rest of its run.
+    known = next((r for r in rows if r["has_detail"]), None)
+    for row in rows:
+        if known and not row.pop("has_detail"):
+            row["harness"], row["model"] = known["harness"], known["model"]
+        row.pop("has_detail", None)
     return rows
+
+
+def _tokens(detail: dict, kind: str) -> int | None:
+    usage = detail.get("usage") or {}
+    if kind == "input" and "inputTokens" in usage:
+        return usage["inputTokens"]
+    if kind == "output" and "outputTokens" in usage:
+        return usage["outputTokens"]
+    if kind == "input" and "input_tokens" in usage:
+        return sum(usage.get(k, 0) for k in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"))
+    if kind == "output" and "output_tokens" in usage:
+        return usage["output_tokens"]
+    return None
 
 
 def _seconds(span: dict | None) -> float | None:
@@ -64,6 +86,8 @@ def summarize(rows: list[dict]) -> dict:
     for name, items in by_harness.items():
         times = [r["agent_s"] for r in items if r["agent_s"] is not None]
         costs = [r["cost_usd"] for r in items if isinstance(r["cost_usd"], (int, float))]
+        tokens_in = [r["input_tokens"] for r in items if r["input_tokens"] is not None]
+        tokens_out = [r["output_tokens"] for r in items if r["output_tokens"] is not None]
         tasks: dict[str, list[float]] = defaultdict(list)
         for r in items:
             tasks[r["task"]].append(float(r["reward"] or 0))
@@ -74,6 +98,8 @@ def summarize(rows: list[dict]) -> dict:
             "mean_agent_s": statistics.mean(times) if times else None,
             "errors": sum(1 for r in items if r["error"]),
             "total_cost_usd": sum(costs) if costs else None,
+            "mean_input_tokens": statistics.mean(tokens_in) if tokens_in else None,
+            "mean_output_tokens": statistics.mean(tokens_out) if tokens_out else None,
             "per_task": {task: sum(v) / len(v) for task, v in sorted(tasks.items())},
         }
     return summary
@@ -89,6 +115,7 @@ def markdown(summary: dict) -> str:
     row("Median agent time", lambda s: f"{s['median_agent_s']:.1f} s" if s["median_agent_s"] is not None else "–")
     row("Mean agent time", lambda s: f"{s['mean_agent_s']:.1f} s" if s["mean_agent_s"] is not None else "–")
     row("Runs with errors", lambda s: str(s["errors"]))
+    row("Tokens per variant (in / out)", lambda s: f"{s['mean_input_tokens'] / 1000:.0f}k / {s['mean_output_tokens'] / 1000:.1f}k" if s["mean_input_tokens"] is not None else "–")
     row("Model cost", lambda s: f"${s['total_cost_usd']:.2f}" if s["total_cost_usd"] is not None else "–")
     tasks = sorted({t for s in summary.values() for t in s["per_task"]})
     lines += ["", "| Task | " + " | ".join(names) + " |", "|---|" + "---|" * len(names)]

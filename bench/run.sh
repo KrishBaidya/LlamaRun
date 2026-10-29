@@ -25,8 +25,8 @@ image_for() {
 
 run() { # agent-class model dataset
   local out
-  out=$(cb run dataset "$3" --max-variants "$variants" -j "$jobs" --image "$(image_for "$3")" ${TASKS:+--task-filter "$TASKS"} \
-    --agent-import-path "llamarun_bench:$1" --model "$2" 2>&1 | tee /dev/stderr | sed 's/\x1b\[[0-9;]*m//g')
+  out=$( (cb run dataset "$3" --max-variants "$variants" -j "$jobs" --image "$(image_for "$3")" ${TASKS:+--task-filter "$TASKS"} \
+    --agent-import-path "llamarun_bench:$1" --model "$2" 2>&1 || true) | tee /dev/stderr | sed 's/\x1b\[[0-9;]*m//g')
   runs+=("$(echo "$out" | sed -n 's/^ *Run ID: *//p' | head -1)")
 }
 
