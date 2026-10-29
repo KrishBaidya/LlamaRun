@@ -118,8 +118,8 @@ async function main(): Promise<void> {
       }
       text = 'scripted'
     } else if (model.startsWith('gemini/')) {
-      const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY
-      if (!apiKey) throw new Error('GEMINI_API_KEY (or GOOGLE_API_KEY) is not set')
+      const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GEMNIN_KEY
+      if (!apiKey) throw new Error('GEMINI_API_KEY (or GOOGLE_API_KEY or GEMNIN_KEY) is not set')
       text = await generateGemini(prompt, { ...opts, model: model.slice('gemini/'.length), apiKey }, usage)
     } else if (model.startsWith('ollama/')) {
       text = await generateOllama(prompt, { ...opts, model: model.slice('ollama/'.length) })

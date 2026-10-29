@@ -34,7 +34,7 @@ IFS=, read -ra list <<<"$datasets"
 for dataset in "${list[@]}"; do
   if [ "$which" != claude-code ]; then
     default_model=gemini-3.8-flash
-    if [ -z "${LLAMARUN_TOKEN:-}" ] && [ -n "${GEMINI_API_KEY:-${GOOGLE_API_KEY:-}}" ]; then default_model=gemini/gemini-3.8-flash; fi
+    if [ -z "${LLAMARUN_TOKEN:-}" ] && [ -n "${GEMINI_API_KEY:-${GOOGLE_API_KEY:-${GEMNIN_KEY:-}}}" ]; then default_model=gemini/gemini-3.8-flash; fi
     run LlamaRunAgent "${LLAMARUN_MODEL:-$default_model}" "$dataset"
   fi
   if [ "$which" != llamarun ]; then run ClaudeCodeAgent "${CLAUDE_MODEL:-claude-sonnet-5-5}" "$dataset"; fi
