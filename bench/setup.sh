@@ -31,7 +31,16 @@ for image in bench-web:1.0 linux:24.04; do
   docker push -q "$REGISTRY/trycua/$image" >/dev/null
 done
 
-# 4. The Linux cua-driver binary (from the cua-driver wheel), copied into each sandbox.
+# 4. The Linux image with KiCad installed, for cua-bench-kicad (see kicad.Dockerfile).
+if ! curl -sf "http://$REGISTRY/v2/trycua/linux-kicad/tags/list" | grep -q '24.04'; then
+  ca=/root/.ccr/agent-proxy-ca.crt
+  docker build -q --network host --build-arg https_proxy="${HTTPS_PROXY:-}" \
+    $([ -f "$ca" ] && echo "--secret id=proxyca,src=$ca") \
+    -f kicad.Dockerfile -t "$REGISTRY/trycua/linux-kicad:24.04" . >/dev/null
+  docker push -q "$REGISTRY/trycua/linux-kicad:24.04" >/dev/null
+fi
+
+# 5. The Linux cua-driver binary (from the cua-driver wheel), copied into each sandbox.
 mkdir -p .cache
 if [ ! -x .cache/cua-driver ]; then
   url=$(curl -s https://pypi.org/pypi/cua-driver/json | python3 -c "import json,sys; d=json.load(sys.stdin); v=d['info']['version']; print([f['url'] for f in d['releases'][v] if 'manylinux_2_31_x86_64' in f['filename']][0])")
@@ -40,6 +49,6 @@ if [ ! -x .cache/cua-driver ]; then
   chmod +x .cache/cua-driver
 fi
 
-# 5. Llama Run's harness, bundled for plain Node.
+# 6. Llama Run's harness, bundled for plain Node.
 (cd .. && node bench/build.mjs)
 echo "Ready. Run: bench/run.sh"

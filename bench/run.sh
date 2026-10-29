@@ -19,6 +19,7 @@ runs=()
 image_for() {
   case "$1" in
     cua-bench-basic) echo localhost:5000/trycua/bench-web:1.0 ;;
+    cua-bench-kicad) echo localhost:5000/trycua/linux-kicad:24.04 ;;
     *) echo localhost:5000/trycua/linux:24.04 ;;
   esac
 }
