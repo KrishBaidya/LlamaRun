@@ -24,7 +24,8 @@ export const DEFAULT_SETTINGS: Settings = {
   autoCompact: true,
   autoCompactPercent: 80,
   compactKeepTurns: 4,
-  modelContext: {}
+  modelContext: {},
+  telemetryEnabled: true
 }
 
 class SettingsStore extends EventEmitter<{ changed: [Settings, Partial<Settings>] }> {
@@ -50,10 +51,10 @@ class SettingsStore extends EventEmitter<{ changed: [Settings, Partial<Settings>
     return this.data
   }
 
-  /** Restores defaults for user-facing preferences; onboarding state and plugin choices are kept. */
+  /** Restores defaults for user-facing preferences; onboarding state, plugin choices and the analytics choice are kept. */
   reset(): Settings {
-    const { isFirstRun, pluginsEnabled, pluginGrants, pluginLinks, skillsDisabled, skillsTrusted, modelContext } = this.all
-    return this.set({ ...DEFAULT_SETTINGS, isFirstRun, pluginsEnabled, pluginGrants, pluginLinks, skillsDisabled, skillsTrusted, modelContext })
+    const { isFirstRun, pluginsEnabled, pluginGrants, pluginLinks, skillsDisabled, skillsTrusted, modelContext, telemetryEnabled } = this.all
+    return this.set({ ...DEFAULT_SETTINGS, isFirstRun, pluginsEnabled, pluginGrants, pluginLinks, skillsDisabled, skillsTrusted, modelContext, telemetryEnabled })
   }
 }
 

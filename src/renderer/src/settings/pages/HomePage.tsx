@@ -31,6 +31,7 @@ type Draft = Pick<
   | 'autoCompact'
   | 'autoCompactPercent'
   | 'compactKeepTurns'
+  | 'telemetryEnabled'
 >
 
 const OVERLAY_TIMEOUTS: [number, string][] = [
@@ -52,7 +53,8 @@ function pick(s: Settings): Draft {
     overlayNewChatAfterMinutes,
     autoCompact: s.autoCompact !== false,
     autoCompactPercent: s.autoCompactPercent ?? 80,
-    compactKeepTurns: s.compactKeepTurns ?? 4
+    compactKeepTurns: s.compactKeepTurns ?? 4,
+    telemetryEnabled: s.telemetryEnabled !== false
   }
 }
 
@@ -383,6 +385,20 @@ export function HomePage() {
               onValueChange={([v]) => set('compactKeepTurns', v)}
             />
             <span className="w-10 text-right text-sm tabular-nums">{draft.compactKeepTurns}</span>
+          </SettingRow>
+        </CardContent>
+      </Card>
+
+      <Card className="gap-0">
+        <CardHeader className="pb-2">
+          <CardTitle>Privacy</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <SettingRow
+            title="Share anonymous usage data"
+            description="Counts which features are used and how replies perform, to help improve Llama Run. Never your messages, replies, files or memories."
+          >
+            <Switch checked={draft.telemetryEnabled} onCheckedChange={(v) => set('telemetryEnabled', v)} />
           </SettingRow>
         </CardContent>
       </Card>

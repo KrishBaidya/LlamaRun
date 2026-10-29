@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync } from 'node:fs'
 import { delimiter, dirname, join, resolve } from 'node:path'
 import type { McpToolInfo } from '@shared/types'
+import { analytics } from '../analytics'
 import type { McpToolResult } from '../mcp/manager'
 import { memoryStore } from '../memory/store'
 import { pythonExecutable } from '../paths'
@@ -213,6 +214,8 @@ export interface ToolContext {
 }
 
 export async function callBuiltinTool(name: string, args: Record<string, unknown>, context: ToolContext = {}): Promise<McpToolResult> {
+  // The tool's fixed name only (memory_save, skill_load, web_fetch...), never its arguments.
+  analytics.track('builtin_tool_used', { tool: name })
   try {
     switch (name) {
       case 'memory_save': {

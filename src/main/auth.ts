@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events'
 import { safeStorage, shell } from 'electron'
 import type { PlanInfo, PlanStatus, UsageInfo, UserProfile } from '@shared/types'
 import { BASE_SERVER_URL, PROTOCOL } from '@shared/constants'
+import { analytics } from './analytics'
 import { readJson, writeJson } from './jsonFile'
 import { userDataPath } from './paths'
 
@@ -12,6 +13,8 @@ interface StoredAuth {
   name: string
   email: string
   photoURL: string
+  /** The account's id (Firebase uid), when the server sends it. Links app and website analytics. */
+  uid?: string
   /** Cached from /api/v1/me so the UI has something to show offline. */
   plan?: PlanInfo
   usage?: UsageInfo
@@ -32,6 +35,7 @@ export interface AccountInfo {
   name: string
   email: string
   photoURL: string
+  uid?: string
   plan?: PlanInfo
   usage?: UsageInfo
 }
@@ -68,10 +72,12 @@ function parseUsage(value: unknown): UsageInfo | undefined {
 export function parseAccount(body: unknown): AccountInfo {
   const b = record(body)
   const p = record(b.profile)
+  const uid = str(b.uid) || str(p.uid)
   return {
     name: str(p.displayName) || 'User',
     email: str(p.email),
     photoURL: str(p.photoURL),
+    ...(uid ? { uid } : {}),
     plan: parsePlan(b.plan),
     usage: parseUsage(b.usage)
   }
@@ -194,7 +200,8 @@ class AuthService extends EventEmitter<{ changed: [UserProfile] }> {
     writeJson(this.path, stored)
     // A refresh already in flight was for the previous token; read the account again for this one.
     await this.inflight
-    await this.refreshProfile()
+    const profile = await this.refreshProfile()
+    if (profile.signedIn) analytics.track('signed_in', { plan: profile.plan?.tier ?? 'free' })
   }
 
   /**
@@ -233,12 +240,16 @@ class AuthService extends EventEmitter<{ changed: [UserProfile] }> {
         // A sign-in or sign-out while the request was out wins over its answer.
         if (res.status === 401) {
           // The token expired or was revoked: sign out so the UI asks to sign in again.
-          if (this.token === token) this.clear()
+          if (this.token === token) {
+            this.clear()
+            analytics.reset()
+          }
         } else if (res.ok) {
           const account = parseAccount(await res.json())
           if (this.token === token) {
             const { plan: _plan, usage: _usage, ...rest } = this.read()
             writeJson(this.path, { ...rest, ...account, fetchedAt: Date.now() } satisfies StoredAuth)
+            if (account.uid) analytics.identify(account.uid, { email: account.email, plan: account.plan?.tier ?? 'free' })
             await this.cacheAvatar(account.photoURL)
           }
         }
@@ -260,7 +271,9 @@ class AuthService extends EventEmitter<{ changed: [UserProfile] }> {
   }
 
   signOut(): void {
+    analytics.track('signed_out')
     this.clear()
+    analytics.reset()
     this.emit('changed', this.profile())
   }
 }

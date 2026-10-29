@@ -39,6 +39,8 @@ export interface Settings {
   compactKeepTurns: number
   /** Per-model overrides, by model id. */
   modelContext: Record<string, ModelContextOverride>
+  /** Send anonymous usage data (feature counts, never messages or files). */
+  telemetryEnabled: boolean
 }
 
 export interface ModelContextOverride {

@@ -49,6 +49,7 @@
     "mammoth": "^1.13.0",
     "mermaid": "^12.2.0",
     "ollama": "^0.6.3",
+    "posthog-node": "^5.59.0",
     "radix-ui": "^1.6.7",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",

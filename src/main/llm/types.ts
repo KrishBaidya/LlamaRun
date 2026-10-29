@@ -80,6 +80,8 @@ export interface GenerateOptions {
   historyChars?: number
   /** Ollama: context window for this request (`num_ctx`), from the model's own size or the user's override. */
   contextTokens?: number
+  /** Ollama: token counts for each request of the turn (one per tool round), as Ollama reports them. */
+  onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void
 }
 
 /** Maximum model -> tool -> model round trips before pausing (or forcing an answer). */

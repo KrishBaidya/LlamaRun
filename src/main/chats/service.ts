@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import type { Chat, ChatAttachment, ChatEvent, ChatMessage, ChatSummary, ContextUsage, ModelContextInfo, SlashCommand } from '@shared/types'
+import { analytics } from '../analytics'
 import { approvals } from '../assistant/approval'
 import { builtinInstructions, builtinTools, callBuiltinTool, isBuiltinTool } from '../assistant/builtins'
 import { documentBlock } from '../attachments/read'
@@ -14,6 +15,7 @@ import {
   type ToolBridge,
   type ToolPause
 } from '../llm'
+import { isCloudModel } from '../llm/models'
 import { mcp } from '../mcp/manager'
 import { pluginHost } from '../plugins/host'
 import { settings } from '../settings'
@@ -198,9 +200,13 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
       return chatId
     }
     const command = !attachments?.length ? pluginHost.matchCommand(text) : null
-    if (command) return this.runCommand(chatId, text, command, model)
+    if (command) {
+      analytics.track('plugin_command_used')
+      return this.runCommand(chatId, text, command, model)
+    }
     const invoked = skillStore.matchCommand(text)
     if (invoked) {
+      analytics.track('skill_invoked', { via: 'slash' })
       const instructions = skillStore.invoke(invoked.skill, invoked.args)
       return this.start(chatId, text.trim(), { model, attachments, skill: { name: invoked.skill.name, instructions } }).chatId
     }
@@ -302,6 +308,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
       compaction.tokensAfter = estimateTokens(historyFor(chat.messages, compaction), system)
       chat.compaction = compaction
       chatStore.save(chat, false)
+      analytics.track('chat_compacted', { trigger: manual ? 'manual' : 'auto', tokens_before: tokensBefore, tokens_after: compaction.tokensAfter })
       this.emit('event', { type: 'chat', chat })
     } finally {
       this.emit('event', { type: 'status', chatId: chat.id, status: null })
@@ -425,6 +432,11 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     }
     const prior = assistant.content
     let pause: ToolPause | undefined
+    // For analytics: timing, tool use and (Ollama) token counts of this turn.
+    const startedAt = Date.now()
+    let firstTokenAt = 0
+    let toolCalls = 0
+    const usage = { inputTokens: 0, outputTokens: 0 }
     const emitUpdate = (): void => {
       this.emit('event', { type: 'update', chatId: chat.id, message: { ...assistant } })
     }
@@ -481,13 +493,19 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
         onPause: (p) => {
           pause = p
         },
+        onUsage: (u) => {
+          usage.inputTokens += u.inputTokens
+          usage.outputTokens += u.outputTokens
+        },
         onToken: (t) => {
+          firstTokenAt ||= Date.now()
           assistant.content += t
           pending += t
           timer ??= setTimeout(flush, FLUSH_MS)
         },
         onTool: (name, server) => {
           flush()
+          toolCalls++
           const tool = { name, server }
           assistant.tools = [...(assistant.tools ?? []), tool]
           this.emit('event', { type: 'tool', chatId: chat.id, messageId: assistant.id, tool })
@@ -532,9 +550,51 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
       this.running.delete(chat.id)
       emitUpdate()
       chatStore.save(chat)
+      trackGeneration(assistant, { startedAt, firstTokenAt, toolCalls, usage, paused: !!pause, via: user.via ? 'plugin' : typed ? 'typed' : 'app', resumed: !!resume })
     }
     return { ...assistant }
   }
+}
+
+/**
+ * One `generation_finished` event per reply. Local (Ollama) replies also send PostHog's
+ * `$ai_generation` so LLM analytics show local use next to cloud use; cloud replies are
+ * recorded by the server, which knows their real token counts and cost.
+ */
+function trackGeneration(
+  assistant: ChatMessage,
+  turn: { startedAt: number; firstTokenAt: number; toolCalls: number; usage: { inputTokens: number; outputTokens: number }; paused: boolean; via: string; resumed: boolean }
+): void {
+  const model = assistant.model ?? ''
+  const provider = model && isCloudModel(model) ? 'cloud' : 'ollama'
+  const durationMs = Date.now() - turn.startedAt
+  const status = turn.paused ? 'tool_cap' : assistant.status === 'cancelled' && assistant.note !== 'Stopped' ? 'cancelled_by_plugin' : assistant.status === 'cancelled' ? 'stopped' : assistant.status
+  analytics.track('generation_finished', {
+    status,
+    error_code: assistant.status === 'error' ? (assistant.errorCode ?? 'UNKNOWN') : undefined,
+    provider,
+    model,
+    duration_ms: durationMs,
+    ttft_ms: turn.firstTokenAt ? turn.firstTokenAt - turn.startedAt : undefined,
+    tool_calls: turn.toolCalls,
+    via: turn.via,
+    resumed: turn.resumed
+  })
+  if (provider !== 'ollama' || !model) return
+  analytics.track('$ai_generation', {
+    $ai_trace_id: assistant.id,
+    $ai_model: model,
+    $ai_provider: 'ollama',
+    $ai_input_tokens: turn.usage.inputTokens,
+    $ai_output_tokens: turn.usage.outputTokens,
+    $ai_input_cost_usd: 0,
+    $ai_output_cost_usd: 0,
+    $ai_total_cost_usd: 0,
+    $ai_latency: durationMs / 1000,
+    $ai_is_error: assistant.status === 'error',
+    $ai_error: assistant.status === 'error' ? (assistant.errorCode ?? 'UNKNOWN') : undefined,
+    tool_calls: turn.toolCalls
+  })
 }
 
 export const chatService = new ChatService()

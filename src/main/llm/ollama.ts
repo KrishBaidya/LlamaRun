@@ -178,6 +178,7 @@ export async function generateOllama(input: GenerateInput, opts: GenerateOptions
           opts.onToken?.(chunk.message.content)
         }
         if (chunk.message.tool_calls?.length) toolCalls.push(...chunk.message.tool_calls)
+        if (chunk.done) opts.onUsage?.({ inputTokens: chunk.prompt_eval_count ?? 0, outputTokens: chunk.eval_count ?? 0 })
       }
 
       if (!toolCalls.length || !bridge) return output

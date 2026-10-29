@@ -4,6 +4,7 @@ import { app, BrowserWindow, dialog, ipcMain, shell, systemPreferences } from 'e
 import type { EventChannel, EventChannels, InvokeChannel, InvokeChannels } from '@shared/ipc'
 import type { Settings } from '@shared/types'
 import { DEFAULT_CLOUD_MODEL } from '@shared/constants'
+import { analytics } from './analytics'
 import { approvals } from './assistant/approval'
 import { installBrief } from './assistant/builtins'
 import { readDocument } from './attachments/read'
@@ -11,6 +12,7 @@ import { auth, PROFILE_FRESH_MS } from './auth'
 import { chatService, contextFor } from './chats/service'
 import { activeHotkey, registerHotkey } from './hotkey'
 import { modelCatalog } from './llm'
+import { isCloudModel } from './llm/models'
 import { listOllamaModels } from './llm/ollama'
 import { configFromDirectoryEntry, isServerConfig } from './mcp/config'
 import { clearDirectoryCache, getDirectoryServer, listDirectory, readmeUrl } from './mcp/directory'
@@ -31,7 +33,7 @@ import { closeOnboarding } from './windows/onboarding'
 import { openChatWindow } from './windows/chat'
 import { appearance } from './windows/load'
 import { closeModelMenu, openModelMenu, resizeModelMenu } from './windows/modelMenu'
-import { hideOverlay, holdOverlayOpen, resizeOverlay, setOverlayChat, showOverlay } from './windows/overlay'
+import { getOverlay, hideOverlay, holdOverlayOpen, resizeOverlay, setOverlayChat, showOverlay } from './windows/overlay'
 import { openSettings } from './windows/settings'
 
 export function broadcast<E extends EventChannel>(channel: E, payload: EventChannels[E]): void {
@@ -76,6 +78,17 @@ export function applyStartup(enabled: boolean): void {
   app.setLoginItemSettings({ openAtLogin: enabled, args: ['--hidden'] })
 }
 
+/** Plugins we ship or publish are named in analytics; anything else a user made or installed is "custom". */
+const KNOWN_PLUGINS = new Set(['edith', 'plugin_creator', 'prompt_logger', 'ui_showcase', 'chat_studio'])
+const pluginLabel = (id: string): string => (KNOWN_PLUGINS.has(id) ? id : 'custom')
+
+/** Where a skill came from, without the path or link itself. */
+const sourceKind = (source: string): string =>
+  /^(https?:|git@|[\w.-]+\/[\w.-]+$)/i.test(source.trim()) ? 'link' : /\.(zip|skill)$/i.test(source) ? 'zip' : 'folder'
+
+/** Cloud model ids are ours; local model tags are what the user pulled in Ollama. */
+const modelProps = (model: string): { provider: string; model: string } => ({ provider: isCloudModel(model) ? 'cloud' : 'ollama', model })
+
 export function registerIpc(): void {
   handle('app:version', () => app.getVersion())
   handle('app:openExternal', (_e, url) => {
@@ -108,7 +121,8 @@ export function registerIpc(): void {
       'autoCompact',
       'autoCompactPercent',
       'compactKeepTurns',
-      'modelContext'
+      'modelContext',
+      'telemetryEnabled'
     ]
     const clean = Object.fromEntries(Object.entries(patch).filter(([k]) => allowed.includes(k as keyof Settings)))
     return settings.set(clean)
@@ -123,8 +137,23 @@ export function registerIpc(): void {
   handle('chats:create', (_e, model) => chatService.create(model))
   handle('chats:rename', (_e, id, title) => chatService.rename(id, title))
   handle('chats:delete', (_e, id) => chatService.delete(id))
-  handle('chats:setModel', (_e, id, model) => chatService.setModel(id, model))
-  handle('chats:send', (_e, chatId, text, model, attachments) => chatService.send(chatId, text, model, attachments))
+  handle('chats:setModel', (_e, id, model) => {
+    analytics.track('model_selected', { scope: 'chat', ...modelProps(String(model)) })
+    return chatService.setModel(id, model)
+  })
+  handle('chats:send', (e, chatId, text, model, attachments) => {
+    const used = model || (chatId ? chatService.get(chatId)?.model : undefined) || settings.get('selectedModel')
+    const files = (attachments ?? []) as { kind: string }[]
+    analytics.track('message_sent', {
+      surface: getOverlay()?.webContents === e.sender ? 'overlay' : 'chat',
+      new_chat: !chatId,
+      images: files.filter((a) => a.kind === 'image').length,
+      documents: files.filter((a) => a.kind === 'document').length,
+      slash: /^\s*\//.test(String(text ?? '')),
+      ...modelProps(String(used ?? ''))
+    })
+    return chatService.send(chatId, text, model, attachments)
+  })
   handle('chats:compact', (_e, id, instructions) => chatService.compact(id, instructions))
   handle('chats:answerApproval', (_e, id, answer) => approvals.answer(id, answer))
   handle('chats:pendingApproval', (_e, chatId) => approvals.current(chatId))
@@ -137,14 +166,19 @@ export function registerIpc(): void {
   handle('attachments:read', (_e, name, mimeType, bytes) => readDocument(String(name), String(mimeType ?? ''), bytes))
 
   handle('memory:list', () => memoryStore.list())
-  handle('memory:add', (_e, text) => (memoryStore.add(String(text), 'user'), memoryStore.list()))
-  handle('memory:update', (_e, id, text) => (memoryStore.update(id, String(text), 'user'), memoryStore.list()))
-  handle('memory:remove', (_e, id) => (memoryStore.remove(id), memoryStore.list()))
-  handle('memory:clear', () => (memoryStore.clear(), memoryStore.list()))
+  handle('memory:add', (_e, text) => (analytics.track('memory_changed', { action: 'add', source: 'user' }), memoryStore.add(String(text), 'user'), memoryStore.list()))
+  handle('memory:update', (_e, id, text) => (analytics.track('memory_changed', { action: 'update', source: 'user' }), memoryStore.update(id, String(text), 'user'), memoryStore.list()))
+  handle('memory:remove', (_e, id) => (analytics.track('memory_changed', { action: 'remove', source: 'user' }), memoryStore.remove(id), memoryStore.list()))
+  handle('memory:clear', () => (analytics.track('memory_changed', { action: 'clear', source: 'user' }), memoryStore.clear(), memoryStore.list()))
 
   handle('skills:list', () => skillStore.list())
-  handle('skills:install', (_e, source) => installSkills(String(source)))
+  handle('skills:install', async (_e, source) => {
+    const installed = await installSkills(String(source))
+    analytics.track('skill_installed', { source: sourceKind(String(source)), count: installed.length })
+    return installed
+  })
   handle('skills:installWithAi', (_e, source) => {
+    analytics.track('skill_install_with_ai_started')
     openChatWindow(chatService.startInstaller(installBrief(String(source).trim())))
   })
   handle('skills:pick', async (e, kind) => {
@@ -156,8 +190,8 @@ export function registerIpc(): void {
     const picked = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options)
     return picked.canceled ? null : (picked.filePaths[0] ?? null)
   })
-  handle('skills:remove', (_e, id) => (skillStore.remove(id), skillStore.list()))
-  handle('skills:setEnabled', (_e, id, enabled) => (skillStore.setEnabled(id, enabled), skillStore.list()))
+  handle('skills:remove', (_e, id) => (analytics.track('skill_removed'), skillStore.remove(id), skillStore.list()))
+  handle('skills:setEnabled', (_e, id, enabled) => (analytics.track('skill_toggled', { enabled: !!enabled }), skillStore.setEnabled(id, enabled), skillStore.list()))
   handle('skills:setTrusted', (_e, id, trusted) => (skillStore.setTrusted(id, trusted), skillStore.list()))
   handle('skills:openFolder', (_e, id) => {
     const folder = id ? skillStore.list().find((s) => s.id === id)?.folder : skillsDir()
@@ -191,14 +225,15 @@ export function registerIpc(): void {
       settings.set({ selectedModel: local[0]?.id ?? DEFAULT_CLOUD_MODEL })
     }
     settings.set({ isFirstRun: false })
+    analytics.track('onboarding_completed', { mode: String(mode) })
     closeOnboarding()
-    showOverlay()
+    showOverlay('onboarding')
   })
 
   handle('auth:signIn', () => auth.openLogin())
   handle('auth:signOut', () => auth.signOut())
   handle('auth:profile', () => auth.profile())
-  handle('account:openUpgrade', () => auth.openUpgrade())
+  handle('account:openUpgrade', () => (analytics.track('upgrade_clicked'), auth.openUpgrade()))
   handle('account:openAccount', () => auth.openAccount())
   handle('account:refresh', () => auth.refreshProfile({ maxAgeMs: PROFILE_FRESH_MS }))
 
@@ -207,9 +242,11 @@ export function registerIpc(): void {
   handle('mcp:tools', () => mcp.tools())
   handle('mcp:saveServer', async (_e, server) => {
     if (!isServerConfig(server)) throw new Error('Invalid MCP server configuration')
+    const existed = mcp.servers().some((s) => s.name === server.name)
     await mcp.saveServer(server)
+    analytics.track(existed ? 'mcp_server_updated' : 'mcp_server_added', { transport: String(server.mcpType) })
   })
-  handle('mcp:remove', (_e, name) => mcp.remove(name))
+  handle('mcp:remove', (_e, name) => (analytics.track('mcp_server_removed'), mcp.remove(name)))
   handle('mcp:directory', (_e, query) => listDirectory(query))
   handle('mcp:clearDirectoryCache', () => clearDirectoryCache())
   handle('mcp:directoryServer', (_e, id) => getDirectoryServer(id))
@@ -221,9 +258,12 @@ export function registerIpc(): void {
     return pluginHost.list
   })
   handle('plugins:runtime', () => pluginHost.status)
-  handle('plugins:setEnabled', (_e, id, enabled) => pluginHost.setEnabled(id, enabled))
+  handle('plugins:setEnabled', (_e, id, enabled) => {
+    analytics.track('plugin_toggled', { plugin: pluginLabel(String(id)), enabled: !!enabled })
+    return pluginHost.setEnabled(id, enabled)
+  })
   handle('plugins:reload', (_e, id) => pluginHost.reload(id))
-  handle('plugins:remove', (_e, id) => pluginHost.remove(id))
+  handle('plugins:remove', (_e, id) => (analytics.track('plugin_removed', { plugin: pluginLabel(String(id)) }), pluginHost.remove(id)))
   handle('plugins:inspect', async (event, kind) => {
     const parent = BrowserWindow.fromWebContents(event.sender) ?? undefined
     const options: Electron.OpenDialogOptions =
@@ -238,6 +278,7 @@ export function registerIpc(): void {
     const approved = (grants ?? []).filter(isPermission)
     const id = await installPlugin(source, kind, approved)
     pluginHost.log('info', `installed plugin ${id} (${kind}) with permissions: ${approved.join(', ') || 'none'}`)
+    analytics.track('plugin_installed', { plugin: pluginLabel(id), kind: String(kind), permissions: approved.length })
     return pluginHost.reload()
   })
   handle('plugins:setGrants', (_e, id, grants) => pluginHost.setGrants(id, (grants ?? []).filter(isPermission)))
@@ -267,6 +308,8 @@ export function registerIpc(): void {
   settings.on('changed', (all, patch) => {
     if ('hotkey' in patch) registerHotkey(false)
     if ('startupEnabled' in patch) applyStartup(all.startupEnabled)
+    if ('selectedModel' in patch && all.selectedModel) analytics.track('model_selected', { scope: 'default', ...modelProps(all.selectedModel) })
+    if (patch.telemetryEnabled === true) analytics.track('telemetry_enabled')
     broadcast('settings:changed', all)
   })
   auth.on('changed', (profile) => broadcast('auth:changed', profile))
