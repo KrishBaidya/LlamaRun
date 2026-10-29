@@ -1,6 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { ApprovalRequest, Chat, ChatAttachment, ChatEvent, ChatMessage, ChatSummary } from '@shared/types'
+import type { ApprovalRequest, Chat, ChatAttachment, ChatEvent, ChatMessage, ChatSummary, MessagePart, ToolPart } from '@shared/types'
 import { api } from './use-llamarun'
+
+/** Streamed text goes onto the last text part, or starts a new one after a tool call (mirrors chats/parts.ts). */
+function withText(parts: MessagePart[] | undefined, text: string): MessagePart[] | undefined {
+  if (!parts) return parts
+  const last = parts[parts.length - 1]
+  return last?.type === 'text' ? [...parts.slice(0, -1), { ...last, text: last.text + text }] : [...parts, { type: 'text', text }]
+}
+
+/** Adds a tool call's card, or updates it in place when it finishes. */
+function withTool(parts: MessagePart[] | undefined, part: ToolPart): MessagePart[] {
+  const list = parts ?? []
+  return list.some((p) => p.type === 'tool' && p.id === part.id) ? list.map((p) => (p.type === 'tool' && p.id === part.id ? part : p)) : [...list, part]
+}
 
 function applyEvent(chat: Chat, e: ChatEvent): Chat {
   switch (e.type) {
@@ -22,12 +35,19 @@ function applyEvent(chat: Chat, e: ChatEvent): Chat {
     case 'delta':
       return {
         ...chat,
-        messages: chat.messages.map((m) => (m.id === e.messageId ? { ...m, content: m.content + e.text } : m))
+        messages: chat.messages.map((m) => (m.id === e.messageId ? { ...m, content: m.content + e.text, parts: withText(m.parts, e.text) } : m))
       }
     case 'tool':
       return {
         ...chat,
-        messages: chat.messages.map((m) => (m.id === e.messageId ? { ...m, tools: [...(m.tools ?? []), e.tool] } : m))
+        messages: chat.messages.map((m) =>
+          m.id === e.messageId ? { ...m, tools: [...(m.tools ?? []), e.tool], parts: e.part ? withTool(m.parts, e.part) : m.parts } : m
+        )
+      }
+    case 'tool-done':
+      return {
+        ...chat,
+        messages: chat.messages.map((m) => (m.id === e.messageId ? { ...m, parts: withTool(m.parts, e.part) } : m))
       }
     case 'status':
     case 'approval':

@@ -20,8 +20,10 @@ import { mcp } from '../mcp/manager'
 import { pluginHost } from '../plugins/host'
 import { settings } from '../settings'
 import { skillStore } from '../skills/store'
+import { joinRound } from '../llm/toolRun'
 import { COMPACT_SYSTEM, compactionRequest, splitForCompaction, SUMMARY_INTRO, transcriptOf, visibleMessages } from './compact'
 import { contextWindowFor, estimateTokens, usageOf } from './context'
+import { appendText, finishTool, recalledReplies, replaceText, replyForModel, textOf, toolPart } from './parts'
 import { chatStore, titleFrom } from './store'
 
 const FLUSH_MS = 16
@@ -77,6 +79,8 @@ export function chatTools(options: ChatToolOptions = {}): ToolBridge | undefined
   const fromPlugins = new Set(pluginTools.map((t) => t.name))
   return {
     tools: [...own, ...mcpTools, ...pluginTools],
+    // One desktop, one action at a time; other tools in the same step run together.
+    sequential: (name) => isComputerTool(name),
     call: (name, args) =>
       isBuiltinTool(name)
         ? callBuiltinTool(name, args, { chatId: options.chatId })
@@ -114,13 +118,16 @@ function userContent(m: ChatMessage): string {
  */
 export function historyFor(messages: ChatMessage[], compaction?: Chat['compaction']): HistoryMessage[] {
   const visible = visibleMessages(messages, compaction)
+  const recall = recalledReplies(visible.messages)
   const turns = visible.messages
-    .filter((m) => m.role === 'user' || (m.status === 'done' && m.content))
+    .filter((m) => m.role === 'user' || m.status === 'done')
     .map((m): HistoryMessage => {
-      if (m.role !== 'user') return { role: m.role, content: m.content }
+      if (m.role !== 'user') return { role: m.role, content: replyForModel(m, recall.has(m.id)) }
       const images = (m.attachments ?? []).map(imageOf).filter((i): i is HistoryImage => !!i)
       return { role: 'user', content: userContent(m) || 'See the attached image.', ...(images.length ? { images } : {}) }
     })
+    // A reply with nothing to show the model (no text, tools no longer recalled) is left out.
+    .filter((m) => m.role === 'user' || m.content)
   if (!visible.summary) return turns
   return [
     { role: 'user', content: `${SUMMARY_INTRO}\n\n${visible.summary}` },
@@ -461,8 +468,12 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
       content: '',
       status: 'streaming',
       model: chat.model,
+      parts: [],
       createdAt: Date.now()
     }
+    // Replies from before parts existed (a paused one being continued) start their list with the text so far.
+    assistant.parts ??= assistant.content ? [{ type: 'text', text: assistant.content }] : []
+    const parts = assistant.parts
     const prior = assistant.content
     let pause: ToolPause | undefined
     let maxRounds = MAX_TOOL_ROUNDS
@@ -529,14 +540,23 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
         },
         onToken: (t) => {
           assistant.content += t
+          appendText(parts, t)
           pending += t
           timer ??= setTimeout(flush, FLUSH_MS)
         },
-        onTool: (name, server) => {
+        onTool: (call) => {
           flush()
-          const tool = { name, server }
+          const tool = { name: call.name, server: call.server }
+          const part = toolPart(call.id, call.name, call.server, call.args)
+          parts.push(part)
           assistant.tools = [...(assistant.tools ?? []), tool]
-          this.emit('event', { type: 'tool', chatId: chat.id, messageId: assistant.id, tool })
+          this.emit('event', { type: 'tool', chatId: chat.id, messageId: assistant.id, tool, part: { ...part } })
+        },
+        onToolResult: (id, result, error) => {
+          const part = parts.find((p) => p.type === 'tool' && p.id === id)
+          if (part?.type !== 'tool') return
+          finishTool(part, result, error)
+          this.emit('event', { type: 'tool-done', chatId: chat.id, messageId: assistant.id, part: { ...part } })
         }
       })
       flush()
@@ -544,9 +564,11 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
       if (controller.signal.aborted) {
         assistant.status = 'cancelled'
         assistant.note = 'Stopped'
+        assistant.content = textOf(parts)
         return { ...assistant }
       }
-      assistant.content = prior + text
+      // A continued reply carries on after a paragraph break, like a new round.
+      assistant.content = joinRound(prior, text, Boolean(prior && text))
       if (pause) {
         // Stopped at the cap; after-hooks run once the reply is finished.
         this.paused.set(chat.id, { messageId: assistant.id, pause, turn })
@@ -556,10 +578,13 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
         return { ...assistant }
       }
       const after = await pluginHost.afterTextGeneration(before.input_text, assistant.content, model)
+      if (after.response_text !== assistant.content) assistant.parts = replaceText(parts, after.response_text)
       assistant.content = after.response_text
       assistant.status = 'done'
     } catch (err) {
       flush()
+      // Streamed tokens have no breaks between rounds; the parts do.
+      if (parts.length) assistant.content = textOf(parts)
       if (controller.signal.aborted) {
         assistant.status = 'cancelled'
         assistant.note = 'Stopped'

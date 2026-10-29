@@ -15,6 +15,17 @@ export class GenerationError extends Error {
 export interface ToolBridge {
   tools: McpToolInfo[]
   call(name: string, args: Record<string, unknown>): Promise<McpToolResult>
+  /** Tools that must not run at the same time as others (they act on the user's desktop). */
+  sequential?(name: string): boolean
+}
+
+/** A tool call as the model made it, for showing it while it runs. */
+export interface ToolCallInfo {
+  /** Unique within the reply. */
+  id: string
+  name: string
+  server: string
+  args: Record<string, unknown>
 }
 
 /** One prior turn of a conversation, oldest first. The last entry is the new user message. */
@@ -61,7 +72,10 @@ export interface GenerateOptions {
   model: string
   signal?: AbortSignal
   onToken?: (text: string) => void
-  onTool?: (name: string, server: string) => void
+  /** A tool call is about to run. */
+  onTool?: (call: ToolCallInfo) => void
+  /** A tool call finished (`result`), or threw (`error`). */
+  onToolResult?: (id: string, result: McpToolResult | null, error?: string) => void
   /** MCP tools the model may call. Omit for a plain text completion. */
   tools?: ToolBridge
   /**

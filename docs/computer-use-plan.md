@@ -13,7 +13,28 @@ Phases 1 and 2 are built, and so is the Ollama half of phase 3 (code in `src/mai
 - **Phase 3 is half done.** Local (Ollama) models that can see images get the newest screenshot. Cloud models get text only until the server accepts image parts in tool results.
 - **Phases 4 and 5 are not started:** browser tools over CDP, arm64 builds, and `llamarun.computer` for plugins.
 
-Tests: `tests/computer.test.ts` and `tests/computerLoop.test.ts` run in CI. `CUA_E2E=1 npx vitest run tests/computer.e2e.test.ts` drives a real app (Notepad on Windows, xterm on Linux) through the real driver.
+Tests: `tests/computer.test.ts`, `tests/computerLoop.test.ts` and `tests/parts.test.ts` run in CI. `CUA_E2E=1 npx vitest run tests/computer.e2e.test.ts` drives real apps through the real driver: Calculator and Notepad on Windows, gnome-calculator and Mousepad on Linux (inside `dbus-run-session` so the accessibility bus is up).
+
+### What the Cua docs review changed
+
+The driver's reference pages and its own agent guide (`get_guide`, plus the Windows guide embedded in the Windows build) describe how it expects to be driven. These changes follow from them:
+
+| Finding | Change |
+|---|---|
+| `run_steps` with `observe` is "the default way to act": it acts and returns the diff in one call | Every action is one `run_steps` call; there's no separate read afterwards. |
+| Steps can target elements by `role` and `name`, found fresh; a stale row is retried on the same role and label | `computer_click`, `computer_type` and `computer_steps` accept `name`/`role`. Rows are still fastest (about 0.1 s against about 0.5 s per name lookup). |
+| Pixel actions are refused (`screenshot_context_missing`) until the window has been read with a screenshot | Before the first pixel action, a screenshot-only read runs (it keeps rows valid). If the window has since been resized, Llama Run captures again and retries once. |
+| On Windows, `type_text` with no element sends WM_CHAR, which never reaches WinUI/UWP apps (Windows 11 Notepad). With an element, it replaces the field's value through UI Automation | The tool text and instructions say to pass the field. Drop-downs use `set_value`, which picks the option. |
+| `type_text` spaces characters 30 ms apart on Windows | Llama Run passes `delay_ms: 10` on the message path. |
+| Store apps' windows belong to `ApplicationFrameHost` | Windows are named, approved and blocked by their title ("Calculator"). |
+| `on_screen_only` drops minimized windows, which background input can still drive | All windows are listed, with minimized ones marked. |
+| The tree read's default budget (1 s on Windows) returns partial trees for Chromium/Electron | Reads use `timeout_ms: 3000`. |
+| `launch_app` returns the new window. A URL in `urls` opens in the default browser | Llama Run uses the returned window. A URL for a named app goes in as its argument. |
+| Win-key shortcuts, Alt+Tab and Ctrl+Tab take over the screen even when sent to one window | They're refused. |
+
+### Replies in order
+
+Assistant messages now carry `parts`: text and tool calls in the order they happened. The chat window draws each tool call as a card, with its input and result a click away. The cloud backend keeps what the model said before a tool call in the conversation it sees next. Rounds of a reply are separated by a paragraph break. Independent tool calls in one step run together, while computer-use actions run one at a time. The next message includes a short record of the tools the last two replies used.
 
 ## 1. Decision: use the SDK, don't build a toolchain
 

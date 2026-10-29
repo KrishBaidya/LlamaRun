@@ -94,6 +94,28 @@ export interface ChatToolCall {
   server: string
 }
 
+/** Text the model wrote, between its tool calls. */
+export interface TextPart {
+  type: 'text'
+  text: string
+}
+
+/** One tool call in a reply: what was asked, and what came back. */
+export interface ToolPart {
+  type: 'tool'
+  id: string
+  name: string
+  server: string
+  /** The model's arguments (long values cut). */
+  args?: Record<string, unknown>
+  status: 'running' | 'done' | 'error'
+  /** The result as text, cut to a few KB for storage; images are left out. */
+  result?: string
+}
+
+/** An assistant reply in the order it happened: text, tool, text, tool, ... */
+export type MessagePart = TextPart | ToolPart
+
 /** A file sent with a message. Images go to vision models; documents are read as text. */
 export interface ChatAttachment {
   id: string
@@ -123,7 +145,14 @@ export interface ChatMessage {
   errorCode?: GenerationErrorCode
   /** Assistant messages: why generation was cancelled. */
   note?: string
+  /** Tools the reply used, in order. Kept with `parts` for plugins and older chats. */
   tools?: ChatToolCall[]
+  /**
+   * Assistant messages: the reply as it happened, text and tool calls in
+   * order. `content` holds the same text joined, for copying and plugins.
+   * Older chats don't have it.
+   */
+  parts?: MessagePart[]
   /** User messages sent by a plugin (e.g. a voice assistant) rather than typed. */
   via?: { plugin: string; voice?: boolean }
   /** Assistant messages: stopped at the tool-round cap and can be continued. */
@@ -166,7 +195,10 @@ export interface ChatSummary {
 export type ChatEvent =
   | { type: 'message'; chatId: string; message: ChatMessage }
   | { type: 'delta'; chatId: string; messageId: string; text: string }
-  | { type: 'tool'; chatId: string; messageId: string; tool: ChatToolCall }
+  /** A tool call started; `part` is its card (status "running"). */
+  | { type: 'tool'; chatId: string; messageId: string; tool: ChatToolCall; part?: ToolPart }
+  /** A tool call finished: the same part, with its result. */
+  | { type: 'tool-done'; chatId: string; messageId: string; part: ToolPart }
   | { type: 'update'; chatId: string; message: ChatMessage }
   | { type: 'chat'; chat: Chat }
   /** Something is happening to the chat before a reply starts (compacting it). */

@@ -1,6 +1,6 @@
 import { Fragment, memo, useEffect, useRef, useState } from 'react'
-import { AlertCircle, Blocks, Bot, Check, ChevronDown, Copy, FoldVertical, Mic, Play, RotateCcw, ShieldQuestion, Sparkles, Wand2, Wrench } from 'lucide-react'
-import type { ApprovalRequest, ChatCompaction, ChatMessage } from '@shared/types'
+import { AlertCircle, Blocks, Bot, Check, ChevronDown, Copy, FoldVertical, Loader2, Mic, Play, RotateCcw, ShieldQuestion, Sparkles, Wand2, Wrench } from 'lucide-react'
+import type { ApprovalRequest, ChatCompaction, ChatMessage, ToolPart } from '@shared/types'
 import { Markdown } from '@/components/markdown'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -149,6 +149,57 @@ function ToolLimitCallout({ message, onContinue }: { message: ChatMessage; onCon
   )
 }
 
+/** A short hint of what a tool call was about: its first text argument ("notepad", "ctrl+s"). */
+function argHint(args: ToolPart['args']): string {
+  const value = Object.values(args ?? {}).find((v) => typeof v === 'string' && v.trim()) as string | undefined
+  if (!value) return ''
+  const line = value.replace(/\s+/g, ' ').trim()
+  return line.length > 60 ? `${line.slice(0, 59)}…` : line
+}
+
+/** One tool call in a reply, where it happened: name and status, with its input and result a click away. */
+function ToolCard({ part }: { part: ToolPart }) {
+  const [open, setOpen] = useState(false)
+  const hint = argHint(part.args)
+  const hasArgs = part.args && Object.keys(part.args).length > 0
+  return (
+    <div className="w-full max-w-full rounded-lg border border-border/70 bg-card text-2xs">
+      <button
+        type="button"
+        className="flex w-full min-w-0 items-center gap-1.5 px-2 py-1 text-left text-muted-foreground hover:text-foreground"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        {part.status === 'running' ? (
+          <Loader2 className="size-3 shrink-0 animate-spin" />
+        ) : part.status === 'error' ? (
+          <AlertCircle className="size-3 shrink-0 text-destructive" />
+        ) : (
+          <Wrench className="size-3 shrink-0" />
+        )}
+        <span className="shrink-0">
+          {part.server ? `${part.server} › ` : ''}
+          <span className="font-medium text-foreground">{part.name}</span>
+        </span>
+        {hint && <span className="min-w-0 truncate opacity-80">{hint}</span>}
+        <ChevronDown className={cn('ms-auto size-3 shrink-0 transition-transform', open && 'rotate-180')} />
+      </button>
+      {open && (
+        <div className="flex flex-col gap-1.5 border-t border-border/70 px-2 py-1.5">
+          {hasArgs && (
+            <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-muted-foreground">
+              {JSON.stringify(part.args, null, 2)}
+            </pre>
+          )}
+          <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono">
+            {part.result ?? (part.status === 'running' ? 'Running…' : '')}
+          </pre>
+        </div>
+      )}
+    </div>
+  )
+}
+
 const AssistantMessage = memo(function AssistantMessage({
   message,
   isLast,
@@ -164,9 +215,11 @@ const AssistantMessage = memo(function AssistantMessage({
 }) {
   const catalog = useModelCatalog()
   const streaming = message.status === 'streaming'
+  // Replies with parts show text and tool calls in the order they happened; older ones keep the chip row.
+  const parts = message.parts?.length ? message.parts : null
   return (
     <div className="group flex flex-col gap-2">
-      {message.tools?.length ? (
+      {!parts && message.tools?.length ? (
         <div className="flex flex-wrap gap-1.5">
           {message.tools.map((t, i) => (
             <span
@@ -187,7 +240,14 @@ const AssistantMessage = memo(function AssistantMessage({
         </span>
       )}
 
-      {message.content ? (
+      {parts ? (
+        <>
+          {parts.map((p, i) => (p.type === 'tool' ? <ToolCard key={p.id} part={p} /> : p.text.trim() ? <Markdown key={i} text={p.text} /> : null))}
+          {streaming && parts[parts.length - 1]?.type === 'tool' && (parts[parts.length - 1] as ToolPart).status !== 'running' && (
+            <span className="shimmer-text w-fit text-sm">Thinking…</span>
+          )}
+        </>
+      ) : message.content ? (
         <Markdown text={message.content} />
       ) : streaming ? (
         <span className="shimmer-text w-fit text-sm">{message.tools?.length ? 'Using tools…' : 'Thinking…'}</span>

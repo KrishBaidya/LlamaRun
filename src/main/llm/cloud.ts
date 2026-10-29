@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events'
 import { BASE_SERVER_URL } from '@shared/constants'
 import { JsonObjectStreamParser } from './streamParser'
 import { SupersededResults, toolResultToText, toolSpecs } from './toolPayload'
+import { joinRound, runToolCalls } from './toolRun'
 import {
   GenerationError,
   MAX_TOOL_ROUNDS,
@@ -159,19 +160,14 @@ ${String(last.Value)}` }
   const superseded = new SupersededResults()
   const runTools = async (calls: CloudToolCall[]): Promise<void> => {
     if (!bridge) return
-    for (const call of calls) {
-      opts.onTool?.(call.name, bridge.tools.find((t) => t.name === call.name)?.server ?? '')
+    const outcomes = await runToolCalls(bridge, calls, opts)
+    outcomes.forEach(({ result, error }, i) => {
+      const call = calls[i]
       // The backend takes text tool results only; screenshots stay out (toolResultToText).
-      const reply: Pair = { Key: 'user', Value: null }
-      try {
-        const result = await bridge.call(call.name, call.args)
-        reply.Value = { content: [{ type: 'text', text: toolResultToText(result) }] }
-        superseded.add(result, (text) => (reply.Value = { content: [{ type: 'text', text }] }))
-      } catch (err) {
-        reply.Value = { content: [{ type: 'text', text: `Tool error: ${(err as Error).message}` }] }
-      }
+      const reply: Pair = { Key: 'user', Value: { content: [{ type: 'text', text: result ? toolResultToText(result) : `Tool error: ${error}` }] } }
+      if (result) superseded.add(result, (text) => (reply.Value = { content: [{ type: 'text', text }] }))
       pairs.push({ Key: 'assistant', Value: JSON.stringify({ type: 'tool-call', toolCallId: call.id, toolName: call.name, args: call.args }) }, reply)
-    }
+    })
   }
 
   let output = ''
@@ -214,6 +210,7 @@ ${String(last.Value)}` }
 
     // A model can ask for several tools in one step; run them all.
     const toolCalls: CloudToolCall[] = []
+    let roundText = ''
     const parser = new JsonObjectStreamParser()
     const decoder = new TextDecoder()
     const reader = res.body.getReader()
@@ -226,7 +223,8 @@ ${String(last.Value)}` }
           if (part.done !== undefined && String(part.done).toLowerCase() === 'true') break outer
           const text = textOf(part)
           if (text) {
-            output += text
+            output = joinRound(output, text, round > 0 && !roundText)
+            roundText += text
             opts.onToken?.(text)
             continue
           }
@@ -242,6 +240,8 @@ ${String(last.Value)}` }
     }
 
     if (!toolCalls.length || !bridge) return output
+    // What the model said before calling its tools ("Let me open Notepad") stays in the conversation it sees next.
+    if (roundText.trim()) pairs.push({ Key: 'assistant', Value: roundText })
     if (round >= maxRounds) {
       const state: CloudPauseState = { pairs: [...pairs], pending: toolCalls, images }
       opts.onPause?.({ backend: 'cloud', model: opts.model, state } satisfies ToolPause)

@@ -90,3 +90,28 @@ describe('computer-use turns with cloud models', () => {
     ])
   })
 })
+
+describe('what cloud models see between rounds', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('keeps what the model said before its tool call, and separates the rounds of its reply', async () => {
+    const prompts: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: RequestInit) => {
+        prompts.push(JSON.parse(String(init.body)).prompt)
+        const parts =
+          prompts.length === 1
+            ? [{ text: { type: 'text-delta', text: 'Let me look.' } }, { text: { type: 'tool-call', toolCallId: 'c1', toolName: 'look', input: { n: 1 } } }]
+            : [{ text: { type: 'text-delta', text: 'Done.' } }]
+        return new Response(parts.map((p) => JSON.stringify(p)).join('') + JSON.stringify({ done: 'True' }), { status: 200 })
+      })
+    )
+    const out = await generateCloud('go', { model: 'gemini-2.5-flash', token: 't', tools } as never)
+    expect(out).toBe('Let me look.\n\nDone.')
+    const second = JSON.parse(prompts[1]) as { Key: string; Value: unknown }[]
+    expect(second.map((p) => p.Key)).toEqual(['user', 'assistant', 'assistant', 'user'])
+    expect(second[1].Value).toBe('Let me look.')
+    expect(JSON.parse(String(second[2].Value))).toMatchObject({ type: 'tool-call', toolName: 'look' })
+  })
+})

@@ -2,6 +2,7 @@ import { Ollama, type Message, type Tool } from 'ollama'
 import type { ModelCapability, ModelInfo } from '@shared/types'
 import { OLLAMA_HOST } from '@shared/constants'
 import { SupersededResults, toolResultImages, toolSpecs } from './toolPayload'
+import { joinRound, runToolCalls } from './toolRun'
 import {
   GenerationError,
   MAX_TOOL_ROUNDS,
@@ -139,21 +140,22 @@ export async function generateOllama(input: GenerateInput, opts: GenerateOptions
   const superseded = new SupersededResults()
   const runTools = async (calls: ToolCall[]): Promise<void> => {
     if (!bridge) return
-    for (const call of calls) {
-      const name = call.function.name
-      opts.onTool?.(name, bridge.tools.find((t) => t.name === name)?.server ?? '')
-      let message: Message
-      try {
-        const result = await bridge.call(name, call.function.arguments ?? {})
-        const images = opts.vision ? toolResultImages(result) : []
-        message = { role: 'tool', content: toolResultToText(result), tool_name: name, ...(images.length ? { images } : {}) }
-        superseded.add(result, (text) => {
-          message.content = text
-          delete message.images
-        })
-      } catch (err) {
-        message = { role: 'tool', content: `Tool error: ${(err as Error).message}`, tool_name: name }
+    const outcomes = await runToolCalls(
+      bridge,
+      calls.map((c) => ({ name: c.function.name, args: c.function.arguments ?? {} })),
+      opts
+    )
+    for (const { call, result, error } of outcomes) {
+      if (!result) {
+        messages.push({ role: 'tool', content: `Tool error: ${error}`, tool_name: call.name })
+        continue
       }
+      const images = opts.vision ? toolResultImages(result) : []
+      const message: Message = { role: 'tool', content: toolResultToText(result), tool_name: call.name, ...(images.length ? { images } : {}) }
+      superseded.add(result, (text) => {
+        message.content = text
+        delete message.images
+      })
       messages.push(message)
     }
   }
@@ -181,8 +183,8 @@ export async function generateOllama(input: GenerateInput, opts: GenerateOptions
       const toolCalls: NonNullable<Message['tool_calls']> = []
       for await (const chunk of stream) {
         if (chunk.message.content) {
+          output = joinRound(output, chunk.message.content, round > 0 && !content)
           content += chunk.message.content
-          output += chunk.message.content
           opts.onToken?.(chunk.message.content)
         }
         if (chunk.message.tool_calls?.length) toolCalls.push(...chunk.message.tool_calls)
