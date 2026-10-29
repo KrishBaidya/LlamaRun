@@ -1,0 +1,5 @@
+[
+  { "name": "computer_windows", "args": {} },
+  { "name": "computer_look", "args": { "window": "{{window:Simple Task}}" } },
+  { "name": "computer_click", "args": { "window": "{{window:Simple Task}}", "name": "{{quoted}}" } }
+]
