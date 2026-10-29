@@ -39,6 +39,16 @@ export interface Settings {
   compactKeepTurns: number
   /** Per-model overrides, by model id. */
   modelContext: Record<string, ModelContextOverride>
+  /** The model may operate apps on this PC (computer use, through Cua Driver). */
+  computerUse: boolean
+  /** Send window screenshots to models that can see images. */
+  computerScreenshots: boolean
+  /** Most tool rounds in one computer-use reply before it pauses. */
+  computerMaxSteps: number
+  /** Apps the user chose "Always allow" for (lower case, without .exe). */
+  computerAllowedApps: string[]
+  /** Apps Llama Run must never control, matched by name. */
+  computerBlockedApps: string[]
 }
 
 export interface ModelContextOverride {

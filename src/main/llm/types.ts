@@ -80,6 +80,10 @@ export interface GenerateOptions {
   historyChars?: number
   /** Ollama: context window for this request (`num_ctx`), from the model's own size or the user's override. */
   contextTokens?: number
+  /** Most model -> tool -> model rounds before pausing (defaults to MAX_TOOL_ROUNDS). */
+  maxToolRounds?: number
+  /** The model can see images: tool results' images (screenshots) are sent along. */
+  vision?: boolean
 }
 
 /** Maximum model -> tool -> model round trips before pausing (or forcing an answer). */

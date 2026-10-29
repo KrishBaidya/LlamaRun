@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events'
 import { BASE_SERVER_URL } from '@shared/constants'
 import { JsonObjectStreamParser } from './streamParser'
-import { toolResultToText, toolSpecs } from './toolPayload'
+import { SupersededResults, toolResultToText, toolSpecs } from './toolPayload'
 import {
   GenerationError,
   MAX_TOOL_ROUNDS,
@@ -155,20 +155,22 @@ export async function generateCloud(
 ${String(last.Value)}` }
   }
   const bridge = opts.tools
+  const maxRounds = opts.maxToolRounds ?? MAX_TOOL_ROUNDS
+  const superseded = new SupersededResults()
   const runTools = async (calls: CloudToolCall[]): Promise<void> => {
     if (!bridge) return
     for (const call of calls) {
       opts.onTool?.(call.name, bridge.tools.find((t) => t.name === call.name)?.server ?? '')
-      let text: string
+      // The backend takes text tool results only; screenshots stay out (toolResultToText).
+      const reply: Pair = { Key: 'user', Value: null }
       try {
-        text = toolResultToText(await bridge.call(call.name, call.args))
+        const result = await bridge.call(call.name, call.args)
+        reply.Value = { content: [{ type: 'text', text: toolResultToText(result) }] }
+        superseded.add(result, (text) => (reply.Value = { content: [{ type: 'text', text }] }))
       } catch (err) {
-        text = `Tool error: ${(err as Error).message}`
+        reply.Value = { content: [{ type: 'text', text: `Tool error: ${(err as Error).message}` }] }
       }
-      pairs.push(
-        { Key: 'assistant', Value: JSON.stringify({ type: 'tool-call', toolCallId: call.id, toolName: call.name, args: call.args }) },
-        { Key: 'user', Value: { content: [{ type: 'text', text }] } }
-      )
+      pairs.push({ Key: 'assistant', Value: JSON.stringify({ type: 'tool-call', toolCallId: call.id, toolName: call.name, args: call.args }) }, reply)
     }
   }
 
@@ -182,7 +184,7 @@ ${String(last.Value)}` }
     const body: Record<string, unknown> = { prompt, model: opts.model }
     if (images?.length) body.images = images
     // Without a way to pause, the last round goes without tools so the model has to answer.
-    if (tools?.length && (opts.onPause || round < MAX_TOOL_ROUNDS)) body.Tools = tools
+    if (tools?.length && (opts.onPause || round < maxRounds)) body.Tools = tools
 
     let res: Response
     try {
@@ -240,7 +242,7 @@ ${String(last.Value)}` }
     }
 
     if (!toolCalls.length || !bridge) return output
-    if (round >= MAX_TOOL_ROUNDS) {
+    if (round >= maxRounds) {
       const state: CloudPauseState = { pairs: [...pairs], pending: toolCalls, images }
       opts.onPause?.({ backend: 'cloud', model: opts.model, state } satisfies ToolPause)
       return output

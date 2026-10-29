@@ -34,6 +34,11 @@ class StderrTail {
 export interface McpToolResult {
   content: unknown[]
   isError?: boolean
+  /**
+   * Short text to show instead of this result once a later result that also
+   * has one arrives (an old window state, say), so requests stay small.
+   */
+  superseded?: string
 }
 
 /**

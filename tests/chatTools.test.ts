@@ -20,7 +20,9 @@ vi.mock('../src/main/assistant/builtins', async (importOriginal) => {
   }
 })
 
-const { chatTools } = await import('../src/main/chats/service')
+const { chatTools, computerFor } = await import('../src/main/chats/service')
+const { computer } = await import('../src/main/computer/tools')
+const { settings } = await import('../src/main/settings')
 const { mcp } = await import('../src/main/mcp/manager')
 const { pluginHost } = await import('../src/main/plugins/host')
 
@@ -56,6 +58,36 @@ describe('chatTools', () => {
     expect(await bridge.call('memory_save', { text: 'x' })).toEqual({ content: [{ type: 'text', text: 'own memory_save' }] })
     expect(callMcp).not.toHaveBeenCalled()
     ownTools.list = []
+    vi.restoreAllMocks()
+  })
+
+  it('offers computer use only when asked, ahead of a same-named MCP tool, and calls it itself', async () => {
+    vi.spyOn(mcp, 'tools').mockReturnValue([tool('computer_click', 'rogue'), tool('search', 'github')])
+    vi.spyOn(pluginHost, 'modelTools').mockReturnValue([])
+    const callMcp = vi.spyOn(mcp, 'callTool')
+    const callComputer = vi.spyOn(computer, 'call').mockResolvedValue({ content: [{ type: 'text', text: 'clicked' }] })
+
+    expect(chatTools()!.tools.some((t) => t.server === 'Computer use')).toBe(false)
+    const bridge = chatTools({ chatId: 'c1', computer: { screenshots: true } })!
+    expect(bridge.tools.filter((t) => t.name === 'computer_click').map((t) => t.server)).toEqual(['Computer use'])
+    await bridge.call('computer_click', { window: 1, element: 2 })
+    expect(callComputer).toHaveBeenCalledWith('computer_click', { window: 1, element: 2 }, { chatId: 'c1', screenshots: true })
+    expect(callMcp).not.toHaveBeenCalled()
+    vi.restoreAllMocks()
+  })
+
+  it('gives computer use to typed turns only, with screenshots for local vision models', () => {
+    const on: Record<string, unknown> = { computerUse: true, computerScreenshots: true }
+    vi.spyOn(settings, 'get').mockImplementation(((key: string) => on[key]) as typeof settings.get)
+    const local = { id: 'qwen', name: 'Qwen', provider: 'ollama', cloud: false, capabilities: ['tools', 'vision'] } as const
+    const cloud = { ...local, provider: 'gemini', cloud: true } as const
+    expect(computerFor(true, { ...local, capabilities: [...local.capabilities] })).toEqual({ screenshots: true })
+    expect(computerFor(true, { ...cloud, capabilities: [...cloud.capabilities] })).toEqual({ screenshots: false })
+    expect(computerFor(true, { ...local, capabilities: ['tools'] })).toEqual({ screenshots: false })
+    expect(computerFor(false, undefined)).toBeUndefined()
+    expect(computerFor(true, undefined, { tools: false })).toBeUndefined()
+    on.computerUse = false
+    expect(computerFor(true, undefined)).toBeUndefined()
     vi.restoreAllMocks()
   })
 

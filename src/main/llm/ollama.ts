@@ -1,7 +1,7 @@
 import { Ollama, type Message, type Tool } from 'ollama'
 import type { ModelCapability, ModelInfo } from '@shared/types'
 import { OLLAMA_HOST } from '@shared/constants'
-import { toolSpecs } from './toolPayload'
+import { SupersededResults, toolResultImages, toolSpecs } from './toolPayload'
 import {
   GenerationError,
   MAX_TOOL_ROUNDS,
@@ -135,18 +135,26 @@ export async function generateOllama(input: GenerateInput, opts: GenerateOptions
     : undefined
 
   const bridge = opts.tools
+  const maxRounds = opts.maxToolRounds ?? MAX_TOOL_ROUNDS
+  const superseded = new SupersededResults()
   const runTools = async (calls: ToolCall[]): Promise<void> => {
     if (!bridge) return
     for (const call of calls) {
       const name = call.function.name
       opts.onTool?.(name, bridge.tools.find((t) => t.name === name)?.server ?? '')
-      let text: string
+      let message: Message
       try {
-        text = toolResultToText(await bridge.call(name, call.function.arguments ?? {}))
+        const result = await bridge.call(name, call.function.arguments ?? {})
+        const images = opts.vision ? toolResultImages(result) : []
+        message = { role: 'tool', content: toolResultToText(result), tool_name: name, ...(images.length ? { images } : {}) }
+        superseded.add(result, (text) => {
+          message.content = text
+          delete message.images
+        })
       } catch (err) {
-        text = `Tool error: ${(err as Error).message}`
+        message = { role: 'tool', content: `Tool error: ${(err as Error).message}`, tool_name: name }
       }
-      messages.push({ role: 'tool', content: text, tool_name: name })
+      messages.push(message)
     }
   }
 
@@ -157,7 +165,7 @@ export async function generateOllama(input: GenerateInput, opts: GenerateOptions
     if (resumed) await runTools(resumed.pending)
     for (let round = 0; !opts.signal?.aborted; round++) {
       // Without a way to pause, the last round goes without tools so the model has to answer.
-      const roundTools = opts.onPause || round < MAX_TOOL_ROUNDS ? tools : undefined
+      const roundTools = opts.onPause || round < maxRounds ? tools : undefined
       let stream
       try {
         stream = await client.chat({ model: opts.model, messages, tools: roundTools, stream: true, options })
@@ -182,7 +190,7 @@ export async function generateOllama(input: GenerateInput, opts: GenerateOptions
 
       if (!toolCalls.length || !bridge) return output
       messages.push({ role: 'assistant', content, tool_calls: toolCalls })
-      if (round >= MAX_TOOL_ROUNDS) {
+      if (round >= maxRounds) {
         const state: OllamaPauseState = { messages: [...messages], pending: toolCalls }
         opts.onPause?.({ backend: 'ollama', model: opts.model, state } satisfies ToolPause)
         return output

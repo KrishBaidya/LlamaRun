@@ -4,6 +4,17 @@ Goal: Llama Run can operate the user's Windows PC on its own (open apps, click, 
 
 Upstream: [Cua Driver docs](https://cua.ai/docs/cua-driver), source in [trycua/cua](https://github.com/trycua/cua) (`libs/cua-driver`).
 
+## Status
+
+Phases 1 and 2 are built, and so is the Ollama half of phase 3 (code in `src/main/computer/`).
+
+- **Phase 1 is done.** `@trycua/cua-driver` 0.38.0 loads in an Electron 44 utility process, including from inside a packaged `app.asar` (the worker loads the SDK from `app.asar.unpacked`, because its native library can't be loaded from inside the archive). Measured on Linux/X11: worker start-up about 300 ms, `list_windows` about 6 ms, `type_text` about 12 ms. `get_window_state` took about 470 ms there, mostly an accessibility-bus timeout in the test VM. These timings still need checking on Windows.
+- **Phase 2 is done.** There are 11 `computer_*` tools. Each action also returns what changed in the window (Cua's `since` diff). Superseded window states are pruned from later requests. Computer-use replies get their own step cap (default 50). Apps need approval once per reply, or can be set to always allowed; there's a blocked-apps list, and typing into a password field always asks. A "Using …" card has a stop button, plus Ctrl+Alt+Esc. A **Settings → Computer use** page holds all of this.
+- **Phase 3 is half done.** Local (Ollama) models that can see images get the newest screenshot. Cloud models get text only until the server accepts image parts in tool results.
+- **Phases 4 and 5 are not started:** browser tools over CDP, arm64 builds, and `llamarun.computer` for plugins.
+
+Tests: `tests/computer.test.ts` and `tests/computerLoop.test.ts` run in CI. `CUA_E2E=1 npx vitest run tests/computer.e2e.test.ts` drives a real app (Notepad on Windows, xterm on Linux) through the real driver.
+
 ## 1. Decision: use the SDK, don't build a toolchain
 
 Three ways in were considered:

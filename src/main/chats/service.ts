@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
-import type { Chat, ChatAttachment, ChatEvent, ChatMessage, ChatSummary, ContextUsage, ModelContextInfo, SlashCommand } from '@shared/types'
+import type { Chat, ChatAttachment, ChatEvent, ChatMessage, ChatSummary, ContextUsage, ModelContextInfo, ModelInfo, SlashCommand } from '@shared/types'
 import { approvals } from '../assistant/approval'
 import { builtinInstructions, builtinTools, callBuiltinTool, isBuiltinTool } from '../assistant/builtins'
 import { documentBlock } from '../attachments/read'
+import { indicator } from '../computer/indicator'
+import { computer, computerInstructions, isComputerTool } from '../computer/tools'
 import {
   generate,
   GenerationError,
@@ -53,13 +55,23 @@ export const BUILTIN_COMMANDS: SlashCommand[] = [
   { name: 'new', description: 'Start a new chat', kind: 'builtin', plugin: 'Llama Run' }
 ]
 
+export interface ChatToolOptions {
+  /** Offer run_command and web_fetch (see wantsShell). */
+  shell?: boolean
+  chatId?: string
+  /** Offer the computer_* tools (computer use is on and the user typed this turn). */
+  computer?: { screenshots: boolean }
+}
+
 /**
- * The tools a chat turn offers: Llama Run's own (memory, skills, and for typed
- * turns the approved shell and web tools), the MCP servers' and the plugins'.
+ * The tools a chat turn offers: Llama Run's own (memory, skills, for typed
+ * turns the approved shell and web tools and, when it's on, computer use),
+ * the MCP servers' and the plugins'.
  */
-export function chatTools(options: { shell?: boolean; chatId?: string } = {}): ToolBridge | undefined {
-  const own = builtinTools(options)
-  const mcpTools = mcp.tools().filter((t) => !isBuiltinTool(t.name))
+export function chatTools(options: ChatToolOptions = {}): ToolBridge | undefined {
+  const own = [...builtinTools(options), ...(options.computer ? computer.tools() : [])]
+  const ownNames = new Set(own.map((t) => t.name))
+  const mcpTools = mcp.tools().filter((t) => !isBuiltinTool(t.name) && !ownNames.has(t.name))
   const pluginTools = pluginHost.modelTools(new Set([...own, ...mcpTools].map((t) => t.name)))
   if (!own.length && !mcpTools.length && !pluginTools.length) return undefined
   const fromPlugins = new Set(pluginTools.map((t) => t.name))
@@ -68,15 +80,17 @@ export function chatTools(options: { shell?: boolean; chatId?: string } = {}): T
     call: (name, args) =>
       isBuiltinTool(name)
         ? callBuiltinTool(name, args, { chatId: options.chatId })
-        : fromPlugins.has(name)
-          ? pluginHost.callModelTool(name, args)
-          : mcp.callTool(name, args)
+        : options.computer && isComputerTool(name)
+          ? computer.call(name, args, { chatId: options.chatId, screenshots: options.computer.screenshots })
+          : fromPlugins.has(name)
+            ? pluginHost.callModelTool(name, args)
+            : mcp.callTool(name, args)
   }
 }
 
-/** Instructions for a turn: memories and skills, what plugins added, then the turn's own. */
-export function systemFor(turn?: string, shell = false): string | undefined {
-  const parts = [builtinInstructions({ shell }), pluginHost.contextText(), turn?.trim()].filter(Boolean)
+/** Instructions for a turn: memories and skills, computer use, what plugins added, then the turn's own. */
+export function systemFor(turn?: string, shell = false, computerOn = false): string | undefined {
+  const parts = [builtinInstructions({ shell }), computerOn ? computerInstructions() : '', pluginHost.contextText(), turn?.trim()].filter(Boolean)
   return parts.length ? parts.join('\n\n') : undefined
 }
 
@@ -125,11 +139,25 @@ export function wantsShell(chat: Pick<Chat, 'installer'>, text: string): boolean
   return /\binstall/i.test(text) && /\bskills?\b/i.test(text) && /(https?:\/\/|github\.com|gitlab\.com|\.git\b|\b[\w.-]+\/[\w.-]+\b)/i.test(text)
 }
 
+async function modelInfo(model: string): Promise<ModelInfo | undefined> {
+  const catalog = await modelCatalog().catch(() => null)
+  return catalog?.groups.flatMap((g) => g.models).find((m) => m.id === model)
+}
+
 /** The context window this model gets (its own size, or the user's override). */
 export async function contextFor(model: string): Promise<ModelContextInfo> {
-  const catalog = await modelCatalog().catch(() => null)
-  const info = catalog?.groups.flatMap((g) => g.models).find((m) => m.id === model)
-  return contextWindowFor(model, info, settings.all)
+  return contextWindowFor(model, await modelInfo(model), settings.all)
+}
+
+/**
+ * Whether a turn may operate the computer, and how: only turns the user typed,
+ * with computer use on. Screenshots go to local models that can see images
+ * (the cloud backend takes text tool results only).
+ */
+export function computerFor(typed: boolean, info: ModelInfo | undefined, turn?: TurnOptions): ChatToolOptions['computer'] {
+  if (!typed || turn?.tools === false || !settings.get('computerUse')) return undefined
+  const vision = Boolean(info?.capabilities?.includes('vision'))
+  return { screenshots: settings.get('computerScreenshots') !== false && vision && !info?.cloud }
 }
 
 /**
@@ -145,6 +173,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
   constructor() {
     super()
     chatStore.on('changed', () => this.emit('changed', this.list()))
+    indicator.on('stop', (chatId) => this.cancel(chatId))
   }
 
   list(): ChatSummary[] {
@@ -309,9 +338,20 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
   }
 
   /** Compacts first when the next request would pass the model's threshold (auto-compact). */
-  private async autoCompact(chat: Chat, model: string, info: ModelContextInfo, signal: AbortSignal, shell: boolean): Promise<void> {
+  private async autoCompact(
+    chat: Chat,
+    model: string,
+    info: ModelContextInfo,
+    signal: AbortSignal,
+    shell: boolean,
+    computerOn?: ChatToolOptions['computer']
+  ): Promise<void> {
     if (settings.get('autoCompact') === false) return
-    const used = estimateTokens(historyFor(chat.messages, chat.compaction), systemFor(undefined, shell), chatTools({ shell })?.tools)
+    const used = estimateTokens(
+      historyFor(chat.messages, chat.compaction),
+      systemFor(undefined, shell, Boolean(computerOn)),
+      chatTools({ shell, computer: computerOn })?.tools
+    )
     if (used < (info.tokens * info.compactAtPercent) / 100) return
     try {
       await this.compactNow(chat, model, undefined, false, signal)
@@ -425,6 +465,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     }
     const prior = assistant.content
     let pause: ToolPause | undefined
+    let maxRounds = MAX_TOOL_ROUNDS
     const emitUpdate = (): void => {
       this.emit('event', { type: 'update', chatId: chat.id, message: { ...assistant } })
     }
@@ -458,9 +499,12 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
       }
       const model = before.model || chat.model
       assistant.model = model
-      const context = await contextFor(model)
+      const info = await modelInfo(model)
+      const context = contextWindowFor(model, info, settings.all)
       const shell = typed && wantsShell(chat, user.prompt ?? user.content)
-      if (!resume) await this.autoCompact(chat, model, context, controller.signal, shell)
+      const computerOn = computerFor(typed, info, turn)
+      maxRounds = computerOn ? Math.min(500, Math.max(MAX_TOOL_ROUNDS, settings.get('computerMaxSteps') || 0)) : MAX_TOOL_ROUNDS
+      if (!resume) await this.autoCompact(chat, model, context, controller.signal, shell, computerOn)
       if (controller.signal.aborted) throw new Error('Stopped')
 
       if (resume) emitUpdate()
@@ -472,8 +516,10 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
       const text = await generate(historyFor(chat.messages.slice(0, -1), chat.compaction), {
         model,
         signal: controller.signal,
-        tools: turn?.tools === false ? undefined : chatTools({ shell, chatId: chat.id }),
-        system: systemFor(turn?.system, shell),
+        tools: turn?.tools === false ? undefined : chatTools({ shell, chatId: chat.id, computer: computerOn }),
+        system: systemFor(turn?.system, shell, Boolean(computerOn)),
+        maxToolRounds: maxRounds,
+        vision: Boolean(info?.capabilities?.includes('vision')),
         // Compaction keeps the history inside the window; this cut is the safety net.
         historyChars: Math.floor(context.tokens * 4 * 0.9),
         contextTokens: context.tokens,
@@ -505,7 +551,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
         // Stopped at the cap; after-hooks run once the reply is finished.
         this.paused.set(chat.id, { messageId: assistant.id, pause, turn })
         assistant.toolLimit = true
-        assistant.note = `Paused after ${MAX_TOOL_ROUNDS} rounds of tool calls`
+        assistant.note = `Paused after ${maxRounds} rounds of tool calls`
         assistant.status = 'done'
         return { ...assistant }
       }
@@ -529,6 +575,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
       }
     } finally {
       if (timer) clearTimeout(timer)
+      computer.endTurn(chat.id)
       this.running.delete(chat.id)
       emitUpdate()
       chatStore.save(chat)

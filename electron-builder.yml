@@ -12,6 +12,9 @@ asar: true
 # esbuild-wasm (compiles plugin TSX panels) loads its .wasm and worker from real files.
 asarUnpack:
   - node_modules/esbuild-wasm/**
+  # Cua Driver (computer use) and its runtime: the worker loads them from app.asar.unpacked so the native library is a real file.
+  - node_modules/@trycua/**
+  - node_modules/@ubjs/**
 extraResources:
   # Bundled CPython (downloaded by scripts/fetch-python.mjs) and the plugin SDK.
   - from: resources/python/${os}-${arch}

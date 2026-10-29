@@ -20,7 +20,14 @@ class HudHost {
   private ready = false
   private hideTimer: NodeJS.Timeout | null = null
   private toastSeq = 0
+  /** Cards Llama Run shows itself (not a plugin), by owner id: what a click does. */
+  private ownClicks = new Map<string, (hudId: string) => void>()
   onClick: ClickHandler = () => {}
+
+  /** Clicks on cards shown under `ownerId` go to `handler` instead of a plugin. */
+  handleOwnClicks(ownerId: string, handler: (hudId: string) => void): void {
+    this.ownClicks.set(ownerId, handler)
+  }
 
   snapshot(): HudSnapshot {
     return { huds: [...this.huds.values()], toasts: this.toasts }
@@ -74,7 +81,9 @@ class HudHost {
     const hud = this.huds.get(key)
     if (!hud) return
     const [pluginId, ...rest] = key.split(':')
-    this.onClick(pluginId, rest.join(':'), 'click')
+    const own = this.ownClicks.get(pluginId)
+    if (own) own(rest.join(':'))
+    else this.onClick(pluginId, rest.join(':'), 'click')
   }
 
   /** Remove everything a plugin showed (it stopped). */
