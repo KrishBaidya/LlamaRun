@@ -5,7 +5,7 @@ Runs [Cua Bench](https://cua.ai/docs/cua-bench) tasksets on local Linux desktop 
 - **Llama Run**: the app's own computer-use harness (`src/main/computer/tools.ts`, its instructions and tool loop) with Gemini 3.8 Flash. `llamarun-agent.ts` runs it in plain Node.
 - **Claude Code**: `claude -p` with Claude Sonnet 5.5, Claude Code's own harness.
 
-Both reach the desktop through the same tool server: Cua Driver started inside each sandbox, its MCP endpoint tunnelled to this machine (`agents/llamarun_bench/driver.py`). So the comparison is harness plus model, on identical tools.
+Both reach the desktop through the same tool server: one `cua-driver mcp` started inside each sandbox for the whole task, its stdio tunnelled to this machine and served to each agent as a stdio MCP server (`agents/llamarun_bench/driver.py`, `mcp-tcp.mjs`). So the comparison is harness plus model, on identical tools.
 
 ## Run
 
@@ -36,4 +36,5 @@ Gemini 3.8 Flash isn't marked as a vision model in Llama Run, so like in the app
 
 - `script/<file.json>` as the model replays fixed tool calls (see `scripts/`), to check the plumbing with no model: `scripts/click-button.json` scores 1.
 - The `click-button` task's built-in oracle scores 0 because it clicks the first of several buttons; the evaluator itself is right.
+- Not `cua-driver serve`: its HTTP endpoint makes every request a new driver session, so element rows and screenshots from one call are gone by the next ("belongs to another session", "no current snapshot"), and drags and x/y clicks never work. The app holds one driver for its lifetime, as the stdio server does.
 - `setup.sh` works around two upstream issues: `cua-sandbox` 0.9.x calls an option the published `cua` 0.9.0 lacks, and Cua's runtime can't pull public ghcr.io images anonymously, so images are served from a local registry.

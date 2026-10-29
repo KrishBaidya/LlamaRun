@@ -34,9 +34,9 @@ class ClaudeCodeAgent(BaseAgent):
         out_dir.mkdir(parents=True, exist_ok=True)
         home = Path(tempfile.mkdtemp(prefix="claude-bench-"))
         try:
-            async with sandbox_driver(session) as (url, token):
+            async with sandbox_driver(session) as (mcp_command, token):
                 config = home / "mcp.json"
-                config.write_text(json.dumps({"mcpServers": {"cua": {"type": "http", "url": url, "headers": {"Authorization": f"Bearer {token}"}}}}))
+                config.write_text(json.dumps({"mcpServers": {"cua": {"type": "stdio", "command": mcp_command[0], "args": mcp_command[1:], "env": {"CUA_MCP_TOKEN": token}}}}))
                 # A clean environment: its own HOME, only the API key, none of the host session's settings.
                 env = {"PATH": os.environ["PATH"], "HOME": str(home), "ANTHROPIC_API_KEY": os.environ["ANTHROPIC_API_KEY"], "DISABLE_TELEMETRY": "1"}
                 for key in ("HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE"):

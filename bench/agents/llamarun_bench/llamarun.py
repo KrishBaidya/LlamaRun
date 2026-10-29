@@ -28,11 +28,11 @@ class LlamaRunAgent(BaseAgent):
         out_dir = Path(logging_dir or Path.cwd())
         out_dir.mkdir(parents=True, exist_ok=True)
         out = out_dir / "llamarun.json"
-        async with sandbox_driver(session) as (url, token):
+        async with sandbox_driver(session) as (mcp_command, token):
             started = time.monotonic()
             proc = await asyncio.create_subprocess_exec(
                 "node", str(RUNNER), "--task", task_description, "--model", self.model,
-                "--mcp-url", url, "--max-steps", str(self.max_steps), "--out", str(out),
+                "--mcp-command", json.dumps(mcp_command), "--max-steps", str(self.max_steps), "--out", str(out),
                 env={**os.environ, "CUA_MCP_TOKEN": token},
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
             )

@@ -1,13 +1,13 @@
 /**
  * Runs one benchmark task through Llama Run's own computer-use harness: the
  * same computer_* tools, instructions and tool loop the app uses, with the
- * driver reached over MCP (Cua Driver's HTTP endpoint inside the benchmark
- * sandbox) instead of the app's utility process.
+ * driver reached over MCP (one `cua-driver mcp` inside the benchmark sandbox,
+ * through bench/mcp-tcp.mjs) instead of the app's utility process.
  *
  *   node bench/dist/llamarun-agent.mjs --task "Click Submit" --model gemini-3.8-flash \
- *     --mcp-url http://127.0.0.1:34861/mcp --out result.json
+ *     --mcp-command '["node","bench/mcp-tcp.mjs","127.0.0.1","34861"]' --out result.json
  *
- * Env: CUA_MCP_TOKEN (the endpoint's bearer token), LLAMARUN_TOKEN (sign-in
+ * Env: CUA_MCP_TOKEN (for the MCP command), LLAMARUN_TOKEN (sign-in
  * token for Llama Run cloud models), OLLAMA_HOST for ollama/<model>.
  *
  * Models: "<id>" is a Llama Run cloud model (gemini-3.8-flash, ...) through
@@ -18,7 +18,7 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { parseArgs } from 'node:util'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { setDriverTransport } from '../src/main/computer/driver'
 import type { DriverResult } from '../src/main/computer/protocol'
 import { computer, computerInstructions, isComputerTool } from '../src/main/computer/tools'
@@ -32,15 +32,15 @@ const { values } = parseArgs({
   options: {
     task: { type: 'string' },
     model: { type: 'string' },
-    'mcp-url': { type: 'string' },
+    'mcp-command': { type: 'string' },
     'max-steps': { type: 'string', default: '50' },
     out: { type: 'string' }
   }
 })
 const task = values.task ?? ''
 const model = values.model ?? ''
-if (!task || !model || !values['mcp-url'] || !values.out) {
-  console.error('Usage: --task <text> --model <id> --mcp-url <url> --out <file> [--max-steps 50]')
+if (!task || !model || !values['mcp-command'] || !values.out) {
+  console.error('Usage: --task <text> --model <id> --mcp-command <json array> --out <file> [--max-steps 50]')
   process.exit(2)
 }
 
@@ -57,11 +57,9 @@ interface StepLog {
 
 async function main(): Promise<void> {
   const client = new Client({ name: 'llamarun-bench', version: '1' })
-  await client.connect(
-    new StreamableHTTPClientTransport(new URL(values['mcp-url']!), {
-      requestInit: { headers: { Authorization: `Bearer ${process.env.CUA_MCP_TOKEN ?? ''}` } }
-    })
-  )
+  // One driver process for the whole task, as in the app: its screenshots and element cache stay valid between calls.
+  const [command, ...args] = JSON.parse(values['mcp-command']!) as string[]
+  await client.connect(new StdioClientTransport({ command, args, env: process.env as Record<string, string> }))
   // Cua Driver's MCP results carry the same fields as the SDK's ToolResult.
   setDriverTransport({
     async call(tool, args): Promise<DriverResult> {
