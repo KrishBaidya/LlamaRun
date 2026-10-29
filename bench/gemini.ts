@@ -64,6 +64,9 @@ export async function generateGemini(
     }
     const calls = content.parts.filter((p) => p.functionCall).map((p) => ({ name: p.functionCall!.name, args: p.functionCall!.args ?? {} }))
     if (!calls.length || !opts.tools) return output
+    // The app pauses here for the user to continue (cloud.ts); with nobody to ask, the run ends.
+    // Gemini can still call tools in the last round even though none were sent.
+    if (round >= maxRounds) return output
     // The model's turn goes back exactly as sent (Gemini 3 needs its thought signatures returned).
     contents.push({ role: 'model', parts: content.parts })
     const outcomes = await runToolCalls(opts.tools, calls, opts)
