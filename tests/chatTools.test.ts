@@ -76,13 +76,13 @@ describe('chatTools', () => {
     vi.restoreAllMocks()
   })
 
-  it('gives computer use to typed turns only, with screenshots for local vision models', () => {
+  it('gives computer use to typed turns only, with screenshots for vision models, local or cloud', () => {
     const on: Record<string, unknown> = { computerUse: true, computerScreenshots: true }
     vi.spyOn(settings, 'get').mockImplementation(((key: string) => on[key]) as typeof settings.get)
     const local = { id: 'qwen', name: 'Qwen', provider: 'ollama', cloud: false, capabilities: ['tools', 'vision'] } as const
     const cloud = { ...local, provider: 'gemini', cloud: true } as const
     expect(computerFor(true, { ...local, capabilities: [...local.capabilities] })).toEqual({ screenshots: true })
-    expect(computerFor(true, { ...cloud, capabilities: [...cloud.capabilities] })).toEqual({ screenshots: false })
+    expect(computerFor(true, { ...cloud, capabilities: [...cloud.capabilities] })).toEqual({ screenshots: true })
     expect(computerFor(true, { ...local, capabilities: ['tools'] })).toEqual({ screenshots: false })
     expect(computerFor(false, undefined)).toBeUndefined()
     expect(computerFor(true, undefined, { tools: false })).toBeUndefined()

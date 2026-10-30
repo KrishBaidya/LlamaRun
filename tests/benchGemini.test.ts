@@ -34,20 +34,25 @@ describe("the bench's Gemini backend (Llama Run's loop, direct API)", () => {
         return ok({ candidates: [{ content: { role: 'model', parts } }], usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 2 } })
       })
     )
-    const usage = { inputTokens: 0, outputTokens: 0, requests: 0 }
-    const out = await generateGemini('open it', { model: 'gemini-3.8-flash', apiKey: 'k', tools, system: 'Be careful.' }, usage)
+    const usage = { inputTokens: 0, cachedTokens: 0, outputTokens: 0, thinkingTokens: 0, requests: 0 }
+    const out = await generateGemini('open it', { model: 'gemini-3.8-flash', apiKey: 'k', tools, system: 'Be careful.', thinking: 'low', vision: true }, usage)
 
     expect(out).toBe('Looking.\n\nDone.')
-    expect(usage).toEqual({ inputTokens: 30, outputTokens: 6, requests: 3 })
+    expect(usage).toEqual({ inputTokens: 30, cachedTokens: 0, outputTokens: 6, thinkingTokens: 0, requests: 3 })
     expect(bodies[0].systemInstruction).toEqual({ parts: [{ text: 'Be careful.' }] })
+    expect(bodies[0].generationConfig).toEqual({ thinkingConfig: { thinkingLevel: 'low' } })
     // Schemas go out compacted, as the app sends them.
     expect(bodies[0].tools[0].functionDeclarations[0]).toEqual({ name: 'computer_look', description: 'Read a window.', parameters: { type: 'object', properties: { window: { type: 'integer' } } } })
     const last = bodies[2].contents
     // The model's turn is echoed with its thought signature.
     expect(last[1]).toEqual({ role: 'model', parts: [{ text: 'Looking.' }, call('computer_look', { window: 1 }, { thoughtSignature: 'sig1' })] })
-    // Text-only results; the older window state is cut to its short form.
+    // The older window state is cut to its short form; the newest result carries its screenshot.
     expect(last[2].parts[0].functionResponse).toEqual({ name: 'computer_look', response: { result: 'old state 1' } })
-    expect(last[4].parts[0].functionResponse).toEqual({ name: 'computer_look', response: { result: 'state 2\n[image image/png]' } })
+    expect(last[4].parts[0].functionResponse).toEqual({
+      name: 'computer_look',
+      response: { result: 'state 2\n[image image/png]' },
+      parts: [{ inlineData: { mimeType: 'image/png', data: expect.any(String) } }]
+    })
   })
 
   it('sends the last round without tools at the step cap, and retries rate limits', async () => {

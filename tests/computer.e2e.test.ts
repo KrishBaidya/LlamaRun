@@ -76,8 +76,8 @@ describe.skipIf(!process.env.CUA_E2E)('computer use with the real Cua Driver', a
     const r = await computer.call('computer_steps', { window, steps: apps.keys.map((name) => ({ action: 'click', name, role: 'button' })) }, ctx)
     console.log(text(r))
     expect(r.isError).toBeFalsy()
-    // One driver call: the clicks and the look at what changed.
-    expect(timings.slice(before).map((t) => t.split(' ')[0])).toEqual(['run_steps'])
+    // One driver call for the clicks and the look at what changed, then the window list (did a window open?).
+    expect(timings.slice(before).map((t) => t.split(' ')[0])).toEqual(['run_steps', 'list_windows'])
     expect(text(r)).toContain('42')
   }, 60_000)
 
@@ -93,10 +93,21 @@ describe.skipIf(!process.env.CUA_E2E)('computer use with the real Cua Driver', a
     expect(text(check)).toContain('typed by llamarun')
   }, 60_000)
 
-  it('clicks a point after taking the screenshot frame it needs', async () => {
+  it('shows the window before a pixel click, then clicks the point', async () => {
     const window = opened[0]
-    const r = await computer.call('computer_click', { window, x: 20, y: 20 }, ctx)
+    const seeing = { ...ctx, screenshots: true }
+    // The model hasn't seen this window's screenshot yet: it gets one instead of a blind click.
+    const first = await computer.call('computer_click', { window, x: 20, y: 20 }, seeing)
+    expect(text(first)).toContain('Aim again')
+    const r = await computer.call('computer_click', { window, x: 20, y: 20 }, seeing)
     console.log(text(r))
     expect(text(r)).not.toContain('screenshot_context_missing')
+  }, 30_000)
+
+  it('drags between two elements found by name', async () => {
+    const window = opened[0]
+    const r = await computer.call('computer_drag', { window, from_name: apps.keys[0], to_name: apps.keys[2] }, ctx)
+    console.log(text(r))
+    expect(text(r)).not.toMatch(/Could not find/)
   }, 30_000)
 })

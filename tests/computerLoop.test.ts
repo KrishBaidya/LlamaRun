@@ -66,28 +66,25 @@ describe('computer-use turns with Ollama', () => {
 describe('computer-use turns with cloud models', () => {
   afterEach(() => vi.unstubAllGlobals())
 
-  it('cuts older window states from later requests and honours the step cap', async () => {
-    const prompts: { Key: string; Value: unknown }[][] = []
+  it('cuts older window states from later requests, sends only the newest screenshot, and honours the step cap', async () => {
+    const requests: { role: string; content: string; images?: unknown[] }[][] = []
     vi.stubGlobal(
       'fetch',
       vi.fn(async (_url: string, init: RequestInit) => {
-        const body = JSON.parse(String(init.body)) as { prompt: string; Tools?: unknown }
-        prompts.push(prompts.length ? JSON.parse(body.prompt) : [])
-        const n = prompts.length
+        const body = JSON.parse(String(init.body)) as { messages: { role: string; content: string; images?: unknown[] }[]; Tools?: unknown }
+        requests.push(body.messages)
+        const n = requests.length
         const part = body.Tools ? { text: { type: 'tool-call', toolCallId: `c${n}`, toolName: 'look', input: { n } } } : { text: { type: 'text-delta', text: 'Done.' } }
         return new Response(JSON.stringify(part) + JSON.stringify({ done: 'True' }), { status: 200 })
       })
     )
-    const out = await generateCloud('go', { model: 'gemini-2.5-flash', token: 't', tools, maxToolRounds: 3 } as never)
+    const out = await generateCloud('go', { model: 'gemini-2.5-flash', token: 't', tools, maxToolRounds: 3, vision: true } as never)
     expect(out).toBe('Done.')
     // Three rounds with tools, then one without, so the model answers.
-    expect(prompts).toHaveLength(4)
-    const results = prompts.at(-1)!.filter((p) => p.Key === 'user').slice(1)
-    expect(results.map((p) => (p.Value as { content: { text: string }[] }).content[0].text)).toEqual([
-      'old state 1',
-      'old state 2',
-      'full state 3\n[image image/png]'
-    ])
+    expect(requests).toHaveLength(4)
+    const results = requests.at(-1)!.filter((m) => m.role === 'tool')
+    expect(results.map((m) => m.content)).toEqual(['old state 1', 'old state 2', 'full state 3\n[image image/png]'])
+    expect(results.map((m) => m.images?.length ?? 0)).toEqual([0, 0, 1])
   })
 })
 
@@ -95,13 +92,13 @@ describe('what cloud models see between rounds', () => {
   afterEach(() => vi.unstubAllGlobals())
 
   it('keeps what the model said before its tool call, and separates the rounds of its reply', async () => {
-    const prompts: string[] = []
+    const requests: { role: string; content: string; toolCalls?: { name: string }[] }[][] = []
     vi.stubGlobal(
       'fetch',
       vi.fn(async (_url: string, init: RequestInit) => {
-        prompts.push(JSON.parse(String(init.body)).prompt)
+        requests.push(JSON.parse(String(init.body)).messages)
         const parts =
-          prompts.length === 1
+          requests.length === 1
             ? [{ text: { type: 'text-delta', text: 'Let me look.' } }, { text: { type: 'tool-call', toolCallId: 'c1', toolName: 'look', input: { n: 1 } } }]
             : [{ text: { type: 'text-delta', text: 'Done.' } }]
         return new Response(parts.map((p) => JSON.stringify(p)).join('') + JSON.stringify({ done: 'True' }), { status: 200 })
@@ -109,9 +106,9 @@ describe('what cloud models see between rounds', () => {
     )
     const out = await generateCloud('go', { model: 'gemini-2.5-flash', token: 't', tools } as never)
     expect(out).toBe('Let me look.\n\nDone.')
-    const second = JSON.parse(prompts[1]) as { Key: string; Value: unknown }[]
-    expect(second.map((p) => p.Key)).toEqual(['user', 'assistant', 'assistant', 'user'])
-    expect(second[1].Value).toBe('Let me look.')
-    expect(JSON.parse(String(second[2].Value))).toMatchObject({ type: 'tool-call', toolName: 'look' })
+    const second = requests[1]
+    expect(second.map((m) => m.role)).toEqual(['user', 'assistant', 'tool'])
+    // What it said stays with the call it made.
+    expect(second[1]).toMatchObject({ content: 'Let me look.', toolCalls: [{ name: 'look' }] })
   })
 })

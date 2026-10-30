@@ -158,13 +158,13 @@ export async function contextFor(model: string): Promise<ModelContextInfo> {
 
 /**
  * Whether a turn may operate the computer, and how: only turns the user typed,
- * with computer use on. Screenshots go to local models that can see images
- * (the cloud backend takes text tool results only).
+ * with computer use on. Screenshots go to models that can see images, local
+ * or cloud (the server takes them inside tool results).
  */
 export function computerFor(typed: boolean, info: ModelInfo | undefined, turn?: TurnOptions): ChatToolOptions['computer'] {
   if (!typed || turn?.tools === false || !settings.get('computerUse')) return undefined
   const vision = Boolean(info?.capabilities?.includes('vision'))
-  return { screenshots: settings.get('computerScreenshots') !== false && vision && !info?.cloud }
+  return { screenshots: settings.get('computerScreenshots') !== false && vision }
 }
 
 /**
@@ -220,6 +220,8 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
   cancel(id: string): void {
     this.running.get(id)?.abort()
     approvals.cancelChat(id)
+    // A batch of steps the driver is running stops now, not when it finishes.
+    void computer.cancel(id)
   }
 
   isRunning(id: string): boolean {
@@ -531,6 +533,8 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
         system: systemFor(turn?.system, shell, Boolean(computerOn)),
         maxToolRounds: maxRounds,
         vision: Boolean(info?.capabilities?.includes('vision')),
+        // Each computer-use step is a small decision: low thinking keeps it fast and cheap.
+        ...(computerOn && info?.capabilities?.includes('thinking') ? { thinking: 'low' as const } : {}),
         // Compaction keeps the history inside the window; this cut is the safety net.
         historyChars: Math.floor(context.tokens * 4 * 0.9),
         contextTokens: context.tokens,

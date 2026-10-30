@@ -1,14 +1,53 @@
+import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { utilityProcess, type UtilityProcess } from 'electron'
+import { userDataPath } from '../paths'
 import type { DriverResult, WorkerRequest, WorkerResponse } from './protocol'
 
 /** Longest a single driver call may take before it's reported as failed. */
 const CALL_TIMEOUT_MS = 60_000
 
+/**
+ * The only Cua Driver tools Llama Run calls. The runtime refuses every other
+ * one (killing processes, desktop capture, logged-in browser profiles,
+ * recordings, scripts, configuration), whatever reaches it.
+ */
+export const DRIVER_TOOLS = [
+  'start_session',
+  'end_session',
+  'get_session',
+  'get_screen_size',
+  'list_apps',
+  'list_windows',
+  'launch_app',
+  'get_window_state',
+  'run_steps',
+  'click',
+  'double_click',
+  'right_click',
+  'type_text',
+  'press_key',
+  'hotkey',
+  'scroll',
+  'drag',
+  'set_value',
+  'invoke_menu',
+  'set_window_frame',
+  'clipboard_read',
+  'clipboard_write'
+]
+
+/** A Cua policy (deny by default) allowing exactly DRIVER_TOOLS. */
+export function driverPolicy(): string {
+  return `# Written by Llama Run on every start; edits are overwritten.\nallow:\n  tools:\n${DRIVER_TOOLS.map((t) => `    - ${t}`).join('\n')}\n`
+}
+
 /** Somewhere Cua Driver tools can be called: the utility-process worker, or the SDK directly (tests). */
 export interface DriverTransport {
   call(tool: string, args: Record<string, unknown>): Promise<DriverResult>
   close(): Promise<void>
+  /** Stops whatever the driver is doing now (the user pressed Stop): calls in flight fail, the next one starts afresh. */
+  restart?(): Promise<void>
 }
 
 /**
@@ -24,10 +63,13 @@ class WorkerTransport implements DriverTransport {
 
   private start(): Promise<UtilityProcess> {
     this.started ??= new Promise((resolve, reject) => {
+      const policy = userDataPath('cua-driver-policy.yaml')
+      writeFileSync(policy, driverPolicy())
       // stdout is ignored (an unread pipe would block a chatty worker); stderr's tail explains a crash.
       const child = utilityProcess.fork(join(__dirname, 'computerWorker.js'), [], {
         serviceName: 'Llama Run Computer Use',
-        stdio: ['ignore', 'ignore', 'pipe']
+        stdio: ['ignore', 'ignore', 'pipe'],
+        env: { ...process.env, CUA_DRIVER_POLICY_FILE: policy }
       })
       let stderr = ''
       child.stderr?.on('data', (d: Buffer) => (stderr = (stderr + d.toString()).slice(-2000)))
@@ -67,7 +109,8 @@ class WorkerTransport implements DriverTransport {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id)
-        reject(new Error(`${tool} took longer than ${CALL_TIMEOUT_MS / 1000} seconds`))
+        // The action may still have reached the app: retrying blind could do it twice.
+        reject(new Error(`${tool} took longer than ${CALL_TIMEOUT_MS / 1000} seconds. It may still have happened: look at the window before trying again.`))
       }, CALL_TIMEOUT_MS)
       this.pending.set(id, { resolve, reject, timer })
       child.postMessage({ id, tool, args } satisfies WorkerRequest)
@@ -82,6 +125,15 @@ class WorkerTransport implements DriverTransport {
     // Don't hold up quitting on a driver that won't stop.
     await Promise.race([exited, new Promise((done) => setTimeout(done, 3000))])
     if (this.child === child) child.kill()
+  }
+
+  /** Kills the worker at once: a running batch stops mid-way instead of finishing its steps. */
+  async restart(): Promise<void> {
+    const child = this.child
+    if (!child) return
+    const exited = new Promise<void>((done) => child.once('exit', () => done()))
+    child.kill()
+    await Promise.race([exited, new Promise((done) => setTimeout(done, 2000))])
   }
 }
 

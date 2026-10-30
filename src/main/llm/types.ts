@@ -98,6 +98,10 @@ export interface GenerateOptions {
   maxToolRounds?: number
   /** The model can see images: tool results' images (screenshots) are sent along. */
   vision?: boolean
+  /** Tokens one request used, when the backend reports them (Ollama). */
+  onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void
+  /** How hard a thinking model thinks (cloud). Computer-use steps ask for "low": faster and far fewer output tokens. */
+  thinking?: 'minimal' | 'low' | 'medium' | 'high'
 }
 
 /** Maximum model -> tool -> model round trips before pausing (or forcing an answer). */

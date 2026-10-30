@@ -1,19 +1,10 @@
 import { EventEmitter } from 'node:events'
 import { BASE_SERVER_URL } from '@shared/constants'
+import { keepNewestImages, legacyPairs, toolTurn, type Turn, type TurnToolCall } from './conversation'
 import { JsonObjectStreamParser } from './streamParser'
-import { SupersededResults, toolResultToText, toolSpecs } from './toolPayload'
+import { SupersededResults, toolSpecs } from './toolPayload'
 import { joinRound, runToolCalls } from './toolRun'
-import {
-  GenerationError,
-  MAX_TOOL_ROUNDS,
-  toHistory,
-  type GenerateInput,
-  type GenerateOptions,
-  type HistoryImage,
-  type ToolPause
-} from './types'
-
-type Pair = { Key: string; Value: unknown }
+import { GenerationError, MAX_TOOL_ROUNDS, toHistory, type GenerateInput, type GenerateOptions, type ToolPause } from './types'
 
 export const GENERATE_URL = `${BASE_SERVER_URL}/api/v1/llm/generate`
 /** Servers from before /api/v1. */
@@ -60,11 +51,33 @@ export async function responseError(res: Response): Promise<GenerationError> {
   return new GenerationError(`LlamaRun server returned HTTP ${res.status}${detail ? `: ${detail}` : ''}`)
 }
 
-/** What a cloud pause holds: the conversation pairs and the tool calls not yet run. */
+/** What a cloud pause holds: the conversation so far and the tool calls not yet run. */
 interface CloudPauseState {
-  pairs: Pair[]
-  pending: CloudToolCall[]
-  images?: HistoryImage[]
+  turns: Turn[]
+  pending: TurnToolCall[]
+  system?: string
+}
+
+/**
+ * Servers that take structured `messages` (with screenshots in tool results)
+ * versus only `prompt`. Learned from the first refusal, then kept for the session.
+ */
+let structuredSupported = true
+
+/** For tests: forget what was learned about the server. */
+export function setStructuredSupported(value: boolean): void {
+  structuredSupported = value
+}
+
+/** A 400 from a server that requires `prompt`: it predates structured messages. */
+async function wantsPrompt(res: Response): Promise<boolean> {
+  if (res.status !== 400) return false
+  try {
+    const body = (await res.clone().json()) as { code?: string; issues?: { path?: string }[] } | null
+    return body?.code === 'INVALID_BODY' && Boolean(body.issues?.some((i) => i.path === 'prompt'))
+  } catch {
+    return false
+  }
 }
 
 /** One event of the backend's stream (Vercel AI SDK fullStream-style), usually wrapped as `{ text: event }`. */
@@ -75,6 +88,8 @@ export interface CloudStreamEvent {
   delta?: string
   toolCallId?: string
   toolName?: string
+  /** Gemini 3 signs tool calls here; the signature goes back with the call. */
+  providerMetadata?: { google?: { thoughtSignature?: string } }
   /** AI SDK 4 */
   args?: unknown
   /** AI SDK 5+ */
@@ -92,6 +107,7 @@ export interface CloudToolCall {
   id?: string
   name: string
   args: Record<string, unknown>
+  thoughtSignature?: string
 }
 
 /** The event inside a part: parts are `{ text: {...} }`, but accept a bare event too. */
@@ -123,15 +139,27 @@ export function toolCallOf(part: CloudStreamPart): CloudToolCall | null {
     }
   }
   const args = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {}
-  return { id: e.toolCallId, name: e.toolName, args }
+  const signature = e.providerMetadata?.google?.thoughtSignature
+  return { id: e.toolCallId, name: e.toolName, args, ...(typeof signature === 'string' && signature ? { thoughtSignature: signature } : {}) }
+}
+
+/** The request body for one round: structured turns for current servers, the JSON-encoded pairs in `prompt` for older ones. */
+export function cloudBody(turns: Turn[], system: string | undefined, structured: boolean): Record<string, unknown> {
+  if (structured) return { messages: turns, ...(system ? { system } : {}) }
+  const pairs = legacyPairs(turns, system)
+  const body: Record<string, unknown> = { prompt: pairs.length === 1 ? String(pairs[0].Value) : JSON.stringify(pairs) }
+  // Older servers read images for the newest message only.
+  const last = turns[turns.length - 1]
+  if (last?.role === 'user' && last.images?.length) body.images = last.images
+  return body
 }
 
 /**
- * Generates through the LlamaRun backend proxy. Same wire format as the WinUI
- * app's CloudLLMService: `{prompt, model, Tools?}` in, concatenated JSON parts out.
- * Conversations (and tool-call follow-ups) are sent as a JSON-encoded list of
- * {Key: role, Value: content} pairs in `prompt`, the format the original client
- * used after tool calls. A single-turn prompt is sent as plain text.
+ * Generates through the LlamaRun backend proxy: `{messages, system, model,
+ * Tools?, thinking?}` in, concatenated JSON parts out. Tool calls and their
+ * results go as real turns, and a result's screenshot goes with it for vision
+ * models. Older servers that only take `prompt` get the conversation as a
+ * JSON-encoded list of {Key, Value} pairs, the WinUI app's format.
  */
 export async function generateCloud(
   input: GenerateInput,
@@ -144,30 +172,25 @@ export async function generateCloud(
   const tools = opts.tools ? toolSpecs(opts.tools.tools) : undefined
 
   const resumed = opts.resume?.backend === 'cloud' ? (opts.resume.state as CloudPauseState) : undefined
-  const history = resumed ? [] : toHistory(input, opts.historyChars)
-  const pairs: Pair[] = resumed ? [...resumed.pairs] : history.map((m) => ({ Key: m.role, Value: m.content }))
-  // The backend reads images for the newest message only; earlier turns keep their text.
-  const images = resumed ? resumed.images : history[history.length - 1]?.images
-  // The backend takes no system prompt, so instructions lead the newest user message.
-  if (!resumed && opts.system && pairs.length) {
-    const last = pairs[pairs.length - 1]
-    pairs[pairs.length - 1] = { ...last, Value: `${opts.system}
-
-${String(last.Value)}` }
-  }
+  const turns: Turn[] = resumed ? [...resumed.turns] : toHistory(input, opts.historyChars).map((m) => ({ ...m }))
+  const system = resumed ? resumed.system : opts.system
   const bridge = opts.tools
   const maxRounds = opts.maxToolRounds ?? MAX_TOOL_ROUNDS
   const superseded = new SupersededResults()
-  const runTools = async (calls: CloudToolCall[]): Promise<void> => {
+  const runTools = async (calls: TurnToolCall[]): Promise<void> => {
     if (!bridge) return
     const outcomes = await runToolCalls(bridge, calls, opts)
     outcomes.forEach(({ result, error }, i) => {
-      const call = calls[i]
-      // The backend takes text tool results only; screenshots stay out (toolResultToText).
-      const reply: Pair = { Key: 'user', Value: { content: [{ type: 'text', text: result ? toolResultToText(result) : `Tool error: ${error}` }] } }
-      if (result) superseded.add(result, (text) => (reply.Value = { content: [{ type: 'text', text }] }))
-      pairs.push({ Key: 'assistant', Value: JSON.stringify({ type: 'tool-call', toolCallId: call.id, toolName: call.name, args: call.args }) }, reply)
+      const turn = toolTurn(calls[i], result, error, Boolean(opts.vision))
+      if (result) {
+        superseded.add(result, (text) => {
+          turn.content = text
+          delete turn.images
+        })
+      }
+      turns.push(turn)
     })
+    keepNewestImages(turns)
   }
 
   let output = ''
@@ -176,11 +199,14 @@ ${String(last.Value)}` }
   if (opts.signal?.aborted) return output
 
   for (let round = 0; ; round++) {
-    const prompt = pairs.length === 1 ? String(pairs[0].Value) : JSON.stringify(pairs)
-    const body: Record<string, unknown> = { prompt, model: opts.model }
-    if (images?.length) body.images = images
-    // Without a way to pause, the last round goes without tools so the model has to answer.
-    if (tools?.length && (opts.onPause || round < maxRounds)) body.Tools = tools
+    let structured = structuredSupported
+    const bodyFor = (): Record<string, unknown> => {
+      const body: Record<string, unknown> = { ...cloudBody(turns, system, structured), model: opts.model }
+      if (opts.thinking) body.thinking = opts.thinking
+      // Without a way to pause, the last round goes without tools so the model has to answer.
+      if (tools?.length && (opts.onPause || round < maxRounds)) body.Tools = tools
+      return body
+    }
 
     let res: Response
     try {
@@ -188,13 +214,19 @@ ${String(last.Value)}` }
         fetch(target, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${opts.token}` },
-          body: JSON.stringify(body),
+          body: JSON.stringify(bodyFor()),
           signal: opts.signal
         })
       res = await request(url)
       if (url === GENERATE_URL && (await isMissingRoute(res))) {
         // An older server without /api/v1: use the legacy route for the rest of this reply.
         url = LEGACY_GENERATE_URL
+        structured = structuredSupported = false
+        res = await request(url)
+      }
+      if (structured && (await wantsPrompt(res))) {
+        // A server from before structured messages: send prompts from now on.
+        structured = structuredSupported = false
         res = await request(url)
       }
     } catch (err) {
@@ -240,14 +272,22 @@ ${String(last.Value)}` }
     }
 
     if (!toolCalls.length || !bridge) return output
-    // What the model said before calling its tools ("Let me open Notepad") stays in the conversation it sees next.
-    if (roundText.trim()) pairs.push({ Key: 'assistant', Value: roundText })
+    // What the model said before calling its tools ("Let me open Notepad") stays with the calls.
+    const calls = toolCalls.map(withId)
+    turns.push({ role: 'assistant', content: roundText, toolCalls: calls })
     if (round >= maxRounds) {
-      const state: CloudPauseState = { pairs: [...pairs], pending: toolCalls, images }
+      // The turns end with the calls; continuing runs them and adds their results.
+      const state: CloudPauseState = { turns: [...turns], pending: calls, system }
       opts.onPause?.({ backend: 'cloud', model: opts.model, state } satisfies ToolPause)
       return output
     }
-    await runTools(toolCalls)
+    await runTools(calls)
     if (opts.signal?.aborted) return output
   }
+}
+
+let callSeq = 0
+/** Backends' call ids can be missing or repeat between rounds; a result must name exactly its call. */
+function withId(call: CloudToolCall): TurnToolCall {
+  return { ...call, id: call.id && call.id.length <= 200 ? call.id : `call_${++callSeq}` }
 }
