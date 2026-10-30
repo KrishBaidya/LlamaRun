@@ -13,7 +13,8 @@ export const app = {
   getPath: () => userData,
   getAppPath: () => process.cwd(),
   getVersion: () => 'bench',
-  isPackaged: false
+  isPackaged: false,
+  getAppMetrics: (): { pid: number }[] => []
 }
 
 export const dialog = { showMessageBox: async () => ({ response: 0 }) }

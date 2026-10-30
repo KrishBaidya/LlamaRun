@@ -34,11 +34,27 @@ const { values } = parseArgs({
     model: { type: 'string' },
     'mcp-command': { type: 'string' },
     'max-steps': { type: 'string', default: '50' },
+    /** Send screenshots: "auto" for Gemini and Llama Run cloud models (which can see), "on" or "off". */
+    screenshots: { type: 'string', default: 'auto' },
     out: { type: 'string' }
   }
 })
 const task = values.task ?? ''
 const model = values.model ?? ''
+/** Whether a local model can see images, as Ollama reports it (the app decides the same way). */
+async function ollamaSees(name: string): Promise<boolean> {
+  try {
+    const host = (process.env.OLLAMA_HOST ?? 'http://127.0.0.1:11434').replace(/\/$/, '')
+    const res = await fetch(`${host.startsWith('http') ? host : `http://${host}`}/api/show`, { method: 'POST', body: JSON.stringify({ model: name }) })
+    const info = (await res.json()) as { capabilities?: string[] }
+    return Boolean(info.capabilities?.includes('vision'))
+  } catch {
+    return false
+  }
+}
+const vision =
+  values.screenshots === 'on' ||
+  (values.screenshots === 'auto' && !model.startsWith('script/') && (!model.startsWith('ollama/') || (await ollamaSees(model.slice('ollama/'.length)))))
 if (!task || !model || !values['mcp-command'] || !values.out) {
   console.error('Usage: --task <text> --model <id> --mcp-command <json array> --out <file> [--max-steps 50]')
   process.exit(2)
@@ -82,7 +98,7 @@ async function main(): Promise<void> {
   const started = performance.now()
   let text = ''
   let error: string | undefined
-  const usage: GeminiUsage = { inputTokens: 0, outputTokens: 0, requests: 0 }
+  const usage: GeminiUsage = { inputTokens: 0, cachedTokens: 0, outputTokens: 0, thinkingTokens: 0, requests: 0 }
   // Written after every tool call too, so a run the bench kills at its time limit still leaves its trajectory.
   const save = (): { durationMs: number } => {
     const result = {
@@ -104,10 +120,10 @@ async function main(): Promise<void> {
   const bridge: ToolBridge = {
     tools: computer.tools(),
     sequential: isComputerTool,
-    // No chat id: approvals take the native path, which the stub answers "Allow once". Cloud models get text only, as in the app.
+    // No chat id: approvals take the native path, which the stub answers "Allow once". Vision models get screenshots, as in the app.
     call: async (name, args) => {
       const start = performance.now()
-      const result = await computer.call(name, args, { screenshots: false })
+      const result = await computer.call(name, args, { screenshots: vision })
       steps.push({ tool: name, args, ms: Math.round(performance.now() - start), isError: Boolean(result.isError), result: toolResultToText(result, 2000) })
       save()
       return result
@@ -115,7 +131,15 @@ async function main(): Promise<void> {
   }
 
   const prompt = `${task}\n\n${BENCH_NOTE}`
-  const opts: GenerateOptions = { model, tools: bridge, system: computerInstructions(), maxToolRounds: Number(values['max-steps']) }
+  // As the app does for computer use: screenshots for models that can see, low thinking for each step.
+  const opts: GenerateOptions = {
+    model,
+    tools: bridge,
+    system: computerInstructions(),
+    maxToolRounds: Number(values['max-steps']),
+    vision,
+    ...(model.startsWith('script/') ? {} : { thinking: 'low' as const })
+  }
   try {
     if (model.startsWith('script/')) {
       // Replays fixed tool calls: checks the sandbox, driver and tools without a model.
@@ -139,7 +163,16 @@ async function main(): Promise<void> {
       if (!apiKey) throw new Error('GEMINI_API_KEY (or GOOGLE_API_KEY or GEMNIN_KEY) is not set')
       text = await generateGemini(prompt, { ...opts, model: model.slice('gemini/'.length), apiKey }, usage)
     } else if (model.startsWith('ollama/')) {
-      text = await generateOllama(prompt, { ...opts, model: model.slice('ollama/'.length) })
+      text = await generateOllama(prompt, {
+        ...opts,
+        model: model.slice('ollama/'.length),
+        contextTokens: 32768,
+        onUsage: (u) => {
+          usage.requests++
+          usage.inputTokens += u.inputTokens
+          usage.outputTokens += u.outputTokens
+        }
+      })
     } else {
       if (!process.env.LLAMARUN_TOKEN) throw new Error('LLAMARUN_TOKEN is not set (Llama Run cloud models need your sign-in token)')
       text = await generateCloud(prompt, { ...opts, token: process.env.LLAMARUN_TOKEN })

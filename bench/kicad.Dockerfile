@@ -21,3 +21,19 @@ RUN --mount=type=secret,id=proxyca set -eux; \
     apt-get update; apt-get install -y --install-recommends kicad; \
     rm -rf /var/lib/apt/lists/* /usr/local/share/ca-certificates/build-proxy-ca.crt; update-ca-certificates --fresh >/dev/null; \
     command -v kicad
+
+# KiCad's first start asks where its settings live, whether to check for
+# updates, and how to set up the symbol and footprint libraries: about six
+# rounds per task that both harnesses would spend on dialogs, not the task.
+# A settings folder with the default library tables, the update and data
+# collection prompts answered, and update checks off skips them. (Key names
+# from KiCad 9.0.9's libkicommon; check after a KiCad upgrade that no dialog
+# reappears.)
+RUN set -eux; \
+    for home in /home/cua /root; do \
+      dir="$home/.config/kicad/9.0"; mkdir -p "$dir"; \
+      cp /usr/share/kicad/template/sym-lib-table /usr/share/kicad/template/fp-lib-table "$dir/"; \
+      printf '{"meta":{"version":3},"do_not_show_again":{"update_check_prompt":true,"data_collection_prompt":true},"system":{"check_for_kicad_updates":false}}\n' > "$dir/kicad_common.json"; \
+      printf '{"meta":{"version":0},"system":{"first_run_shown":true},"pcm":{"check_for_updates":false}}\n' > "$dir/kicad.json"; \
+    done; \
+    if id cua >/dev/null 2>&1; then chown -R cua:cua /home/cua/.config; fi
