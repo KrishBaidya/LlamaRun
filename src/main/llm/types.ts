@@ -98,7 +98,7 @@ export interface GenerateOptions {
   maxToolRounds?: number
   /** The model can see images: tool results' images (screenshots) are sent along. */
   vision?: boolean
-  /** Tokens one request used, when the backend reports them (Ollama). */
+  /** Ollama: token counts for each request of the turn (one per tool round), as Ollama reports them. */
   onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void
   /** How hard a thinking model thinks (cloud). Computer-use steps ask for "low": faster and far fewer output tokens. */
   thinking?: 'minimal' | 'low' | 'medium' | 'high'

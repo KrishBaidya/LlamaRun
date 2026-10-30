@@ -17,7 +17,7 @@ export function createTray(): Tray {
   tray.setToolTip('Llama Run')
   const menu = (): Menu =>
     Menu.buildFromTemplate([
-      { label: `Ask Llama Run  (${prettyHotkey(settings.get('hotkey'))})`, click: () => showOverlay() },
+      { label: `Ask Llama Run  (${prettyHotkey(settings.get('hotkey'))})`, click: () => showOverlay('tray') },
       { label: 'Chats', click: () => openChatWindow() },
       { label: 'New Chat', click: () => openChatWindow(null) },
       { type: 'separator' },

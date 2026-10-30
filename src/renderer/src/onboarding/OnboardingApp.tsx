@@ -70,6 +70,9 @@ function ConnectStep({ onFinish }: { onFinish: (mode: 'signin' | 'skip') => void
           </>
         )}
       </div>
+      <p className="mt-6 text-xs">
+        Llama Run shares anonymous usage counts (never your messages or files). You can turn this off in Settings.
+      </p>
     </Step>
   )
 }

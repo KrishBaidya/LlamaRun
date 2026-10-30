@@ -49,6 +49,8 @@ export interface Settings {
   computerAllowedApps: string[]
   /** Apps Llama Run must never control, matched by name. */
   computerBlockedApps: string[]
+  /** Send anonymous usage data (feature counts, never messages or files). */
+  telemetryEnabled: boolean
 }
 
 export interface ModelContextOverride {

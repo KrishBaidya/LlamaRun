@@ -10,3 +10,4 @@ __pycache__/
 .deps/
 .devdata/
 *.tsbuildinfo
+.devdata-analytics/

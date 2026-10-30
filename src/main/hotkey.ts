@@ -1,5 +1,6 @@
 import { dialog, globalShortcut } from 'electron'
 import { DEFAULT_HOTKEY, FALLBACK_HOTKEY } from '@shared/constants'
+import { analytics } from './analytics'
 import { settings } from './settings'
 import { toggleOverlay } from './windows/overlay'
 
@@ -11,7 +12,7 @@ export function activeHotkey(): string | null {
 
 function tryRegister(accelerator: string): boolean {
   try {
-    return globalShortcut.register(accelerator, toggleOverlay)
+    return globalShortcut.register(accelerator, () => toggleOverlay('hotkey'))
   } catch {
     return false // invalid accelerator string
   }
@@ -29,9 +30,11 @@ export function registerHotkey(showErrors = true): string | null {
   for (const accelerator of candidates) {
     if (tryRegister(accelerator)) {
       active = accelerator
+      if (accelerator !== requested) analytics.track('hotkey_fallback_used')
       return active
     }
   }
+  analytics.track('hotkey_registration_failed', { custom: requested !== DEFAULT_HOTKEY })
   if (showErrors) {
     dialog.showErrorBox(
       'Llama Run',

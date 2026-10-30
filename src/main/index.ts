@@ -2,6 +2,7 @@ import { appendFileSync, mkdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { app, dialog } from 'electron'
 import { PROTOCOL } from '@shared/constants'
+import { analytics } from './analytics'
 import { auth, PROFILE_FRESH_MS } from './auth'
 import { closeDriver, warmDriver } from './computer/driver'
 import { registerHotkey } from './hotkey'
@@ -30,6 +31,8 @@ function logCrash(kind: string, err: unknown): void {
     // nothing else we can do
   }
   console.error(`[${kind}]`, err)
+  // Only the kind and error class: messages and stacks can contain file paths.
+  analytics.track('app_error', { kind, error_name: err instanceof Error ? err.name : typeof err })
 }
 process.on('uncaughtException', (err) => logCrash('uncaughtException', err))
 process.on('unhandledRejection', (err) => logCrash('unhandledRejection', err))
@@ -47,6 +50,7 @@ const BILLING_RECHECK_MS = 5000
 
 /** `llama-run://billing?status=success|cancelled`: the website's checkout finished. */
 async function handleBillingReturn(status: string | null): Promise<void> {
+  analytics.track('checkout_returned', { status: status ?? 'unknown' })
   if (status !== 'success') {
     hudHost.toast('Llama Run', { message: 'Checkout cancelled', description: 'Your plan hasn’t changed.', kind: 'info' })
     return
@@ -104,7 +108,7 @@ if (!app.requestSingleInstanceLock()) {
     const url = protocolUrlIn(argv)
     if (url) handleProtocolUrl(url)
     else if (settings.get('isFirstRun')) openOnboarding()
-    else showOverlay()
+    else showOverlay('second-instance')
   })
   app.on('open-url', (e, url) => {
     e.preventDefault()
@@ -121,12 +125,13 @@ if (!app.requestSingleInstanceLock()) {
     if (shuttingDown) return
     shuttingDown = true
     e.preventDefault()
-    // Give plugins their on_unload, close MCP servers and stop the computer-use driver before exiting.
-    void Promise.allSettled([pluginHost.stop(), mcp.stop(), closeDriver()]).finally(() => app.quit())
+    // Give plugins their on_unload, close MCP servers, stop the computer-use driver and flush analytics before exiting.
+    void Promise.allSettled([pluginHost.stop(), mcp.stop(), closeDriver(), analytics.shutdown()]).finally(() => app.quit())
   })
 
   app.whenReady().then(async () => {
     if (process.platform === 'win32') app.setAppUserModelId('com.krishbaidya.llamarun')
+    analytics.start(settings.get('isFirstRun'))
     registerIpc()
     createTray()
     createOverlay()
@@ -147,7 +152,7 @@ if (!app.requestSingleInstanceLock()) {
 
     const hidden = process.argv.includes('--hidden')
     if (settings.get('isFirstRun')) openOnboarding()
-    else if (!hidden && !app.isPackaged) showOverlay()
+    else if (!hidden && !app.isPackaged) showOverlay('launch')
   }).catch((err) => {
     logCrash('startup', err)
     dialog.showErrorBox('Llama Run failed to start', String(err))

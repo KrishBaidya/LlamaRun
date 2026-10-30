@@ -29,7 +29,8 @@ export const DEFAULT_SETTINGS: Settings = {
   computerScreenshots: true,
   computerMaxSteps: 50,
   computerAllowedApps: [],
-  computerBlockedApps: []
+  computerBlockedApps: [],
+  telemetryEnabled: true
 }
 
 class SettingsStore extends EventEmitter<{ changed: [Settings, Partial<Settings>] }> {
@@ -55,9 +56,9 @@ class SettingsStore extends EventEmitter<{ changed: [Settings, Partial<Settings>
     return this.data
   }
 
-  /** Restores defaults for user-facing preferences; onboarding state and plugin choices are kept. */
+  /** Restores defaults for user-facing preferences; onboarding state, plugin choices and the analytics choice are kept. */
   reset(): Settings {
-    const { isFirstRun, pluginsEnabled, pluginGrants, pluginLinks, skillsDisabled, skillsTrusted, modelContext, computerAllowedApps, computerBlockedApps } = this.all
+    const { isFirstRun, pluginsEnabled, pluginGrants, pluginLinks, skillsDisabled, skillsTrusted, modelContext, telemetryEnabled, computerAllowedApps, computerBlockedApps } = this.all
     return this.set({
       ...DEFAULT_SETTINGS,
       isFirstRun,
@@ -67,6 +68,7 @@ class SettingsStore extends EventEmitter<{ changed: [Settings, Partial<Settings>
       skillsDisabled,
       skillsTrusted,
       modelContext,
+      telemetryEnabled,
       computerAllowedApps,
       computerBlockedApps
     })

@@ -1,4 +1,5 @@
 import { BrowserWindow, screen } from 'electron'
+import { analytics } from '../analytics'
 import { chatStore } from '../chats/store'
 import { settings } from '../settings'
 import { baseWebPreferences, hardenNavigation, loadPage, materialOptions } from './load'
@@ -121,7 +122,8 @@ export function resizeOverlay(height: number): void {
   w.setBounds({ ...placement, height: next })
 }
 
-export function showOverlay(): void {
+export function showOverlay(source = 'other'): void {
+  analytics.track('overlay_opened', { source })
   const w = createOverlay()
   position(w)
   w.show()
@@ -139,8 +141,8 @@ export function hideOverlay(): void {
   getOverlay()?.hide()
 }
 
-export function toggleOverlay(): void {
+export function toggleOverlay(source = 'hotkey'): void {
   const w = getOverlay()
   if (w?.isVisible()) w.hide()
-  else showOverlay()
+  else showOverlay(source)
 }
