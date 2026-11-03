@@ -99,12 +99,6 @@ interface ChatState {
   grants: Set<string>
   /** Recent actions and whether they did anything, for spotting a model that's stuck. */
   recent: { key: string; futile: boolean }[]
-  /**
-   * Windows that refused background input this reply (Electron apps, LibreOffice,
-   * desktops without a focus-free input route): later actions there go with
-   * foreground_fallback, so the model doesn't spend a failed round on each.
-   */
-  foreground: Set<number>
   /** Window id -> size of the screenshot its pixel positions come from. */
   shots: Map<number, { w: number; h: number }>
 }
@@ -450,6 +444,19 @@ export function findRows(tree: string, needle: string): string {
   return out.length > FIND_MAX_LINES ? `${out.slice(0, FIND_MAX_LINES).join('\n')}\n…more matches; search for something more specific.` : out.join('\n')
 }
 
+/**
+ * The next rung the driver recommends for an action that failed or wasn't
+ * confirmed (its `escalation` field), in this tool set's terms. "page" names
+ * Cua's browser tools, which Llama Run doesn't offer, so only its reason shows.
+ */
+export function escalation(step: Record<string, unknown>): string {
+  const e = step.escalation as { recommended?: string; reason?: string } | undefined
+  if (!e?.recommended) return ''
+  const next = e.recommended === 'foreground' ? 'retry with foreground: true' : e.recommended === 'px' ? 'aim by x,y on the screenshot' : ''
+  const reason = e.reason ? cleanMessage(e.reason) : ''
+  return next ? ` The driver suggests: ${next}${reason ? ` (${reason})` : ''}.` : reason ? ` ${reason}` : ''
+}
+
 /** Row number -> its line, from a window's tree ("- [12] button "Save""). */
 export function rowsOf(tree: string): Map<number, string> {
   const rows = new Map<number, string>()
@@ -529,7 +536,7 @@ class Computer {
   private state(chatId: string): ChatState {
     let state = this.chats.get(chatId)
     if (!state) {
-      state = { session: sessionLabel(chatId), snapshots: new Map(), rows: new Map(), framed: new Set(), known: null, grants: new Set(), recent: [], foreground: new Set(), shots: new Map() }
+      state = { session: sessionLabel(chatId), snapshots: new Map(), rows: new Map(), framed: new Set(), known: null, grants: new Set(), recent: [], shots: new Map() }
       this.chats.set(chatId, state)
     }
     return state
@@ -971,7 +978,8 @@ class Computer {
         pid: win.pid,
         window_id: win.windowId,
         steps,
-        ...(args.foreground === true ? { delivery_mode: 'foreground' } : state.foreground.has(win.windowId) ? { foreground_fallback: true } : {}),
+        // Background unless the model asks: Cua never moves to the foreground on its own, as that takes over the user's pointer and focus.
+        ...(args.foreground === true ? { delivery_mode: 'foreground' } : {}),
         observe: this.readArgs(win, context, state, Computer.wantsScreenshot(steps, this.bare.has(win.windowId)))
       })
     let r = await run()
@@ -989,13 +997,6 @@ class Computer {
     const byLabel = this.byLabel(win, state, steps[0], (r.structured?.steps as Record<string, unknown>[] | undefined)?.[0])
     if (byLabel) {
       steps[0] = byLabel
-      r = await run()
-    }
-    // The window refused background input before anything ran (Chromium scrolls, Electron apps): send it again with
-    // foreground_fallback now, rather than spend the model's next round on the retry.
-    const refused = (r.structured?.steps as Record<string, unknown>[] | undefined)?.[0]
-    if (refused?.ok === false && args.foreground !== true && !state.foreground.has(win.windowId) && /background/i.test(`${String(refused.code ?? '')} ${String(refused.message ?? '')}`)) {
-      state.foreground.add(win.windowId)
       r = await run()
     }
     return this.outcome(win, context, state, r, steps)
@@ -1043,7 +1044,7 @@ class Computer {
           // A drag already sent in the foreground (the driver says so) has nothing left to retry with.
           const wasForeground = /foreground|SendInput/i.test(String(step.message ?? ''))
           const retry = wasForeground ? ' Check the screenshot: on a canvas the tree shows no change even when the drag landed.' : ' If the screenshot shows nothing moved, retry the same drag with foreground: true.'
-          const hint = tool === 'drag' ? `${driverHint}${retry}` : ''
+          const hint = tool === 'drag' ? `${driverHint}${retry}` : escalation(step)
           return `${n}${message} (not confirmed)${hint}`
         }
         return `${n}${message}`
@@ -1053,10 +1054,9 @@ class Computer {
       let advice = ''
       if (/stale/i.test(code + message)) advice = ' The window changed: read it again with computer_look, or name the element.'
       else if (/background_unavailable|background/i.test(code + message)) {
-        // From now on this reply, actions in this window fall back to the foreground by themselves.
-        state.foreground.add(win.windowId)
-        advice = tool === 'drag' ? ' This drag needs the window in front: retry with foreground: true, or use a non-drag way (a Move button, menu or shortcut).' : ' Retry this action with foreground: true (later actions in this window will do that by themselves).'
+        advice = tool === 'drag' ? ' This drag needs the window in front: retry with foreground: true, or use a non-drag way (a Move button, menu or shortcut).' : ' Retry this action with foreground: true.'
       }
+      else if (escalation(step)) advice = escalation(step)
       else if (typeof step.hint === 'string') advice = ` ${step.hint}`
       return `${n}Failed${phase}: ${message}${advice}`
     })
@@ -1102,6 +1102,7 @@ class Computer {
     const titles = new Map(listed.map((w) => [w.windowId, w.title]))
     // A URL for a named app goes in as its argument: `urls` would open it in the default browser instead.
     const r = await driver().call('launch_app', {
+      session: state.session,
       ...(app ? { name: app } : {}),
       ...(app && url ? { additional_arguments: [...extra, url] } : extra.length ? { additional_arguments: extra } : {}),
       ...(!app && url ? { urls: [url] } : {})
@@ -1180,10 +1181,10 @@ class Computer {
   private async paste(win: WindowInfo, context: ComputerContext, state: ChatState, value: string, where: Record<string, unknown>, args: Record<string, unknown>): Promise<McpToolResult> {
     await this.authorize(win.app, win.title, context, state)
     const saved = await driver()
-      .call('clipboard_read', { include_text: true })
+      .call('clipboard_read', { session: state.session, include_text: true })
       .catch(() => null)
     const previous = saved && !saved.isError && typeof saved.structured?.text === 'string' ? (saved.structured.text as string) : undefined
-    const wrote = await driver().call('clipboard_write', { text: value })
+    const wrote = await driver().call('clipboard_write', { session: state.session, text: value })
     if (wrote.isError) {
       const steps = [this.typeStep(win, state, value, where)]
       return this.act(win, context, state, steps, args)
@@ -1198,7 +1199,7 @@ class Computer {
       const [first, ...rest] = outcome.content as { type: string; text?: string }[]
       return { ...outcome, content: [{ ...first, text: `Pasted ${value.length} characters.\n${first.text ?? ''}` }, ...rest] }
     } finally {
-      if (previous !== undefined) await driver().call('clipboard_write', { text: previous }).catch(() => undefined)
+      if (previous !== undefined) await driver().call('clipboard_write', { session: state.session, text: previous }).catch(() => undefined)
     }
   }
 
@@ -1285,7 +1286,7 @@ class Computer {
     await this.authorize(win.app, win.title, context, state)
     const frame = { x: int(args, 'x'), y: int(args, 'y'), width: int(args, 'width'), height: int(args, 'height') }
     if (Object.values(frame).every((v) => v === undefined)) throw new Error('Give x and y to move, width and height to resize, or both.')
-    const r = await driver().call('set_window_frame', { pid: win.pid, window_id: win.windowId, ...Object.fromEntries(Object.entries(frame).filter(([, v]) => v !== undefined)) })
+    const r = await driver().call('set_window_frame', { session: state.session, pid: win.pid, window_id: win.windowId, ...Object.fromEntries(Object.entries(frame).filter(([, v]) => v !== undefined)) })
     if (r.isError) return result(r.text || 'Could not move the window', true)
     state.framed.delete(win.windowId)
     return result(cleanMessage(r.text || 'Moved the window.'))
@@ -1298,7 +1299,7 @@ class Computer {
     await this.authorize(win.app, win.title, context, state)
     if (context.chatId) indicator.using(context.chatId, win.app)
     // invoke_menu can't run inside run_steps, so the look afterwards is its own read.
-    const r = await driver().call('invoke_menu', { pid: win.pid, window_id: win.windowId, path })
+    const r = await driver().call('invoke_menu', { session: state.session, pid: win.pid, window_id: win.windowId, path })
     if (r.isError) return result(r.text || `Could not choose ${path.join(' > ')}`, true)
     const summary = (typeof r.structured?.summary === 'string' && r.structured.summary) || `Chose ${path.join(' > ')}.`
     const read = await this.read(win, context, state)

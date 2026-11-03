@@ -34,7 +34,8 @@ vi.mock('../src/main/computer/indicator', () => ({
   }
 }))
 
-const { computer, parseKeys, parseKeySequence, rowsOf, findRows, cleanDiff, cleanMessage, appLabel, COMPUTER_TOOLS } = await import('../src/main/computer/tools')
+const { computer, parseKeys, parseKeySequence, rowsOf, findRows, cleanDiff, cleanMessage, appLabel, escalation, COMPUTER_TOOLS } = await import('../src/main/computer/tools')
+const { errorText } = await import('../src/main/computer/protocol')
 const { setDriverTransport } = await import('../src/main/computer/driver')
 const { settings } = await import('../src/main/settings')
 const { SupersededResults, toolResultImages, toolResultToText } = await import('../src/main/llm/toolPayload')
@@ -59,6 +60,8 @@ class FakeDriver {
   private snapshot = 0
   /** Step codes to fail with, by step index, for the next run_steps. */
   failNext: Record<number, string> = {}
+  /** The driver's recommended next rung, on the next failing step. */
+  escalateNext: Record<string, unknown> | null = null
   /** The next run_steps observation reports no change, and its steps are unconfirmed (with this hint). */
   unchangedNext: string | null = null
   /** Windows list_windows adds after the next run_steps (a dialog an action opened). */
@@ -138,7 +141,7 @@ class FakeDriver {
         for (const [i, step] of steps.entries()) {
           const code = this.failNext[i]
           if (code) {
-            results.push({ index: i, ok: false, code, phase: 'action', message: `${step.tool} refused`, tool: step.tool })
+            results.push({ index: i, ok: false, code, phase: 'action', message: `${step.tool} refused`, tool: step.tool, ...(this.escalateNext ? { escalation: this.escalateNext } : {}) })
             break
           }
           results.push(
@@ -148,6 +151,7 @@ class FakeDriver {
           )
         }
         this.failNext = {}
+        this.escalateNext = null
         this.unchangedNext = null
         this.extra.push(...this.opensNext)
         this.opensNext = []
@@ -426,23 +430,45 @@ describe('computer use tools', () => {
     expect(toolResultImages(r)).toEqual([])
   })
 
-  it('sends an action the window refused in the background again with foreground_fallback, once, and keeps it for later actions', async () => {
+  it('never moves to the foreground on its own: a refusal says how, and the model asks for it (Cua SDK rule)', async () => {
     saved.computerAllowedApps = ['notepad']
     await computer.call('computer_look', { window: 77 }, ctx())
-    // Seen in a chat: Edge refuses background scrolls, and the model wandered off instead of retrying.
     fake.failNext = { 0: 'background_unavailable' }
-    const r = await computer.call('computer_scroll', { window: 77, direction: 'down', element: 3 }, ctx())
-    expect(r.isError).toBeFalsy()
-    const runs = fake.calls.filter((c) => c.tool === 'run_steps')
-    expect(runs).toHaveLength(2)
-    expect(runs[0].args.foreground_fallback).toBeUndefined()
-    expect(runs[1].args).toMatchObject({ foreground_fallback: true })
-    // Later actions there fall back to the foreground on their own (seen in the KiCad sandbox).
+    const refused = await computer.call('computer_scroll', { window: 77, direction: 'down', element: 3 }, ctx())
+    expect(refused.isError).toBe(true)
+    expect(textOf(refused)).toContain('foreground: true')
+    const runs = (): Record<string, unknown>[] => fake.calls.filter((c) => c.tool === 'run_steps').map((c) => c.args)
+    expect(runs()).toHaveLength(1)
+    // Later actions in that window stay in the background too.
     await computer.call('computer_key', { window: 77, keys: 'enter' }, ctx())
-    expect(fake.calls.filter((c) => c.tool === 'run_steps').at(-1)!.args).toMatchObject({ foreground_fallback: true })
-    // Asked for the foreground outright: delivery_mode, no fallback.
+    expect(runs().at(-1)).not.toHaveProperty('foreground_fallback')
+    expect(runs().at(-1)).not.toHaveProperty('delivery_mode')
     await computer.call('computer_click', { window: 77, element: 3, foreground: true }, ctx())
-    expect(fake.calls.filter((c) => c.tool === 'run_steps').at(-1)!.args).toMatchObject({ delivery_mode: 'foreground' })
+    expect(runs().at(-1)).toMatchObject({ delivery_mode: 'foreground' })
+  })
+
+  it("passes on the driver's recommended next step for an action that didn't land", async () => {
+    saved.computerAllowedApps = ['notepad']
+    await computer.call('computer_look', { window: 77 }, ctx())
+    fake.failNext = { 0: 'element_not_actionable' }
+    fake.escalateNext = { recommended: 'px', reason: 'The element exposes no click action' }
+    const r = await computer.call('computer_click', { window: 77, element: 3 }, ctx())
+    expect(textOf(r)).toContain('The driver suggests: aim by x,y on the screenshot (The element exposes no click action).')
+    expect(escalation({ escalation: { recommended: 'page', reason: 'Use the page tools' } })).toBe(' Use the page tools')
+    expect(escalation({})).toBe('')
+  })
+
+  it('labels every action with the chat session, so ending the reply cleans all of it up', async () => {
+    saved.computerAllowedApps = ['notepad']
+    await computer.call('computer_menu', { window: 77, path: ['File', 'Save'] }, ctx())
+    await computer.call('computer_move_window', { window: 77, x: 0, y: 0, width: 800 }, ctx())
+    for (const tool of ['invoke_menu', 'set_window_frame']) expect(fake.calls.find((c) => c.tool === tool)!.args.session).toMatch(/\S/)
+  })
+
+  it('says whether an interrupted action reached the app', () => {
+    expect(errorText({ tag: 'ActionInterrupted', inner: { completion: 0, reason: 'shutdown' } })).toBe('The action was interrupted and did not start (shutdown). Check the window before trying it again.')
+    expect(errorText({ tag: 'ActionInterrupted', inner: { completion: 2, reason: '' } })).toContain('may or may not have happened')
+    expect(errorText(new Error('boom'))).toBe('boom')
   })
 
   it("doesn't send delay_ms where the driver refuses it (only Windows takes it)", async () => {
@@ -501,14 +527,14 @@ describe('computer use tools', () => {
     saved.computerAllowedApps = ['notepad']
     await computer.call('computer_look', { window: 77 }, ctx())
     const r = await computer.call('computer_menu', { window: 77, path: ['File', 'Save'] }, ctx())
-    expect(fake.calls.find((c) => c.tool === 'invoke_menu')!.args).toEqual({ pid: 42, window_id: 77, path: ['File', 'Save'] })
+    expect(fake.calls.find((c) => c.tool === 'invoke_menu')!.args).toEqual({ session: expect.any(String), pid: 42, window_id: 77, path: ['File', 'Save'] })
     expect(textOf(r)).toContain('Invoked File > Save')
     expect(fake.calls.filter((c) => c.tool === 'get_window_state').at(-1)).toMatchObject({ args: { since: 's00000001' } })
   })
 
   it('opens an app using the window launch_app reports, and reads it', async () => {
     const r = await computer.call('computer_open', { app: 'Notepad' }, ctx())
-    expect(fake.calls.find((c) => c.tool === 'launch_app')!.args).toEqual({ name: 'Notepad' })
+    expect(fake.calls.find((c) => c.tool === 'launch_app')!.args).toEqual({ session: expect.any(String), name: 'Notepad' })
     expect(textOf(r)).toContain('[3] button "Save"')
     // Allowed by name when opening; acting in its window doesn't ask again.
     await computer.call('computer_click', { window: 77, element: 3 }, ctx())
@@ -518,9 +544,9 @@ describe('computer use tools', () => {
   it('opens a URL in the named app, or in the default browser without one', async () => {
     saved.computerAllowedApps = ['microsoft edge', 'the browser']
     await computer.call('computer_open', { app: 'Microsoft Edge', url: 'https://example.com' }, ctx())
-    expect(fake.calls.find((c) => c.tool === 'launch_app')!.args).toEqual({ name: 'Microsoft Edge', additional_arguments: ['https://example.com'] })
+    expect(fake.calls.find((c) => c.tool === 'launch_app')!.args).toEqual({ session: expect.any(String), name: 'Microsoft Edge', additional_arguments: ['https://example.com'] })
     await computer.call('computer_open', { url: 'https://example.com' }, ctx())
-    expect(fake.calls.filter((c) => c.tool === 'launch_app').at(-1)!.args).toEqual({ urls: ['https://example.com'] })
+    expect(fake.calls.filter((c) => c.tool === 'launch_app').at(-1)!.args).toEqual({ session: expect.any(String), urls: ['https://example.com'] })
   })
 
   it('sends screenshots only when the model can see them', async () => {
@@ -768,7 +794,7 @@ describe('drag and drop', () => {
   it('moves windows with set_window_frame and drags inside batches', async () => {
     saved.computerAllowedApps = ['notepad']
     await computer.call('computer_move_window', { window: 77, x: 0, y: 0, width: 800 }, ctx())
-    expect(fake.calls.find((c) => c.tool === 'set_window_frame')!.args).toEqual({ pid: 42, window_id: 77, x: 0, y: 0, width: 800 })
+    expect(fake.calls.find((c) => c.tool === 'set_window_frame')!.args).toEqual({ session: expect.any(String), pid: 42, window_id: 77, x: 0, y: 0, width: 800 })
     const seeing = { ...ctx(), screenshots: true }
     await computer.call('computer_look', { window: 77 }, seeing)
     await computer.call('computer_steps', { window: 77, steps: [{ action: 'drag', x: 1, y: 2, to_x: 3, to_y: 4, expect: [{ text: 'Moved' }] }] }, seeing)

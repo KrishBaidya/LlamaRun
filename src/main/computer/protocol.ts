@@ -52,6 +52,22 @@ export function toDriverResult(r: NativeToolResult): DriverResult {
  * files, and Windows can't load a DLL from inside app.asar, so the installed
  * app loads it from app.asar.unpacked (see asarUnpack in electron-builder.yml).
  */
+/** How far an interrupted action got (DriverError.ActionInterrupted's `completion`), by its enum value. */
+const COMPLETION = ['did not start', 'completed', 'may or may not have happened']
+
+/**
+ * A thrown driver error as text. An interrupted action says whether it reached
+ * the app, so nothing that already happened is replayed blindly.
+ */
+export function errorText(err: unknown): string {
+  const e = err as { tag?: string; message?: string; inner?: { completion?: number; reason?: string } }
+  if (e?.tag === 'ActionInterrupted' && e.inner) {
+    const how = COMPLETION[e.inner.completion ?? 2] ?? COMPLETION[2]
+    return `The action was interrupted and ${how}${e.inner.reason ? ` (${e.inner.reason})` : ''}. Check the window before trying it again.`
+  }
+  return e?.message ?? String(err)
+}
+
 export function sdkSpecifier(dir: string): string {
   const unpacked = dir.replace(/app\.asar(?=[\\/])/, 'app.asar.unpacked')
   if (unpacked === dir) return '@trycua/cua-driver'

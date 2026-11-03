@@ -7,7 +7,7 @@
  * daemon, socket or extra executable.
  */
 import type { CuaDriverLike } from '@trycua/cua-driver'
-import { sdkSpecifier, toDriverResult, type WorkerRequest, type WorkerResponse } from './protocol'
+import { errorText, sdkSpecifier, toDriverResult, type WorkerRequest, type WorkerResponse } from './protocol'
 
 const port = process.parentPort
 const post = (message: WorkerResponse): void => port.postMessage(message)
@@ -31,7 +31,9 @@ const started = start()
 port.on('message', async ({ data }: { data: WorkerRequest }) => {
   await started
   if ('shutdown' in data) {
+    // The SDK's order: stop admitting work and wait for admitted calls, then free the native handle.
     await driver.shutdown().catch(() => undefined)
+    if ('uniffiDestroy' in driver && typeof driver.uniffiDestroy === 'function') driver.uniffiDestroy()
     post({ id: data.id, result: { text: '', images: [], isError: false } })
     process.exit(0)
   }
@@ -39,6 +41,6 @@ port.on('message', async ({ data }: { data: WorkerRequest }) => {
     const result = await driver.callTool(data.tool, JSON.stringify(data.args))
     post({ id: data.id, result: toDriverResult(result) })
   } catch (err) {
-    post({ id: data.id, error: (err as Error)?.message ?? String(err) })
+    post({ id: data.id, error: errorText(err) })
   }
 })
