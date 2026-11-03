@@ -132,6 +132,8 @@ export interface ChatAttachment {
   truncated?: boolean
   /** PDFs: number of pages. */
   pages?: number
+  /** Documents: where the attached file is kept (Llama Run's Attachments folder). */
+  path?: string
 }
 
 export interface ChatMessage {

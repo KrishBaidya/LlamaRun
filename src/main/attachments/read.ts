@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto'
-import { extname } from 'node:path'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { basename, extname, join } from 'node:path'
 import type { ChatAttachment } from '@shared/types'
+import { userDataPath } from '../paths'
 
 /** Text kept per document; it shares the context window with the rest of the chat. */
 export const MAX_DOCUMENT_CHARS = 40_000
@@ -55,8 +57,15 @@ export async function readDocument(name: string, mimeType: string, bytes: Uint8A
   }
   text = text.replace(/\r\n/g, '\n').trim()
   const truncated = text.length > MAX_DOCUMENT_CHARS
+  // The file itself, kept so the model can work on the original (its images and layout), not only the text read from it.
+  const id = randomUUID()
+  const folder = userDataPath('Attachments', id)
+  mkdirSync(folder, { recursive: true })
+  const path = join(folder, basename(name) || 'document')
+  writeFileSync(path, bytes)
   return {
-    id: randomUUID(),
+    id,
+    path,
     kind: 'document',
     name,
     mimeType: mimeType || 'application/octet-stream',
@@ -70,5 +79,5 @@ export async function readDocument(name: string, mimeType: string, bytes: Uint8A
 /** How a document is put in front of the model, inside the user's message. */
 export function documentBlock(a: ChatAttachment): string {
   const note = a.truncated ? ' (only the beginning; the rest was cut to fit)' : ''
-  return `<document name="${a.name.replace(/"/g, "'")}"${a.pages ? ` pages="${a.pages}"` : ''}>${note}\n${a.text ?? ''}\n</document>`
+  return `<document name="${a.name.replace(/"/g, "'")}"${a.path ? ` path="${a.path}"` : ''}${a.pages ? ` pages="${a.pages}"` : ''}>${note}\n${a.text ?? ''}\n</document>`
 }

@@ -79,6 +79,8 @@ class ChatStore extends EventEmitter<{ changed: [] }> {
   }
 
   delete(id: string): void {
+    // The attached files kept for the model go with the chat.
+    for (const m of this.all().get(id)?.messages ?? []) for (const a of m.attachments ?? []) if (a.path) rmSync(userDataPath('Attachments', a.id), { recursive: true, force: true })
     this.all().delete(id)
     rmSync(join(this.dir, `${id}.json`), { force: true })
     this.emit('changed')
