@@ -14,7 +14,8 @@ import { askApproval } from './approval'
  * Tools Llama Run itself gives the model, next to the MCP servers' and plugins':
  * memory (what it knows about the user), skills (SKILL.md folders it can load
  * and whose Python scripts it can run), and, like Claude Code, reading web
- * pages and running commands (each one approved) to install skills from a README.
+ * pages and running commands (each one approved): the general way to get a task
+ * done that no tool covers, and how skills get installed from a README.
  */
 
 const SERVER = 'Llama Run'
@@ -84,7 +85,7 @@ const SKILL_TOOLS: McpToolInfo[] = [
   )
 ]
 
-const INSTALL_TOOLS: McpToolInfo[] = [
+const SHELL_TOOLS: McpToolInfo[] = [
   tool(
     'web_fetch',
     'Read a web page or file as text, e.g. a README. GitHub repository links return the README.',
@@ -93,10 +94,13 @@ const INSTALL_TOOLS: McpToolInfo[] = [
   ),
   tool(
     'run_command',
-    `Run a ${process.platform === 'win32' ? 'PowerShell' : 'shell'} command on the user's computer (git clone, pip install, an install script…) and get its output. The user approves each command. Runs in the Skills folder unless cwd is given. "python" and "pip" are Llama Run's bundled Python.`,
+    `Run a ${process.platform === 'win32' ? 'PowerShell' : 'shell'} command on the user's computer (run a script you wrote, convert a file, pip install, git clone…) and get its output. The user approves each command. Runs in the skill workspace folder (where skill scripts write files) unless cwd is given. "python" and "pip" are Llama Run's bundled Python.`,
     { command: { type: 'string' }, cwd: { type: 'string', description: 'Working folder (absolute).' } },
     ['command']
-  ),
+  )
+]
+
+const INSTALL_TOOLS: McpToolInfo[] = [
   tool('skills_refresh', 'Rescan the Skills folder after installing or changing a skill, and list what is installed.', {}, [])
 ]
 
@@ -106,17 +110,20 @@ const skillsOn = (): boolean => settings.get('skillsEnabled') !== false
 export interface BuiltinOptions {
   /** Offer run_command and web_fetch (typed turns only, never plugin-sent ones). */
   shell?: boolean
+  /** The user asked to install a skill: say where skills go. */
+  install?: boolean
 }
 
 export function builtinTools(options: BuiltinOptions = {}): McpToolInfo[] {
   return [
     ...(memoryOn() ? MEMORY_TOOLS : []),
     ...(skillsOn() && skillStore.active().length ? SKILL_TOOLS : []),
+    ...(options.shell ? SHELL_TOOLS : []),
     ...(skillsOn() && options.shell ? INSTALL_TOOLS : [])
   ]
 }
 
-const NAMES = new Set([...MEMORY_TOOLS, ...SKILL_TOOLS, ...INSTALL_TOOLS].map((t) => t.name))
+const NAMES = new Set([...MEMORY_TOOLS, ...SKILL_TOOLS, ...SHELL_TOOLS, ...INSTALL_TOOLS].map((t) => t.name))
 
 export function isBuiltinTool(name: string): boolean {
   return NAMES.has(name)
@@ -161,8 +168,9 @@ async function webFetch(target: string): Promise<string> {
 }
 
 async function runCommand(command: string, cwdArg?: string, chatId?: string): Promise<string> {
-  const cwd = resolve(cwdArg?.trim() || skillsDir())
+  const cwd = resolve(cwdArg?.trim() || skillWorkspace())
   mkdirSync(skillsDir(), { recursive: true })
+  mkdirSync(skillWorkspace(), { recursive: true })
   if (!existsSync(cwd)) throw new Error(`${cwd} does not exist`)
   const allowed = settings.get('allowedCommands') ?? []
   if (!allowed.includes(command)) {
@@ -298,7 +306,7 @@ export function builtinInstructions(options: BuiltinOptions = {}): string {
         ...skills.filter((s) => s.modelInvocable).map((s) => `- ${s.name}: ${shorten(s.description) || '(no description)'}`)
       )
     }
-    if (options.shell) {
+    if (options.install) {
       lines.push(
         `To install a skill the user links to: read its README with web_fetch and follow the install steps with run_command, so each skill ends up as its own folder with a SKILL.md inside ${skillsDir()}. Then call skills_refresh and tell the user what was installed.`
       )

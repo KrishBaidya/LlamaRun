@@ -95,8 +95,8 @@ export function chatTools(options: ChatToolOptions = {}): ToolBridge | undefined
 }
 
 /** Instructions for a turn: memories and skills, computer use, what plugins added, then the turn's own. */
-export function systemFor(turn?: string, shell = false, computerOn = false): string | undefined {
-  const parts = [builtinInstructions({ shell }), computerOn ? computerInstructions() : '', pluginHost.contextText(), turn?.trim()].filter(Boolean)
+export function systemFor(turn?: string, shell = false, computerOn = false, install = false): string | undefined {
+  const parts = [builtinInstructions({ shell, install }), computerOn ? computerInstructions() : '', pluginHost.contextText(), turn?.trim()].filter(Boolean)
   return parts.length ? parts.join('\n\n') : undefined
 }
 
@@ -139,9 +139,10 @@ export function historyFor(messages: ChatMessage[], compaction?: Chat['compactio
 }
 
 /**
- * Whether a typed turn gets web_fetch and run_command: in "Install with AI"
- * chats, or when the user asks to install a skill from a link. Other turns
- * never see them, so a model can't wander into the shell unprompted.
+ * Whether a typed turn is installing a skill: in "Install with AI" chats, or
+ * when the user asks to install a skill from a link. Those turns are told where
+ * skills go. (Every typed turn gets web_fetch and run_command, each command
+ * approved by the user; plugin-sent turns never do.)
  */
 export function wantsShell(chat: Pick<Chat, 'installer'>, text: string): boolean {
   if (chat.installer) return true
@@ -464,7 +465,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     user: ChatMessage,
     resume?: { assistant: ChatMessage; pause: ToolPause },
     turn?: TurnOptions,
-    /** A turn the user typed (not a plugin): it may get the approved shell and web tools (see wantsShell). */
+    /** A turn the user typed (not a plugin): it gets the approved shell and web tools. */
     typed = false
   ): Promise<ChatMessage> {
     const controller = new AbortController()
@@ -526,7 +527,8 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
       assistant.model = model
       const info = await modelInfo(model)
       const context = contextWindowFor(model, info, settings.all)
-      const shell = typed && wantsShell(chat, user.prompt ?? user.content)
+      const shell = typed
+      const install = typed && wantsShell(chat, user.prompt ?? user.content)
       const computerOn = computerFor(typed, info, turn)
       maxRounds = computerOn ? Math.min(500, Math.max(MAX_TOOL_ROUNDS, settings.get('computerMaxSteps') || 0)) : MAX_TOOL_ROUNDS
       if (!resume) await this.autoCompact(chat, model, context, controller.signal, shell, computerOn)
@@ -542,7 +544,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
         model,
         signal: controller.signal,
         tools: turn?.tools === false ? undefined : chatTools({ shell, chatId: chat.id, computer: computerOn }),
-        system: systemFor(turn?.system, shell, Boolean(computerOn)),
+        system: systemFor(turn?.system, shell, Boolean(computerOn), install),
         maxToolRounds: maxRounds,
         vision: Boolean(info?.capabilities?.includes('vision')),
         // Each computer-use step is a small decision: low thinking keeps it fast and cheap.

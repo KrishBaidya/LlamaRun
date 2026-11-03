@@ -33,6 +33,16 @@ const SERVER = 'Computer use'
 const SCREENSHOT_EDGE = 1280
 /** Elements read per snapshot (the driver's default); the model narrows with `find` to see further. */
 const MAX_ELEMENTS = 250
+/**
+ * Elements a `find` reads: the whole window, so the rows under a match (a
+ * heading's text, a form's fields) come along. A browser with many tabs fills
+ * 250 with its tab strip before the page starts.
+ */
+const FIND_ELEMENTS = 2000
+/** Lines shown after each match of a `find` (its children, then what follows it). */
+const FIND_CONTEXT_LINES = 15
+/** Most lines a `find` returns. */
+const FIND_MAX_LINES = 150
 /** Time budget for reading a window's tree: the driver's default, and enough for native apps. */
 const READ_TIMEOUT_MS = 1000
 /** Chromium and Electron windows take 2 to 3 s to read in full; windows that ran out of time get this. */
@@ -409,6 +419,37 @@ export function cleanMessage(message: string): string {
     .trim()
 }
 
+/**
+ * The lines of a window's tree that match `needle`, each with its parents
+ * (where it is), its children and the lines after it (what it says: the text
+ * under a heading, the fields of a form). Empty when nothing matches.
+ */
+export function findRows(tree: string, needle: string): string {
+  const lines = tree.split('\n')
+  const depth = (line: string): number => line.length - line.trimStart().length
+  const role = (line: string): string => (/^\s*- (?:\[\d+\] )?([A-Za-z][\w ]*?)(?= "| \[|$)/.exec(line)?.[1] ?? '').toLowerCase()
+  const want = needle.toLowerCase()
+  const matches = lines.flatMap((line, i) => (line.toLowerCase().includes(want) ? [i] : []))
+  const keep = new Set<number>()
+  for (const [k, i] of matches.entries()) {
+    let d = depth(lines[i])
+    for (let j = i - 1; j >= 0 && d > 0; j--) if (depth(lines[j]) < d) keep.add(j), (d = depth(lines[j]))
+    keep.add(i)
+    // A match holding other matches (the window, whose title names the page) is only where they are: theirs are the lines to show.
+    const next = matches[k + 1]
+    if (next !== undefined && lines.slice(i + 1, next + 1).every((line) => depth(line) > depth(lines[i]))) continue
+    // Children first, then siblings after it, until the tree climbs out of its parent. A list (tabs, links, list items)
+    // stops at the next item like the match; text goes on, as the lines after a heading are what it says.
+    const own = role(lines[i])
+    for (let j = i + 1, n = 0; j < lines.length && n < FIND_CONTEXT_LINES && depth(lines[j]) >= depth(lines[i]); j++, n++) {
+      if (depth(lines[j]) === depth(lines[i]) && own !== 'text' && role(lines[j]) === own) break
+      keep.add(j)
+    }
+  }
+  const out = [...keep].sort((a, b) => a - b).map((i) => lines[i]).filter((line) => line.trim())
+  return out.length > FIND_MAX_LINES ? `${out.slice(0, FIND_MAX_LINES).join('\n')}\n…more matches; search for something more specific.` : out.join('\n')
+}
+
 /** Row number -> its line, from a window's tree ("- [12] button "Save""). */
 export function rowsOf(tree: string): Map<number, string> {
   const rows = new Map<number, string>()
@@ -730,12 +771,14 @@ class Computer {
     options: { full?: boolean; query?: string; screenshot?: boolean } = {}
   ): Promise<{ text: string; images: Image[] }> {
     const since = options.full || options.query ? undefined : state.snapshots.get(win.windowId)
+    // A search reads the whole window and picks the rows here: the driver's own query returns matches and their parents only,
+    // so a heading would come without the text under it.
     const r = await driver().call('get_window_state', {
       pid: win.pid,
       window_id: win.windowId,
       ...this.readArgs(win, context, state, options.screenshot ?? this.bare.has(win.windowId)),
-      ...(since ? { since } : {}),
-      ...(options.query ? { query: options.query } : {})
+      ...(options.query ? { max_elements: FIND_ELEMENTS, timeout_ms: SLOW_READ_TIMEOUT_MS } : {}),
+      ...(since ? { since } : {})
     })
     if (r.isError) {
       if (isGone(`${r.errorCode ?? ''} ${r.text}`)) {
@@ -744,7 +787,7 @@ class Computer {
       }
       return { text: `Could not read window ${win.windowId}: ${r.text}`, images: [] }
     }
-    return this.describe(win, state, r.structured ?? {}, r.images, context, Boolean(options.query))
+    return this.describe(win, state, r.structured ?? {}, r.images, context, options.query)
   }
 
   /** A window state (from a read or a batch's observation) as text for the model, remembering its snapshot. */
@@ -754,7 +797,7 @@ class Computer {
     s: Record<string, unknown>,
     images: DriverResult['images'],
     context: ComputerContext,
-    projected = false
+    find?: string
   ): { text: string; images: Image[] } {
     if (typeof s.snapshot_id === 'string') state.snapshots.set(win.windowId, s.snapshot_id)
     if (typeof s.window_title === 'string' && s.window_title) win.title = s.window_title
@@ -763,21 +806,17 @@ class Computer {
       this.rememberShot(state, win, s)
     }
     const tree = typeof s.tree_markdown === 'string' ? s.tree_markdown : ''
-    if (tree) {
-      // A search shows some rows only: they update the rows known, the rest stay.
-      const rows = rowsOf(tree)
-      if (projected) for (const [n, line] of rows) (state.rows.get(win.windowId) ?? state.rows.set(win.windowId, new Map()).get(win.windowId)!).set(n, line)
-      else state.rows.set(win.windowId, rows)
-    }
+    if (tree) state.rows.set(win.windowId, rowsOf(tree))
     if (s.truncation_reason === 'timeout' || s.elements_complete === false) this.slow.add(win.windowId)
     const bare = Boolean(s.degraded) && Number(s.element_count ?? 0) <= 2
     if (bare) this.bare.add(win.windowId)
-    else if (tree && !projected && Number(s.element_count ?? 3) > 2) this.bare.delete(win.windowId)
+    else if (tree && Number(s.element_count ?? 3) > 2) this.bare.delete(win.windowId)
 
     const header = `Window ${win.windowId}: ${win.app}${win.title && win.title !== win.app ? ` — "${win.title}"` : ''}`
     let body: string
     if (s.since_status === 'no_change') body = 'No visible change.'
     else if (typeof s.tree_diff === 'string' && s.tree_diff.trim()) body = `Changes:\n${cleanDiff(s.tree_diff)}`
+    else if (find) body = findRows(tree, find) || `No rows match "${find}".`
     else body = tree.trim() || '(no elements)'
     const notes: string[] = []
     if (s.truncated) {
@@ -950,6 +989,13 @@ class Computer {
     const byLabel = this.byLabel(win, state, steps[0], (r.structured?.steps as Record<string, unknown>[] | undefined)?.[0])
     if (byLabel) {
       steps[0] = byLabel
+      r = await run()
+    }
+    // The window refused background input before anything ran (Chromium scrolls, Electron apps): send it again with
+    // foreground_fallback now, rather than spend the model's next round on the retry.
+    const refused = (r.structured?.steps as Record<string, unknown>[] | undefined)?.[0]
+    if (refused?.ok === false && args.foreground !== true && !state.foreground.has(win.windowId) && /background/i.test(`${String(refused.code ?? '')} ${String(refused.message ?? '')}`)) {
+      state.foreground.add(win.windowId)
       r = await run()
     }
     return this.outcome(win, context, state, r, steps)

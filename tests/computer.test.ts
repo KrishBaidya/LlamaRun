@@ -34,7 +34,7 @@ vi.mock('../src/main/computer/indicator', () => ({
   }
 }))
 
-const { computer, parseKeys, parseKeySequence, rowsOf, cleanDiff, cleanMessage, appLabel, COMPUTER_TOOLS } = await import('../src/main/computer/tools')
+const { computer, parseKeys, parseKeySequence, rowsOf, findRows, cleanDiff, cleanMessage, appLabel, COMPUTER_TOOLS } = await import('../src/main/computer/tools')
 const { setDriverTransport } = await import('../src/main/computer/driver')
 const { settings } = await import('../src/main/settings')
 const { SupersededResults, toolResultImages, toolResultToText } = await import('../src/main/llm/toolPayload')
@@ -426,18 +426,23 @@ describe('computer use tools', () => {
     expect(toolResultImages(r)).toEqual([])
   })
 
-  it('passes refusals on with what to do, and retries in the foreground only when asked', async () => {
+  it('sends an action the window refused in the background again with foreground_fallback, once, and keeps it for later actions', async () => {
     saved.computerAllowedApps = ['notepad']
     await computer.call('computer_look', { window: 77 }, ctx())
+    // Seen in a chat: Edge refuses background scrolls, and the model wandered off instead of retrying.
     fake.failNext = { 0: 'background_unavailable' }
-    const refused = await computer.call('computer_click', { window: 77, element: 3 }, ctx())
-    expect(refused.isError).toBe(true)
-    expect(textOf(refused)).toContain('foreground: true')
-    await computer.call('computer_click', { window: 77, element: 3, foreground: true }, ctx())
-    expect(fake.calls.find((c) => c.tool === 'run_steps' && c.args.delivery_mode)!.args).toMatchObject({ delivery_mode: 'foreground' })
-    // The window refused background input once: later actions there fall back to the foreground on their own (seen in the KiCad sandbox).
+    const r = await computer.call('computer_scroll', { window: 77, direction: 'down', element: 3 }, ctx())
+    expect(r.isError).toBeFalsy()
+    const runs = fake.calls.filter((c) => c.tool === 'run_steps')
+    expect(runs).toHaveLength(2)
+    expect(runs[0].args.foreground_fallback).toBeUndefined()
+    expect(runs[1].args).toMatchObject({ foreground_fallback: true })
+    // Later actions there fall back to the foreground on their own (seen in the KiCad sandbox).
     await computer.call('computer_key', { window: 77, keys: 'enter' }, ctx())
     expect(fake.calls.filter((c) => c.tool === 'run_steps').at(-1)!.args).toMatchObject({ foreground_fallback: true })
+    // Asked for the foreground outright: delivery_mode, no fallback.
+    await computer.call('computer_click', { window: 77, element: 3, foreground: true }, ctx())
+    expect(fake.calls.filter((c) => c.tool === 'run_steps').at(-1)!.args).toMatchObject({ delivery_mode: 'foreground' })
   })
 
   it("doesn't send delay_ms where the driver refuses it (only Windows takes it)", async () => {
@@ -570,6 +575,41 @@ describe('things seen in Llama Run chats', () => {
     // Allowed as "the browser" when opening: acting in that window doesn't ask again.
     await computer.call('computer_click', { window: 50, name: 'UPLOAD CHARACTER' }, ctx())
     expect(ui.asked).toHaveLength(1)
+  })
+
+  it('finds a heading with the text under it, not the heading alone', () => {
+    const tree = [
+      '- Window "Course"',
+      '  - [16] Document "Assignment"',
+      '    - Group "Tabs"',
+      '      - [70] TabItem "Instructions"',
+      '    - Group "Step-By-Step Assignment Instructions"',
+      '      - [100] Text "Setup instructions:"',
+      '      - Text "Pick a product and write a post for it."',
+      '      - Text "Include a picture and a call to action."',
+      '    - Group "Footer"',
+      '      - [120] Hyperlink "Help"'
+    ].join('\n')
+    const found = findRows(tree, 'setup instructions')
+    expect(found).toContain('Pick a product and write a post for it.')
+    expect(found).toContain('Include a picture and a call to action.')
+    expect(found).toContain('[16] Document "Assignment"')
+    expect(found).not.toContain('Help')
+    expect(found).not.toContain('TabItem')
+    expect(findRows(tree, 'nowhere')).toBe('')
+    // A match in a list of tabs stops at the next tab; one in the window's title doesn't pull in the whole window.
+    const tabs = ['- Window "Billing - Edge"', '  - Tab "Tab bar"', '    - [5] TabItem "Billing"', '    - [6] TabItem "Mail"', '    - [7] TabItem "News"', '  - [8] Button "Back"'].join('\n')
+    expect(findRows(tabs, 'billing')).toBe(['- Window "Billing - Edge"', '  - Tab "Tab bar"', '    - [5] TabItem "Billing"'].join('\n'))
+  })
+
+  it("reads the whole window for a find (a browser's tab strip fills the usual 250 rows)", async () => {
+    saved.computerAllowedApps = ['notepad']
+    const r = await computer.call('computer_look', { window: 77, find: 'save' }, ctx())
+    const read = fake.calls.find((c) => c.tool === 'get_window_state')!.args
+    expect(read.query).toBeUndefined()
+    expect(read.max_elements).toBeGreaterThan(250)
+    expect(textOf(r)).toContain('"Save"')
+    expect(textOf(await computer.call('computer_look', { window: 77, find: 'zzz' }, ctx()))).toContain('No rows match "zzz"')
   })
 
   it('retries a row past the end of the latest read by its label, once, when nothing ran', async () => {
