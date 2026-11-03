@@ -2,15 +2,18 @@ import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { utilityProcess, type UtilityProcess } from 'electron'
 import { userDataPath } from '../paths'
-import type { DriverResult, WorkerRequest, WorkerResponse } from './protocol'
+import type { AuthorizationAsk, DriverResult, WorkerRequest, WorkerResponse } from './protocol'
 
 /** Longest a single driver call may take before it's reported as failed. */
 const CALL_TIMEOUT_MS = 60_000
+/** browser_prepare waits for the user to answer the approval card (the driver's own request expiry bounds it too). */
+const PREPARE_TIMEOUT_MS = 5 * 60_000
 
 /**
  * The only Cua Driver tools Llama Run calls. The runtime refuses every other
- * one (killing processes, desktop capture, logged-in browser profiles,
- * recordings, scripts, configuration), whatever reaches it.
+ * one (killing processes, desktop capture, downloads, recordings, scripts,
+ * configuration), whatever reaches it. Attaching to the user's signed-in
+ * browser also needs their answer in an approval card (see setDriverAuthorizer).
  */
 export const DRIVER_TOOLS = [
   'start_session',
@@ -34,8 +37,33 @@ export const DRIVER_TOOLS = [
   'invoke_menu',
   'set_window_frame',
   'clipboard_read',
-  'clipboard_write'
+  'clipboard_write',
+  'get_browser_state',
+  'browser_prepare',
+  'browser_navigate',
+  'browser_click',
+  'browser_type',
+  'browser_select',
+  'browser_pointer',
+  'browser_dialog',
+  'browser_set_input_files'
 ]
+
+/** Decides what the driver asks its host: true allows that one request. */
+export type DriverAuthorizer = (ask: AuthorizationAsk, signal: AbortSignal) => Promise<boolean>
+
+let authorizer: DriverAuthorizer | null = null
+
+/** Who answers the driver's authorization requests (computer/tools.ts shows them as approval cards). */
+export function setDriverAuthorizer(next: DriverAuthorizer | null): void {
+  authorizer = next
+}
+
+/** An authorization request from the driver, answered by the authorizer; with none set, refused. */
+export async function askAuthorizer(ask: AuthorizationAsk, signal: AbortSignal): Promise<boolean> {
+  if (!authorizer || signal.aborted) return false
+  return authorizer(ask, signal).catch(() => false)
+}
 
 /** A Cua policy (deny by default) allowing exactly DRIVER_TOOLS. */
 export function driverPolicy(): string {
@@ -60,6 +88,8 @@ class WorkerTransport implements DriverTransport {
   private started: Promise<UtilityProcess> | null = null
   private seq = 0
   private pending = new Map<number, { resolve: (r: DriverResult) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>()
+  /** Approval questions from the driver that the user hasn't answered yet. */
+  private asks = new Map<number, AbortController>()
 
   private start(): Promise<UtilityProcess> {
     this.started ??= new Promise((resolve, reject) => {
@@ -74,7 +104,18 @@ class WorkerTransport implements DriverTransport {
       let stderr = ''
       child.stderr?.on('data', (d: Buffer) => (stderr = (stderr + d.toString()).slice(-2000)))
       child.on('message', (message: WorkerResponse) => {
-        if ('ready' in message) {
+        if ('authorize' in message) {
+          const { id } = message.authorize
+          const abort = new AbortController()
+          this.asks.set(id, abort)
+          void askAuthorizer(message.authorize, abort.signal).then((allow) => {
+            this.asks.delete(id)
+            if (this.child === child && !abort.signal.aborted) child.postMessage({ authorized: id, allow } satisfies WorkerRequest)
+          })
+        } else if ('withdraw' in message) {
+          this.asks.get(message.withdraw)?.abort()
+          this.asks.delete(message.withdraw)
+        } else if ('ready' in message) {
           this.child = child
           resolve(child)
         } else if ('fatal' in message) {
@@ -93,6 +134,8 @@ class WorkerTransport implements DriverTransport {
         if (this.child !== child) reject(reason)
         this.child = null
         this.started = null
+        for (const ask of this.asks.values()) ask.abort()
+        this.asks.clear()
         for (const [id, entry] of this.pending) {
           clearTimeout(entry.timer)
           entry.reject(reason)
@@ -106,12 +149,13 @@ class WorkerTransport implements DriverTransport {
   async call(tool: string, args: Record<string, unknown>): Promise<DriverResult> {
     const child = await this.start()
     const id = ++this.seq
+    const limit = tool === 'browser_prepare' ? PREPARE_TIMEOUT_MS : CALL_TIMEOUT_MS
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id)
         // The action may still have reached the app: retrying blind could do it twice.
-        reject(new Error(`${tool} took longer than ${CALL_TIMEOUT_MS / 1000} seconds. It may still have happened: look at the window before trying again.`))
-      }, CALL_TIMEOUT_MS)
+        reject(new Error(`${tool} took longer than ${limit / 1000} seconds. It may still have happened: look at the window before trying again.`))
+      }, limit)
       this.pending.set(id, { resolve, reject, timer })
       child.postMessage({ id, tool, args } satisfies WorkerRequest)
     })

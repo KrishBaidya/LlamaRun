@@ -16,9 +16,35 @@ export interface DriverResult {
   errorCode?: string
 }
 
-export type WorkerRequest = { id: number; tool: string; args: Record<string, unknown> } | { id: number; shutdown: true }
+/**
+ * The driver asking its host (Llama Run) to approve a residual boundary, such
+ * as attaching to the user's signed-in browser profile. Only the parts the
+ * user is shown: the request's attested resource stays in the worker.
+ */
+export interface AuthorizationAsk {
+  id: number
+  /** The Cua session that asked: which chat the approval card belongs to. */
+  session: string
+  /** The driver's own description of what it would do. */
+  summary: string
+  riskClass: string
+  /** When the driver stops waiting for an answer (Unix ms). */
+  expiresAt: number
+}
 
-export type WorkerResponse = { id: number; result: DriverResult } | { id: number; error: string } | { ready: true } | { fatal: string }
+export type WorkerRequest =
+  | { id: number; tool: string; args: Record<string, unknown> }
+  | { id: number; shutdown: true }
+  | { authorized: number; allow: boolean }
+
+export type WorkerResponse =
+  | { id: number; result: DriverResult }
+  | { id: number; error: string }
+  | { ready: true }
+  | { fatal: string }
+  | { authorize: AuthorizationAsk }
+  /** The driver stopped waiting (the request expired or was cancelled): take the question down. */
+  | { withdraw: number }
 
 /** The SDK's ToolResult, typed loosely so this file doesn't import the native package. */
 interface NativeToolResult {

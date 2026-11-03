@@ -16,12 +16,15 @@ class Approvals extends EventEmitter<{ changed: [chatId: string, request: Approv
   private pending = new Map<string, { chatId: string; request: ApprovalRequest; resolve: (a: Approval) => void }>()
   private queues = new Map<string, Promise<unknown>>()
 
-  ask(chatId: string, request: Omit<ApprovalRequest, 'id'>): Promise<Approval> {
+  /** `signal` takes the question down (answered "deny") when whoever asked stops waiting. */
+  ask(chatId: string, request: Omit<ApprovalRequest, 'id'>, signal?: AbortSignal): Promise<Approval> {
     const run = (): Promise<Approval> =>
       new Promise((resolve) => {
+        if (signal?.aborted) return resolve('deny')
         const full: ApprovalRequest = { id: randomUUID(), ...request }
         this.pending.set(full.id, { chatId, request: full, resolve })
         this.emit('changed', chatId, full)
+        signal?.addEventListener('abort', () => this.answer(full.id, 'deny'), { once: true })
       })
     const previous = this.queues.get(chatId) ?? Promise.resolve()
     const result = previous.then(run, run)
@@ -69,6 +72,6 @@ async function askNative(request: Omit<ApprovalRequest, 'id'>): Promise<Approval
   return response === 0 ? 'once' : response === 1 ? 'always' : 'deny'
 }
 
-export function askApproval(chatId: string | undefined, request: Omit<ApprovalRequest, 'id'>): Promise<Approval> {
-  return chatId ? approvals.ask(chatId, request) : askNative(request)
+export function askApproval(chatId: string | undefined, request: Omit<ApprovalRequest, 'id'>, signal?: AbortSignal): Promise<Approval> {
+  return chatId ? approvals.ask(chatId, request, signal) : askNative(request)
 }
