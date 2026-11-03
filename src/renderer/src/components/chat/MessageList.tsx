@@ -1,5 +1,5 @@
 import { Fragment, memo, useEffect, useRef, useState } from 'react'
-import { AlertCircle, Blocks, Bot, Check, ChevronDown, Copy, FoldVertical, Loader2, Mic, Play, RotateCcw, ShieldQuestion, Sparkles, Wand2, Wrench } from 'lucide-react'
+import { AlertCircle, Blocks, Bot, Brain, Check, ChevronDown, Copy, FoldVertical, Loader2, Mic, Play, RotateCcw, ShieldQuestion, Sparkles, Wand2, Wrench } from 'lucide-react'
 import type { ApprovalRequest, ChatCompaction, ChatMessage, ToolPart } from '@shared/types'
 import { Markdown } from '@/components/markdown'
 import { Button } from '@/components/ui/button'
@@ -158,6 +158,24 @@ function argHint(args: ToolPart['args']): string {
 }
 
 /** One tool call in a reply, where it happened: name and status, with its input and result a click away. */
+/** The model's thinking between tool calls: its first line (Gemini titles each thought), the rest on click. */
+function ThinkingNote({ text }: { text: string }) {
+  const [open, setOpen] = useState(false)
+  const trimmed = text.trim()
+  if (!trimmed) return null
+  const title = trimmed.split('\n')[0].replace(/\*\*/g, '').trim()
+  return (
+    <div className="w-full max-w-full text-xs text-muted-foreground">
+      <button type="button" className="flex w-full min-w-0 items-center gap-1.5 text-left hover:text-foreground" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+        <Brain className="size-3 shrink-0" />
+        <span className="min-w-0 truncate italic">{title}</span>
+        <ChevronDown className={cn('size-3 shrink-0 transition-transform', open && 'rotate-180')} />
+      </button>
+      {open && <div className="mt-1 border-s border-border ps-3 opacity-90"><Markdown text={trimmed} /></div>}
+    </div>
+  )
+}
+
 function ToolCard({ part }: { part: ToolPart }) {
   const [open, setOpen] = useState(false)
   const hint = argHint(part.args)
@@ -242,7 +260,9 @@ const AssistantMessage = memo(function AssistantMessage({
 
       {parts ? (
         <>
-          {parts.map((p, i) => (p.type === 'tool' ? <ToolCard key={p.id} part={p} /> : p.text.trim() ? <Markdown key={i} text={p.text} /> : null))}
+          {parts.map((p, i) =>
+            p.type === 'tool' ? <ToolCard key={p.id} part={p} /> : p.type === 'thinking' ? <ThinkingNote key={i} text={p.text} /> : p.text.trim() ? <Markdown key={i} text={p.text} /> : null
+          )}
           {streaming && parts[parts.length - 1]?.type === 'tool' && (parts[parts.length - 1] as ToolPart).status !== 'running' && (
             <span className="shimmer-text w-fit text-sm">Thinking…</span>
           )}

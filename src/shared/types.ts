@@ -115,8 +115,14 @@ export interface ToolPart {
   result?: string
 }
 
+/** What the model thought on the way (a thinking model's summary of its reasoning), shown in place; never sent back to it. */
+export interface ThinkingPart {
+  type: 'thinking'
+  text: string
+}
+
 /** An assistant reply in the order it happened: text, tool, text, tool, ... */
-export type MessagePart = TextPart | ToolPart
+export type MessagePart = TextPart | ToolPart | ThinkingPart
 
 /** A file sent with a message. Images go to vision models; documents are read as text. */
 export interface ChatAttachment {
@@ -199,6 +205,8 @@ export interface ChatSummary {
 export type ChatEvent =
   | { type: 'message'; chatId: string; message: ChatMessage }
   | { type: 'delta'; chatId: string; messageId: string; text: string }
+  /** More of the model's thinking, streamed like `delta`. */
+  | { type: 'thinking'; chatId: string; messageId: string; text: string }
   /** A tool call started; `part` is its card (status "running"). */
   | { type: 'tool'; chatId: string; messageId: string; tool: ChatToolCall; part?: ToolPart }
   /** A tool call finished: the same part, with its result. */

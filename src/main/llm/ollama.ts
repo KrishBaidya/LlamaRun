@@ -182,6 +182,8 @@ export async function generateOllama(input: GenerateInput, opts: GenerateOptions
       let content = ''
       const toolCalls: NonNullable<Message['tool_calls']> = []
       for await (const chunk of stream) {
+        // Reasoning models send their thinking apart from the reply.
+        if (chunk.message.thinking) opts.onThinking?.(chunk.message.thinking)
         if (chunk.message.content) {
           output = joinRound(output, chunk.message.content, round > 0 && !content)
           content += chunk.message.content

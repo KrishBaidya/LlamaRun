@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cloudBody, generateCloud, setStructuredSupported, textOf, toolCallOf } from '../src/main/llm/cloud'
+import { cloudBody, generateCloud, setStructuredSupported, textOf, thinkingOf, toolCallOf } from '../src/main/llm/cloud'
 import { keepNewestImages, type Turn } from '../src/main/llm/conversation'
 import { toolResultToText, toolSpecs } from '../src/main/llm/toolPayload'
 import { MAX_TOOL_ROUNDS, toHistory, type ToolPause } from '../src/main/llm/types'
@@ -14,6 +14,18 @@ describe('cloud stream events', () => {
     expect(textOf({ text: { type: 'text-delta', textDelta: 'b' } })).toBe('b')
     expect(textOf({ type: 'text-delta', delta: 'c' })).toBe('c')
     expect(textOf({ text: { type: 'tool-call', toolName: 't' } })).toBe('')
+  })
+
+  it("reads a thinking model's reasoning apart from its text", async () => {
+    expect(thinkingOf({ text: { type: 'reasoning-delta', text: '**Plan**' } })).toBe('**Plan**')
+    expect(textOf({ text: { type: 'reasoning-delta', text: '**Plan**' } })).toBe('')
+    expect(thinkingOf({ text: { type: 'text-delta', text: 'a' } })).toBe('')
+    vi.stubGlobal('fetch', vi.fn(async () => streamResponse([{ text: { type: 'reasoning-delta', id: 'r', text: 'Thinking it over.' } }, { text: { type: 'text-delta', text: 'Hi.' } }, { done: 'True' }])))
+    const thoughts: string[] = []
+    const out = await generateCloud('Hello', { model: 'gemini-3.8-flash', token: 't', onThinking: (t) => thoughts.push(t) })
+    vi.unstubAllGlobals()
+    expect(out).toBe('Hi.')
+    expect(thoughts).toEqual(['Thinking it over.'])
   })
 
   it('reads tool arguments from args, input or a JSON string', () => {

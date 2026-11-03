@@ -25,7 +25,7 @@ import { skillStore } from '../skills/store'
 import { joinRound } from '../llm/toolRun'
 import { COMPACT_SYSTEM, compactionRequest, splitForCompaction, SUMMARY_INTRO, transcriptOf, visibleMessages } from './compact'
 import { contextWindowFor, estimateTokens, usageOf } from './context'
-import { appendText, finishTool, recalledReplies, replaceText, replyForModel, textOf, toolPart } from './parts'
+import { appendText, appendThinking, finishTool, recalledReplies, replaceText, replyForModel, textOf, toolPart } from './parts'
 import { chatStore, titleFrom } from './store'
 
 const FLUSH_MS = 16
@@ -497,12 +497,15 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     }
 
     let pending = ''
+    let pendingThinking = ''
     let timer: NodeJS.Timeout | null = null
     const flush = (): void => {
       if (timer) clearTimeout(timer)
       timer = null
+      if (pendingThinking) this.emit('event', { type: 'thinking', chatId: chat.id, messageId: assistant.id, text: pendingThinking })
       if (pending) this.emit('event', { type: 'delta', chatId: chat.id, messageId: assistant.id, text: pending })
       pending = ''
+      pendingThinking = ''
     }
 
     try {
@@ -560,7 +563,15 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
           usage.inputTokens += u.inputTokens
           usage.outputTokens += u.outputTokens
         },
+        onThinking: (t) => {
+          // Sent in the order it happened: text waiting to go out goes first.
+          if (pending) flush()
+          appendThinking(parts, t)
+          pendingThinking += t
+          timer ??= setTimeout(flush, FLUSH_MS)
+        },
         onToken: (t) => {
+          if (pendingThinking) flush()
           firstTokenAt ||= Date.now()
           assistant.content += t
           appendText(parts, t)

@@ -72,6 +72,8 @@ export interface GenerateOptions {
   model: string
   signal?: AbortSignal
   onToken?: (text: string) => void
+  /** A thinking model's summary of its reasoning, as it streams (shown to the user, not part of the reply). */
+  onThinking?: (text: string) => void
   /** A tool call is about to run. */
   onTool?: (call: ToolCallInfo) => void
   /** A tool call finished (`result`), or threw (`error`). */

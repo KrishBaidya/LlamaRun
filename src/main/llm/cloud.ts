@@ -123,6 +123,14 @@ export function textOf(part: CloudStreamPart): string {
   return typeof value === 'string' ? value : ''
 }
 
+/** A thinking model's summary of its reasoning, in a reasoning-delta event. */
+export function thinkingOf(part: CloudStreamPart): string {
+  const e = eventOf(part)
+  if (e.type !== 'reasoning-delta') return ''
+  const value = e.text ?? e.delta
+  return typeof value === 'string' ? value : ''
+}
+
 /**
  * The tool call in a tool-call event. Arguments arrive as `args` (AI SDK 4),
  * `input` (AI SDK 5+) or `arguments`, as an object or a JSON string.
@@ -258,6 +266,11 @@ export async function generateCloud(
             output = joinRound(output, text, round > 0 && !roundText)
             roundText += text
             opts.onToken?.(text)
+            continue
+          }
+          const thought = thinkingOf(part)
+          if (thought) {
+            opts.onThinking?.(thought)
             continue
           }
           const call = toolCallOf(part)

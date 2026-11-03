@@ -9,6 +9,12 @@ function withText(parts: MessagePart[] | undefined, text: string): MessagePart[]
   return last?.type === 'text' ? [...parts.slice(0, -1), { ...last, text: last.text + text }] : [...parts, { type: 'text', text }]
 }
 
+function withThinking(parts: MessagePart[] | undefined, text: string): MessagePart[] {
+  const list = parts ?? []
+  const last = list[list.length - 1]
+  return last?.type === 'thinking' ? [...list.slice(0, -1), { ...last, text: last.text + text }] : [...list, { type: 'thinking', text }]
+}
+
 /** Adds a tool call's card, or updates it in place when it finishes. */
 function withTool(parts: MessagePart[] | undefined, part: ToolPart): MessagePart[] {
   const list = parts ?? []
@@ -36,6 +42,11 @@ function applyEvent(chat: Chat, e: ChatEvent): Chat {
       return {
         ...chat,
         messages: chat.messages.map((m) => (m.id === e.messageId ? { ...m, content: m.content + e.text, parts: withText(m.parts, e.text) } : m))
+      }
+    case 'thinking':
+      return {
+        ...chat,
+        messages: chat.messages.map((m) => (m.id === e.messageId ? { ...m, parts: withThinking(m.parts, e.text) } : m))
       }
     case 'tool':
       return {

@@ -27,6 +27,13 @@ function trimArgs(args: Record<string, unknown>): Record<string, unknown> {
   return out
 }
 
+/** Adds streamed thinking: onto the last thinking part, or as a new one. */
+export function appendThinking(parts: MessagePart[], text: string): void {
+  const last = parts[parts.length - 1]
+  if (last?.type === 'thinking') last.text += text
+  else parts.push({ type: 'thinking', text })
+}
+
 /** Adds streamed text: onto the last text part, or as a new one after a tool call. */
 export function appendText(parts: MessagePart[], text: string): void {
   const last = parts[parts.length - 1]
@@ -68,6 +75,7 @@ export function replyForModel(message: ChatMessage, recallTools: boolean): strin
   return message.parts
     .map((p) => {
       if (p.type === 'text') return p.text.trim()
+      if (p.type === 'thinking') return ''
       const args = p.args && Object.keys(p.args).length ? ` ${JSON.stringify(p.args)}` : ''
       const outcome = p.result ? `: ${cut(p.result.replace(/\s+/g, ' ').trim(), MAX_RECALLED_RESULT)}` : ''
       return `[earlier tool call ${p.name}${args}${p.status === 'error' ? ' failed' : ''}${outcome}]`

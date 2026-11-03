@@ -24,7 +24,7 @@ vi.mock('../src/main/llm', async (importOriginal) => {
   }
 })
 
-const { appendText, finishTool, recalledReplies, replaceText, replyForModel, textOf, toolPart } = await import('../src/main/chats/parts')
+const { appendText, appendThinking, finishTool, recalledReplies, replaceText, replyForModel, textOf, toolPart } = await import('../src/main/chats/parts')
 const { chatService, historyFor } = await import('../src/main/chats/service')
 const { pluginHost } = await import('../src/main/plugins/host')
 const { joinRound, runToolCalls } = await import('../src/main/llm/toolRun')
@@ -127,6 +127,39 @@ describe('running tool calls', () => {
 
 describe('a chat reply with tools', () => {
   afterEach(() => vi.restoreAllMocks())
+
+  it("shows a thinking model's thoughts between tool calls, apart from the reply, and never sends them back", async () => {
+    vi.spyOn(pluginHost, 'beforeTextGeneration').mockResolvedValue({ cancel: false, input_text: 'make a pdf', model: '' } as never)
+    vi.spyOn(pluginHost, 'afterTextGeneration').mockImplementation(async (_i, response) => ({ response_text: response }) as never)
+    model.script = async (opts) => {
+      const onThinking = opts.onThinking as (t: string) => void
+      const onTool = opts.onTool as (c: { id: string; name: string; server: string; args: Record<string, unknown> }) => void
+      const onToolResult = opts.onToolResult as (id: string, r: unknown) => void
+      const onToken = opts.onToken as (t: string) => void
+      onThinking('**Checking the tools** I need ')
+      onThinking('reportlab.')
+      onTool({ id: 'c1', name: 'run_command', server: 'Llama Run', args: { command: 'python -V' } })
+      onToolResult('c1', { content: [{ type: 'text', text: 'Python 3.14' }] })
+      onToken('Done.')
+      return 'Done.'
+    }
+    const events: ChatEvent[] = []
+    const listener = (e: ChatEvent): void => void events.push(e)
+    chatService.on('event', listener)
+    const message = await chatService.ask(null, 'make a pdf', { model: 'm', ephemeral: true }).done
+    chatService.off('event', listener)
+
+    expect(message.content).toBe('Done.')
+    expect(message.parts?.[0]).toEqual({ type: 'thinking', text: '**Checking the tools** I need reportlab.' })
+    expect(message.parts?.map((p) => p.type)).toEqual(['thinking', 'tool', 'text'])
+    expect(events.flatMap((e) => (e.type === 'thinking' ? [e.text] : [])).join('')).toBe('**Checking the tools** I need reportlab.')
+    expect(replyForModel(message, true)).not.toContain('reportlab.')
+    const parts: MessagePart[] = []
+    appendThinking(parts, 'a')
+    appendThinking(parts, 'b')
+    appendText(parts, 'c')
+    expect(parts).toEqual([{ type: 'thinking', text: 'ab' }, { type: 'text', text: 'c' }])
+  })
 
   it('streams text, tool cards and results in order, and saves them on the message', async () => {
     vi.spyOn(pluginHost, 'beforeTextGeneration').mockResolvedValue({ cancel: false, input_text: 'open notepad', model: '' } as never)
