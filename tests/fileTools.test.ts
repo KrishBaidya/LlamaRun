@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import type { ApprovalAnswer, ApprovalRequest } from '../src/shared/types'
 
@@ -16,14 +17,45 @@ const fakeImage = (width: number, height: number): Record<string, unknown> => ({
   toJPEG: () => Buffer.from(`jpeg ${width}x${height}`)
 })
 
-vi.mock('electron', () => ({
-  app: { getPath: () => userData, isPackaged: false, getAppPath: () => '.', getVersion: () => '0' },
-  BrowserWindow: { getFocusedWindow: () => null, getAllWindows: () => [] },
-  dialog: {},
-  nativeImage: { createFromBuffer: () => fakeImage(3000, 1500) }
-}))
+/** What the fake render window loaded, and the windows still open. */
+const rendered: { file: string; html: string }[] = []
+let openWindows = 0
+
+vi.mock('electron', async () => {
+  const { readFileSync } = await import('node:fs')
+  class FakeWindow {
+    static getFocusedWindow = (): null => null
+    static getAllWindows = (): unknown[] => []
+    webContents = {
+      id: 7,
+      setWindowOpenHandler: () => undefined,
+      on: () => undefined,
+      executeJavaScript: async (code: string) => (code.includes('scrollHeight') ? 2000 : true),
+      printToPDF: async () => Buffer.from('%PDF-1.4 /Type /Pages /Type /Page /Type /Page'),
+      capturePage: async () => fakeImage(1200, 2000)
+    }
+    constructor() {
+      openWindows++
+    }
+    async loadFile(file: string): Promise<void> {
+      rendered.push({ file, html: readFileSync(file, 'utf8') })
+    }
+    setContentSize(): void {}
+    destroy(): void {
+      openWindows--
+    }
+  }
+  return {
+    app: { getPath: () => userData, isPackaged: false, getAppPath: () => '.', getVersion: () => '0' },
+    BrowserWindow: FakeWindow,
+    dialog: {},
+    nativeImage: { createFromBuffer: () => fakeImage(3000, 1500) },
+    session: { fromPartition: () => ({ webRequest: { onBeforeRequest: () => undefined }, setPermissionRequestHandler: () => undefined }) }
+  }
+})
 
 const { builtinTools, callBuiltinTool } = await import('../src/main/assistant/builtins')
+const { allowedRequest } = await import('../src/main/assistant/render')
 const { approvals } = await import('../src/main/assistant/approval')
 
 const { toolResultToText } = await import('../src/main/llm/toolPayload')
@@ -99,6 +131,41 @@ describe('file tools', () => {
     const r = await callBuiltinTool('read_file', { path: 'page1.png' }, { chatId: 'c1' })
     expect(text(r)).toContain('image, 3000×1500 px (shown at 1568×784)')
     expect(r.content[1]).toEqual({ type: 'image', data: Buffer.from('png 1568x784').toString('base64'), mimeType: 'image/png' })
+  })
+
+  // Claude makes PDFs by printing HTML with Chromium; Llama Run ships Chromium, so one call does it.
+  it('print HTML to a PDF with the built-in Chromium, in one call', async () => {
+    answerWith('deny')
+    const r = await callBuiltinTool('render_html', { html: '<h1>Total: &#8377;480</h1>', output: 'out/report.pdf' }, { chatId: 'c1' })
+    expect(text(r)).toContain('Saved a 2-page PDF to')
+    expect(readFileSync(join(userData, 'SkillWorkspace', 'out', 'report.pdf'), 'latin1')).toContain('%PDF')
+    // The markup loaded from a file in the workspace (so its relative links work), removed afterwards; the window is closed.
+    expect(rendered.at(-1)!.html).toBe('<h1>Total: &#8377;480</h1>')
+    expect(rendered.at(-1)!.file.startsWith(join(userData, 'SkillWorkspace'))).toBe(true)
+    expect(existsSync(rendered.at(-1)!.file)).toBe(false)
+    expect(openWindows).toBe(0)
+  })
+
+  it('capture HTML as a PNG and show it to the model', async () => {
+    const r = await callBuiltinTool('render_html', { html: '<p>poster</p>', output: 'poster.png' }, { chatId: 'c1' })
+    expect(text(r)).toContain('poster.png, 1200×2000 px (shown at 941×1568)')
+    expect(r.content[1]).toMatchObject({ type: 'image', mimeType: 'image/png' })
+    expect(existsSync(join(userData, 'SkillWorkspace', 'poster.png'))).toBe(true)
+  })
+
+  it('refuse outputs that are not .pdf or .png, and need html or a file', async () => {
+    expect(text(await callBuiltinTool('render_html', { html: '<p>x</p>', output: 'a.docx' }, { chatId: 'c1' }))).toContain('.pdf or .png')
+    expect(text(await callBuiltinTool('render_html', { output: 'a.pdf' }, { chatId: 'c1' }))).toContain('Give html or file')
+  })
+
+  it("let a rendered page load only local files from the allowed folders, and only GET the web", () => {
+    const folders = [join(userData, 'SkillWorkspace')]
+    const local = (p: string): string => pathToFileURL(p).href
+    expect(allowedRequest(local(join(userData, 'SkillWorkspace', 'logo.png')), 'GET', folders)).toBe(true)
+    expect(allowedRequest(local(join(elsewhere, 'secret.txt')), 'GET', folders)).toBe(false)
+    expect(allowedRequest('https://fonts.googleapis.com/css2?family=Inter', 'GET', folders)).toBe(true)
+    expect(allowedRequest('https://example.com/collect', 'POST', folders)).toBe(false)
+    expect(allowedRequest('data:image/png;base64,AAAA', 'GET', folders)).toBe(true)
   })
 
   it('say plainly when a file is missing', async () => {

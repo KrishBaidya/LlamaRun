@@ -1,10 +1,11 @@
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { delimiter, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
-import { nativeImage } from 'electron'
+import { nativeImage, type NativeImage } from 'electron'
 import type { McpToolInfo } from '@shared/types'
 import { analytics } from '../analytics'
 import { documentText } from '../attachments/read'
+import { renderHtml } from './render'
 import type { McpToolResult } from '../mcp/manager'
 import { memoryStore } from '../memory/store'
 import { pythonExecutable, userDataPath } from '../paths'
@@ -114,6 +115,17 @@ const FILE_TOOLS: McpToolInfo[] = [
     'Write a text file (a script, data, a page…), creating its folder; an existing file is replaced. Relative paths are in the skill workspace folder.',
     { path: { type: 'string', description: 'Absolute, or relative to the skill workspace folder.' }, content: { type: 'string' } },
     ['path', 'content']
+  ),
+  tool(
+    'render_html',
+    "Render HTML with Llama Run's built-in Chromium and save it as a PDF (printed like a browser prints; CSS @page sets size and margins, A4 by default) or a PNG of the whole page (returned as an image to models that can see). Give the markup itself or an HTML file. Relative URLs load from the skill workspace folder (or the HTML file's folder); local files load from there and from the chat's attachments.",
+    {
+      html: { type: 'string', description: 'The markup. Or give file.' },
+      file: { type: 'string', description: 'An HTML file to render instead of html.' },
+      output: { type: 'string', description: 'Where to save: a .pdf or .png path, absolute or relative to the skill workspace folder.' },
+      width: { type: 'integer', description: 'PNG only: page width in pixels (default 1200).' }
+    },
+    ['output']
   )
 ]
 
@@ -227,16 +239,44 @@ async function readFile(pathArg: string, chatId?: string): Promise<McpToolResult
   if (type) {
     const image = nativeImage.createFromBuffer(bytes)
     if (image.isEmpty()) throw new Error(`${path} is not an image Llama Run can open`)
-    const { width, height } = image.getSize()
-    const scale = Math.min(1, IMAGE_EDGE / Math.max(width, height))
-    const shown = scale < 1 ? image.resize({ width: Math.round(width * scale), height: Math.round(height * scale), quality: 'best' }) : image
-    const jpeg = type === 'image/jpeg'
-    const data = (jpeg ? shown.toJPEG(90) : shown.toPNG()).toString('base64')
-    const size = scale < 1 ? ` (shown at ${shown.getSize().width}×${shown.getSize().height})` : ''
-    return { content: [{ type: 'text', text: `${path}: image, ${width}×${height} px${size}` }, { type: 'image', data, mimeType: jpeg ? 'image/jpeg' : 'image/png' }], isError: false }
+    return imageResult(`${path}: image`, image, type === 'image/jpeg')
   }
   const { text, pages } = await documentText(path, '', bytes)
   return result(cut(`${path}${pages ? ` (${pages} pages)` : ''}\n${text}`, MAX_PAGE_CHARS))
+}
+
+/** An image for the model, scaled down to IMAGE_EDGE, after a line saying what it is. */
+function imageResult(label: string, image: NativeImage, jpeg = false): McpToolResult {
+  const { width, height } = image.getSize()
+  const scale = Math.min(1, IMAGE_EDGE / Math.max(width, height))
+  const shown = scale < 1 ? image.resize({ width: Math.round(width * scale), height: Math.round(height * scale), quality: 'best' }) : image
+  const data = (jpeg ? shown.toJPEG(90) : shown.toPNG()).toString('base64')
+  const size = scale < 1 ? ` (shown at ${shown.getSize().width}×${shown.getSize().height})` : ''
+  return { content: [{ type: 'text', text: `${label}, ${width}×${height} px${size}` }, { type: 'image', data, mimeType: jpeg ? 'image/jpeg' : 'image/png' }], isError: false }
+}
+
+async function render(args: Record<string, unknown>, chatId?: string): Promise<McpToolResult> {
+  const output = resolve(skillWorkspace(), str(args, 'output').trim())
+  const kind = extname(output).toLowerCase() === '.png' ? 'png' : extname(output).toLowerCase() === '.pdf' ? 'pdf' : null
+  if (!kind) throw new Error('output must end in .pdf or .png')
+  const html = typeof args.html === 'string' && args.html.trim() ? args.html : undefined
+  const file = !html && typeof args.file === 'string' && args.file.trim() ? resolve(skillWorkspace(), args.file.trim()) : undefined
+  if (!html && !file) throw new Error('Give html or file')
+  if (file) {
+    if (!existsSync(file)) throw new Error(`${file} does not exist`)
+    await approveFile(file, false, chatId)
+  }
+  await approveFile(output, true, chatId)
+  mkdirSync(skillWorkspace(), { recursive: true })
+  const width = typeof args.width === 'number' && args.width >= 200 && args.width <= 4000 ? Math.round(args.width) : undefined
+  const out = await renderHtml({ html, file, base: skillWorkspace(), folders: [skillWorkspace(), userDataPath('Attachments')] }, kind, width)
+  mkdirSync(dirname(output), { recursive: true })
+  if (out.kind === 'pdf') {
+    writeFileSync(output, out.bytes)
+    return result(`Saved a ${out.pages}-page PDF to ${output}`)
+  }
+  writeFileSync(output, out.image.toPNG())
+  return imageResult(`Saved ${output}${out.cut ? ' (cut at 10000 px tall)' : ''}`, out.image)
 }
 
 async function writeFile(pathArg: string, content: string, chatId?: string): Promise<McpToolResult> {
@@ -331,6 +371,8 @@ export async function callBuiltinTool(name: string, args: Record<string, unknown
         return await readFile(str(args, 'path'), context.chatId)
       case 'write_file':
         return await writeFile(str(args, 'path'), typeof args.content === 'string' ? args.content : '', context.chatId)
+      case 'render_html':
+        return await render(args, context.chatId)
       case 'run_command':
         return result(await runCommand(str(args, 'command'), typeof args.cwd === 'string' ? args.cwd : undefined, context.chatId))
       case 'skills_refresh': {
