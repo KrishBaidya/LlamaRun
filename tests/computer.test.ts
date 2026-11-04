@@ -1,3 +1,4 @@
+import { resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('electron', () => ({
@@ -15,13 +16,15 @@ vi.mock('electron', () => ({
 const ui = vi.hoisted(() => ({
   answer: 'once' as 'once' | 'always' | 'deny',
   asked: [] as { title: string; command: string }[],
+  signals: [] as (AbortSignal | undefined)[],
   using: [] as [string, string][],
   done: [] as string[]
 }))
 
 vi.mock('../src/main/assistant/approval', () => ({
-  askApproval: async (_chatId: string | undefined, request: { title: string; command: string }) => {
+  askApproval: async (_chatId: string | undefined, request: { title: string; command: string }, signal?: AbortSignal) => {
     ui.asked.push(request)
+    ui.signals.push(signal)
     return ui.answer
   }
 }))
@@ -34,9 +37,11 @@ vi.mock('../src/main/computer/indicator', () => ({
   }
 }))
 
-const { computer, parseKeys, parseKeySequence, rowsOf, findRows, cleanDiff, cleanMessage, appLabel, escalation, COMPUTER_TOOLS } = await import('../src/main/computer/tools')
+const { computer, parseKeys, parseKeySequence, rowsOf, findRows, cleanDiff, cleanMessage, appLabel, escalation, browserRefusal, pageRefusal, outlineText, refLine, COMPUTER_TOOLS } = await import(
+  '../src/main/computer/tools'
+)
 const { errorText } = await import('../src/main/computer/protocol')
-const { setDriverTransport } = await import('../src/main/computer/driver')
+const { setDriverTransport, askAuthorizer, DRIVER_TOOLS } = await import('../src/main/computer/driver')
 const { settings } = await import('../src/main/settings')
 const { SupersededResults, toolResultImages, toolResultToText } = await import('../src/main/llm/toolPayload')
 import type { DriverResult } from '../src/main/computer/protocol'
@@ -68,6 +73,101 @@ class FakeDriver {
   opensNext: Record<string, unknown>[] = []
   private extra: Record<string, unknown>[] = []
   clipboard = 'user copied this'
+  /**
+   * The Edge window's browser side, shaped like the driver's documented
+   * semantic_v2 results and the refusals seen from the real one (isError
+   * false, the code in errorCode and `refusal`).
+   */
+  browser = {
+    attached: false,
+    /** Refuse browser_prepare with this code before asking the host (what Edge did on the dev machine). */
+    prepareRefusal: null as string | null,
+    /** Overrides for the bind result (tabs, binding_quality, mutation_allowed). */
+    bind: {} as Record<string, unknown>,
+    snapshot: 0,
+    status: 'Not submitted',
+    /** Whether a click changes what the page says. */
+    clickChanges: true,
+    effect: 'confirmed',
+    staleBinding: false,
+    dialog: null as Record<string, unknown> | null
+  }
+
+  private refused(code: string, message: string): DriverResult {
+    return { text: `refused (${code}): ${message}`, images: [], structured: { status: 'refused', refusal: { code, message } }, isError: false, errorCode: code }
+  }
+
+  private browserCall(tool: string, args: Record<string, unknown>): Promise<DriverResult> | DriverResult {
+    const ok = (text: string, structured: Record<string, unknown>): DriverResult => ({ text, images: [], structured, isError: false })
+    const b = this.browser
+    switch (tool) {
+      case 'get_browser_state': {
+        if (args.pid !== undefined) {
+          if (!b.attached) return this.refused('browser_consent_required', 'Cua is not attached to this browser window yet. Call browser_prepare with this pid and window_id.')
+          return ok('bound', {
+            status: 'ok',
+            target_id: 'target-opaque-1',
+            binding_quality: 'exact',
+            mutation_allowed: true,
+            tabs: [
+              { tab_id: 'tab-opaque-quiz', active: true, title: 'Week 3 quiz - Coursera', url: 'https://www.coursera.org/learn/ml/quiz/3' },
+              { tab_id: 'tab-opaque-other', active: false, title: 'Other tab', url: 'https://example.com/' }
+            ],
+            ...b.bind
+          })
+        }
+        if (b.staleBinding) {
+          b.staleBinding = false
+          return this.refused('browser_binding_stale', 'the tab was reloaded')
+        }
+        const n = ++b.snapshot
+        const tail = Boolean(args.continuation)
+        return ok('snapshot', {
+          status: 'ok',
+          snapshot: {
+            outline: tail ? 'text "Question 2: Name a prime."' : `heading "Week 3 quiz"\ntext "Question 1: What is 2+2?"\n[p${n}:3] textbox "Answer"\n[p${n}:4] button "Submit"\ntext "Status: ${b.status}"`,
+            refs: [
+              { ref: `p${n}:3`, role: 'textbox', name: 'Answer', actions: ['type'] },
+              { ref: `p${n}:4`, role: 'button', name: 'Submit', actions: ['click'] },
+              { ref: `p${n}:5`, role: 'textbox', name: 'Exam password', input_type: 'password', actions: ['type'] },
+              { ref: `p${n}:6`, role: 'button', name: 'Attach your essay', actions: ['upload'] }
+            ],
+            content_refs: [{ ref: `c${n}:1`, role: 'region', name: 'Quiz' }],
+            complete: tail,
+            continuation: tail ? null : `cont-opaque-${n}`
+          }
+        })
+      }
+      case 'browser_prepare': {
+        if (b.prepareRefusal) return this.refused(b.prepareRefusal, 'the native tab strip did not expose one exact structural new-tab action')
+        // The worker forwards the driver's host request to the main process like this.
+        return askAuthorizer({ id: 1, session: String(args.session), summary: 'Attach to Microsoft Edge (window 88), signed-in profile', riskClass: 'r4', expiresAt: Date.now() + 60_000 }, new AbortController().signal).then(
+          (allow) => {
+            if (!allow) return this.refused('browser_consent_revoked', 'the host denied the request')
+            b.attached = true
+            return ok('attached', { status: 'ok', attached_existing_profile: true, side_effects: { enabled_remote_debugging: true } })
+          }
+        )
+      }
+      case 'browser_navigate':
+        b.status = `at ${String(args.url)}`
+        return ok('navigated', { effect: 'confirmed', route: 'trusted_input', summary: `Navigated to ${String(args.url)}` })
+      case 'browser_dialog': {
+        if (args.action === 'inspect') return ok('dialog', { dialog: b.dialog })
+        if (!b.dialog || args.dialog_id !== b.dialog.dialog_id) return this.refused('browser_dialog_stale', 'no such dialog')
+        b.dialog = null
+        return ok('resolved', { effect: 'confirmed', route: 'trusted_input', summary: `${String(args.action)} the dialog` })
+      }
+      default: {
+        // click, pointer, type, select, upload: by a ref of the latest snapshot only.
+        const ref = String(args.ref ?? '')
+        if (ref && Number(/^p(\d+):/.exec(ref)?.[1]) !== b.snapshot) return this.refused('browser_ref_stale', 'the ref belongs to an older snapshot')
+        if (tool === 'browser_click' && b.clickChanges) b.status = 'Submitted'
+        const readBack = tool === 'browser_type' && args.mode !== 'keystrokes' ? { evidence: [{ kind: 'value_readback', detail: `value is "${String(args.text)}"` }] } : {}
+        return ok(`✅ ${tool} done`, { effect: b.effect, route: 'trusted_input', summary: `${tool.replace('browser_', '')} ${ref}`.trim(), ...readBack })
+      }
+    }
+  }
 
   private nextId(): string {
     return `s${String(++this.snapshot).padStart(8, '0')}`
@@ -115,12 +215,14 @@ class FakeDriver {
   async call(tool: string, args: Record<string, unknown>): Promise<DriverResult> {
     this.calls.push({ tool, args })
     const ok = (text: string, structured: Record<string, unknown> = {}, images: DriverResult['images'] = []): DriverResult => ({ text, images, structured, isError: false })
+    if (tool === 'get_browser_state' || tool.startsWith('browser_')) return this.browserCall(tool, args)
     switch (tool) {
       case 'list_windows':
         return ok('3 windows', {
           windows: [
             { app_name: 'Explorer', pid: 1, window_id: 10, title: 'Downloads', width: 800, height: 600, z_index: 1, is_on_screen: true },
             { app_name: 'Notepad', pid: 42, window_id: 77, title: 'Untitled - Notepad', width: 800, height: 600, z_index: 5, is_on_screen: true },
+            { app_name: 'msedge.exe', pid: 50, window_id: 88, title: 'Week 3 quiz - Coursera - Personal - Microsoft Edge', width: 1200, height: 800, z_index: 4, is_on_screen: true },
             { app_name: 'ApplicationFrameHost', pid: 7, window_id: 12, title: 'Calculator', width: 320, height: 500, z_index: 0, is_on_screen: false, minimized: true },
             { app_name: 'Tray', pid: 2, window_id: 11, title: '', width: 1, height: 1, z_index: 9, is_on_screen: true },
             { app_name: 'Helper', pid: 3, window_id: 13, title: 'hidden', width: 100, height: 100, z_index: 2, is_on_screen: false },
@@ -210,6 +312,7 @@ beforeEach(() => {
   chat++
   ui.answer = 'once'
   ui.asked = []
+  ui.signals = []
   ui.using = []
   for (const key of Object.keys(saved)) delete saved[key]
   vi.spyOn(settings, 'get').mockImplementation(((key: string) => (key in saved ? saved[key] : [])) as typeof settings.get)
@@ -273,7 +376,8 @@ describe('computer use helpers', () => {
   })
 
   it('keeps the tool list small', () => {
-    expect(COMPUTER_TOOLS.length).toBeLessThanOrEqual(12)
+    // 12 for windows and apps, 2 for web pages.
+    expect(COMPUTER_TOOLS.length).toBeLessThanOrEqual(14)
     expect(COMPUTER_TOOLS.every((t) => t.name.startsWith('computer_'))).toBe(true)
   })
 })
@@ -287,7 +391,7 @@ describe('computer use tools', () => {
     expect(text).not.toContain('Tray')
     expect(text).not.toContain('hidden')
     // All windows, not just on-screen ones: the driver can act on minimized windows.
-    expect(fake.calls[0].args).toEqual({})
+    expect(fake.calls.find((c) => c.tool === 'list_windows')!.args).toEqual({})
   })
 
   it('finds Store apps by name even though they are listed under their host', async () => {
@@ -454,7 +558,9 @@ describe('computer use tools', () => {
     fake.escalateNext = { recommended: 'px', reason: 'The element exposes no click action' }
     const r = await computer.call('computer_click', { window: 77, element: 3 }, ctx())
     expect(textOf(r)).toContain('The driver suggests: aim by x,y on the screenshot (The element exposes no click action).')
-    expect(escalation({ escalation: { recommended: 'page', reason: 'Use the page tools' } })).toBe(' Use the page tools')
+    expect(escalation({ escalation: { recommended: 'page', reason: 'Use the page tools' } })).toBe(
+      ' The driver suggests: read the page with computer_page and act on it with computer_page_act (Use the page tools).'
+    )
     expect(escalation({})).toBe('')
   })
 
@@ -875,6 +981,296 @@ describe('safety', () => {
     const after = await computer.call('computer_windows', {}, { chatId: 'someone-else' })
     expect(after.isError).toBeFalsy()
     computer.endTurn('someone-else')
+  })
+})
+
+describe('sessions', () => {
+  it("starts each reply's session, so a chat's next reply isn't refused for reusing its label", async () => {
+    const session = `llamarun-chat${chat}`
+    await computer.call('computer_windows', {}, ctx())
+    expect(fake.calls[0]).toEqual({ tool: 'start_session', args: { session } })
+    await computer.call('computer_windows', {}, ctx())
+    expect(fake.calls.filter((c) => c.tool === 'start_session')).toHaveLength(1)
+    // The driver retires a label at end_session (session_ended) until start_session declares it again.
+    computer.endTurn(ctx().chatId)
+    expect(fake.calls.at(-1)).toEqual({ tool: 'end_session', args: { session } })
+    const sent = fake.calls.length
+    await computer.call('computer_windows', {}, ctx())
+    expect(fake.calls[sent]).toEqual({ tool: 'start_session', args: { session } })
+  })
+})
+
+describe('web pages through the browser', () => {
+  const page = (args: Record<string, unknown> = {}): ReturnType<typeof computer.call> => computer.call('computer_page', { window: 88, ...args }, ctx())
+  const act = (args: Record<string, unknown>): ReturnType<typeof computer.call> => computer.call('computer_page_act', { window: 88, ...args }, ctx())
+  const sent = (tool: string): Record<string, unknown>[] => fake.calls.filter((c) => c.tool === tool).map((c) => c.args)
+
+  it('lets the driver call every browser tool Llama Run uses, and no download', () => {
+    for (const t of ['get_browser_state', 'browser_prepare', 'browser_navigate', 'browser_click', 'browser_type', 'browser_select', 'browser_pointer', 'browser_dialog', 'browser_set_input_files']) {
+      expect(DRIVER_TOOLS).toContain(t)
+    }
+    expect(DRIVER_TOOLS).not.toContain('browser_download')
+    expect(DRIVER_TOOLS).not.toContain('page')
+  })
+
+  it("attaches to the signed-in browser once the user allows it, then reads the page without the browser's tabs or opaque ids", async () => {
+    const session = `llamarun-chat${chat}`
+    const r = await page()
+    // Bind (refused: not attached yet), attach, bind, read. (The window list is only fetched while window 88 is unknown.)
+    expect(fake.calls.map((c) => c.tool).filter((t) => t !== 'list_windows')).toEqual(['start_session', 'get_browser_state', 'browser_prepare', 'get_browser_state', 'get_browser_state'])
+    expect(sent('browser_prepare')[0]).toEqual({ session, pid: 50, window_id: 88, strategy: { kind: 'existing_profile' } })
+    // The approval card shows the driver's own request, with no "always".
+    expect(ui.asked).toEqual([expect.objectContaining({ title: 'Let Llama Run use your signed-in Microsoft Edge?', command: 'Attach to Microsoft Edge (window 88), signed-in profile', alwaysLabel: 'Allow this time' })])
+    expect(sent('get_browser_state').at(-1)).toEqual({ session, target_id: 'target-opaque-1', tab_id: 'tab-opaque-quiz', snapshot_format: 'semantic_v2' })
+    const text = textOf(r)
+    expect(text).toContain('Page in window 88 (Microsoft Edge): "Week 3 quiz - Coursera" https://www.coursera.org/learn/ml/quiz/3')
+    expect(text).toContain('text "Question 1: What is 2+2?"')
+    // Refs the outline already shows aren't listed twice; the others are, with what they take.
+    expect(text.match(/\[p1:4\]/g)).toHaveLength(1)
+    expect(text).toContain('[p1:5] textbox "Exam password" (type)')
+    expect(text).toContain('Parts (for within):\n[c1:1] region "Quiz"')
+    expect(text).toContain('computer_page with more: true')
+    expect(text).not.toMatch(/opaque|Other tab/)
+    expect(r.superseded).toContain('page of window 88')
+    // Reading doesn't take over: no "using" card.
+    expect(ui.using).toEqual([])
+  })
+
+  it('stops when the user says no to their signed-in browser', async () => {
+    ui.answer = 'deny'
+    const r = await page()
+    expect(r.isError).toBe(true)
+    expect(textOf(r)).toContain("didn't allow Llama Run to use their signed-in Microsoft Edge")
+    expect(sent('get_browser_state')).toHaveLength(1)
+  })
+
+  it("says how to turn on remote debugging when the driver can't attach by itself", async () => {
+    fake.browser.prepareRefusal = 'browser_wrong_target_refused'
+    const r = await page()
+    expect(r.isError).toBe(true)
+    expect(textOf(r)).toContain('browser_wrong_target_refused')
+    expect(textOf(r)).toContain('edge://inspect/#remote-debugging')
+    expect(ui.asked).toEqual([])
+  })
+
+  it('refuses blocked browsers before attaching', async () => {
+    saved.computerBlockedApps = ['msedge']
+    const r = await page()
+    expect(textOf(r)).toContain('blocked')
+    expect(sent('get_browser_state')).toEqual([])
+  })
+
+  it("acts by ref without asking again, and reads the page again after a click", async () => {
+    await page()
+    const r = await act({ action: 'click', ref: 'p1:4' })
+    expect(ui.asked).toHaveLength(1)
+    expect(sent('browser_click')).toEqual([{ session: `llamarun-chat${chat}`, target_id: 'target-opaque-1', tab_id: 'tab-opaque-quiz', ref: 'p1:4' }])
+    const text = textOf(r)
+    expect(text).toContain('click p1:4')
+    expect(text).toContain('Status: Submitted')
+    expect(text).not.toContain('not confirmed')
+    expect(r.superseded).toContain('click p1:4')
+    expect(ui.using).toEqual([[`chat-${chat}`, 'msedge.exe']])
+    // Background unless the model asks.
+    await act({ action: 'click', ref: 'p2:4', foreground: true })
+    expect(sent('browser_click').at(-1)).toMatchObject({ delivery_mode: 'foreground' })
+  })
+
+  it("fills a form on one read: typing doesn't read the page again, and shows the driver's read-back", async () => {
+    await page()
+    const reads = sent('get_browser_state').length
+    const typed = await act({ action: 'type', ref: 'p1:3', text: '4', replace: true })
+    expect(sent('browser_type')).toEqual([expect.objectContaining({ ref: 'p1:3', text: '4', replace: true })])
+    expect(textOf(typed)).toContain('Read back: value is "4"')
+    expect(typed.superseded).toBeUndefined()
+    await act({ action: 'select', ref: 'p1:3', option: 'Four' })
+    expect(sent('browser_select').at(-1)).toMatchObject({ ref: 'p1:3', label: 'Four' })
+    expect(sent('get_browser_state')).toHaveLength(reads)
+    // The refs of that read still work.
+    const clicked = await act({ action: 'click', ref: 'p1:4' })
+    expect(clicked.isError).toBeFalsy()
+  })
+
+  it('presses Enter after typing with submit, then reads the page', async () => {
+    await page()
+    const r = await act({ action: 'type', ref: 'p1:3', text: 'hello', submit: true })
+    expect(sent('browser_type').map((a) => [a.text, a.mode])).toEqual([
+      ['hello', undefined],
+      ['\r', 'keystrokes']
+    ])
+    expect(textOf(r)).toContain('Read back: value is "hello"')
+    expect(textOf(r)).toContain('Page in window 88')
+  })
+
+  it('says when an action left the page as it was', async () => {
+    await page()
+    fake.browser.clickChanges = false
+    fake.browser.effect = 'unverifiable'
+    expect(textOf(await act({ action: 'click', ref: 'p1:4' }))).toContain('(not confirmed) The page looks the same.')
+    // A click the driver confirmed is believed even when the page reads the same.
+    fake.browser.effect = 'confirmed'
+    expect(textOf(await act({ action: 'click', ref: 'p2:4' }))).not.toContain('not confirmed')
+  })
+
+  it('refuses a stale ref and brings back the page with current ones', async () => {
+    await page()
+    await page()
+    const r = await act({ action: 'click', ref: 'p1:4' })
+    expect(r.isError).toBe(true)
+    expect(textOf(r)).toContain('older read of the page')
+    expect(textOf(r)).toContain('[p3:4]')
+  })
+
+  it('needs a read before acting by ref, and refuses web addresses it should not open', async () => {
+    const r = await act({ action: 'click', ref: 'p1:4' })
+    expect(textOf(r)).toContain('computer_page first')
+    expect(sent('browser_click')).toEqual([])
+    const bad = await act({ action: 'navigate', url: 'file:///C:/Windows/win.ini' })
+    expect(textOf(bad)).toContain('http or https')
+    expect(sent('browser_navigate')).toEqual([])
+  })
+
+  it('navigates without a read first, binding the tab itself', async () => {
+    const r = await act({ action: 'navigate', url: 'https://www.coursera.org/learn/ml' })
+    expect(sent('browser_navigate')).toEqual([expect.objectContaining({ url: 'https://www.coursera.org/learn/ml', tab_id: 'tab-opaque-quiz' })])
+    expect(textOf(r)).toContain('Status: at https://www.coursera.org/learn/ml')
+  })
+
+  it('reads on with more, a part with within, or matches with find', async () => {
+    await page()
+    const more = await page({ more: true })
+    expect(sent('get_browser_state').at(-1)).toMatchObject({ continuation: 'cont-opaque-1' })
+    expect(textOf(more)).toContain('Question 2')
+    // The last part was complete: there's no more, and nothing is sent.
+    const reads = sent('get_browser_state').length
+    expect(textOf(await page({ more: true }))).toContain('no more of this page')
+    expect(sent('get_browser_state')).toHaveLength(reads)
+    await page({ within: 'c3:1' })
+    expect(sent('get_browser_state').at(-1)).toMatchObject({ scope_ref: 'c3:1' })
+    await page({ find: 'Question' })
+    expect(sent('get_browser_state').at(-1)).toMatchObject({ query: 'Question' })
+  })
+
+  it('asks every time before uploading files, showing their paths', async () => {
+    const essay = resolve('essay.pdf')
+    await page()
+    await act({ action: 'upload', ref: 'p1:6', files: [essay] })
+    await act({ action: 'upload', ref: 'p2:6', files: [essay] })
+    // The site is named while it's known; after a read that doesn't say where the page is now, the card doesn't guess.
+    expect(ui.asked.slice(1)).toEqual([
+      expect.objectContaining({ title: 'Upload a file to www.coursera.org?', command: essay }),
+      expect.objectContaining({ title: 'Upload a file to a page in Microsoft Edge?', command: essay })
+    ])
+    expect(sent('browser_set_input_files')).toHaveLength(2)
+    expect(sent('browser_set_input_files')[0]).toMatchObject({ ref: 'p1:6', files: [essay] })
+
+    ui.answer = 'deny'
+    expect(textOf(await act({ action: 'upload', ref: 'p3:6', files: [essay] }))).toContain("didn't allow uploading")
+    ui.answer = 'once'
+    expect(textOf(await act({ action: 'upload', ref: 'p3:6', files: ['essay.pdf'] }))).toContain("isn't an absolute path")
+    expect(sent('browser_set_input_files')).toHaveLength(2)
+  })
+
+  it('asks before typing into a password field on a page', async () => {
+    await page()
+    ui.answer = 'deny'
+    const r = await act({ action: 'type', ref: 'p1:5', text: 'hunter2' })
+    expect(ui.asked.at(-1)!.title).toBe('Type into a password field in Microsoft Edge?')
+    expect(textOf(r)).toContain('type it themselves')
+    expect(sent('browser_type')).toEqual([])
+  })
+
+  it('answers a dialog by the id the driver gives it now', async () => {
+    await page()
+    expect(textOf(await act({ action: 'accept_dialog' }))).toContain('no open dialog')
+    fake.browser.dialog = { dialog_id: 'd-7', type: 'confirm', message: 'Submit your quiz?' }
+    const r = await act({ action: 'accept_dialog' })
+    expect(sent('browser_dialog').slice(-2)).toEqual([expect.objectContaining({ action: 'inspect' }), expect.objectContaining({ action: 'accept', dialog_id: 'd-7' })])
+    expect(textOf(r)).toContain('confirm: "Submit your quiz?"')
+    fake.browser.dialog = { dialog_id: 'd-8', type: 'prompt', message: 'Your name?' }
+    await act({ action: 'accept_dialog', text: 'Ada' })
+    expect(sent('browser_dialog').at(-1)).toMatchObject({ action: 'accept', dialog_id: 'd-8', prompt_text: 'Ada' })
+  })
+
+  it('scrolls the page or a part of it by pixels', async () => {
+    await page()
+    await act({ action: 'scroll', dy: 600 })
+    expect(sent('browser_pointer').at(-1)).toMatchObject({ action: 'scroll', delta_y: 600, x: 100, y: 100 })
+    await act({ action: 'scroll', ref: 'c2:1', dy: -300 })
+    expect(sent('browser_pointer').at(-1)).toMatchObject({ action: 'scroll', ref: 'c2:1', delta_y: -300 })
+    expect(textOf(await act({ action: 'scroll' }))).toContain('needs dy')
+  })
+
+  it("never guesses which tab a window shows, and reads another tab by its title", async () => {
+    fake.browser.attached = true
+    fake.browser.bind = {
+      tabs: [
+        { tab_id: 'tab-opaque-a', active: null, title: 'Week 3 quiz - Coursera' },
+        { tab_id: 'tab-opaque-b', active: null, title: 'Other tab' }
+      ]
+    }
+    const r = await page()
+    expect(r.isError).toBe(true)
+    expect(textOf(r)).toContain("can't tell which tab")
+    expect(textOf(r)).toContain('"Other tab"')
+    const other = await page({ tab: 'other' })
+    expect(sent('get_browser_state').at(-1)).toMatchObject({ tab_id: 'tab-opaque-b' })
+    expect(textOf(other)).toContain('"Other tab"')
+  })
+
+  it('reads but never acts on a binding the driver could only guess', async () => {
+    fake.browser.attached = true
+    fake.browser.bind = { binding_quality: 'heuristic', mutation_allowed: false }
+    expect(textOf(await page())).toContain('Read only')
+    const r = await act({ action: 'click', ref: 'p1:4' })
+    expect(r.isError).toBe(true)
+    expect(sent('browser_click')).toEqual([])
+  })
+
+  it('binds again when the tab was reloaded since it was bound', async () => {
+    await page()
+    fake.browser.staleBinding = true
+    const r = await page()
+    expect(r.isError).toBeFalsy()
+    expect(sent('get_browser_state').filter((a) => a.pid !== undefined)).toHaveLength(3)
+  })
+
+  it("refuses the driver's approval questions for sessions that aren't attaching, and drops withdrawn ones unasked", async () => {
+    expect(await askAuthorizer({ id: 9, session: 'llamarun-nobody', summary: 'x', riskClass: 'r4', expiresAt: Date.now() + 1000 }, new AbortController().signal)).toBe(false)
+    const gone = new AbortController()
+    gone.abort()
+    expect(await askAuthorizer({ id: 10, session: `llamarun-chat${chat}`, summary: 'x', riskClass: 'r4', expiresAt: Date.now() + 1000 }, gone.signal)).toBe(false)
+    expect(ui.asked).toEqual([])
+    // While attaching, the card gets the signal that takes it down when the driver stops waiting.
+    await page()
+    expect(ui.signals[0]).toBeInstanceOf(AbortSignal)
+  })
+
+  it('reads refusals the way the driver sends them', () => {
+    const refusal = { text: 'refused (browser_consent_required): not attached', images: [], structured: { status: 'refused', refusal: { code: 'browser_consent_required', message: 'not attached' } }, isError: false, errorCode: 'browser_consent_required' }
+    expect(browserRefusal(refusal)).toEqual({ code: 'browser_consent_required', message: 'not attached' })
+    expect(browserRefusal({ text: 'x', images: [], structured: { effect: 'refused', route: 'trusted_input', error: { code: 'browser_action_unavailable', hint: 'no click' } }, isError: false })).toEqual({ code: 'browser_action_unavailable', message: 'no click' })
+    expect(browserRefusal({ text: 'ok', images: [], structured: { effect: 'confirmed', route: 'trusted_input' }, isError: false })).toBeUndefined()
+    expect(pageRefusal('chrome.exe', { code: 'browser_consent_revoked', message: '' })).toContain('Google Chrome')
+    expect(pageRefusal('msedge.exe', { code: 'something_new', message: 'why' })).toBe('Failed (something_new): why')
+  })
+
+  it("lists a ref apart when the outline only shows a longer one (p1:30 isn't p1:3)", async () => {
+    await page()
+    const original = fake.call.bind(fake)
+    fake.call = async (tool, args) => {
+      const r = await original(tool, args)
+      const snap = r.structured?.snapshot as Record<string, unknown> | undefined
+      if (snap) snap.outline = String(snap.outline).replace(/\[p(\d+):3\]/, '[p$1:30]')
+      return r
+    }
+    expect(textOf(await page())).toContain('Refs:\n[p2:3] textbox "Answer" (type)')
+  })
+
+  it('takes an outline as text or as entries', () => {
+    expect(outlineText('heading "A"\n')).toBe('heading "A"')
+    expect(outlineText(['heading "A"', { text: 'text "B"' }, { ref: 'p1:2', role: 'link', name: 'C', actions: ['click'] }])).toBe('heading "A"\ntext "B"\n[p1:2] link "C" (click)')
+    expect(refLine({ ref: 'p1:3', role: 'textbox', name: 'Answer', value: '4', actions: ['type'] })).toBe('[p1:3] textbox "Answer" = "4" (type)')
   })
 })
 
