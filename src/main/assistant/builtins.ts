@@ -1,11 +1,13 @@
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync } from 'node:fs'
-import { delimiter, dirname, join, resolve } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { delimiter, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
+import { nativeImage } from 'electron'
 import type { McpToolInfo } from '@shared/types'
 import { analytics } from '../analytics'
+import { documentText } from '../attachments/read'
 import type { McpToolResult } from '../mcp/manager'
 import { memoryStore } from '../memory/store'
-import { pythonExecutable } from '../paths'
+import { pythonExecutable, userDataPath } from '../paths'
 import { settings } from '../settings'
 import { cut, skillsDir, skillStore, skillWorkspace } from '../skills/store'
 import { askApproval } from './approval'
@@ -100,6 +102,21 @@ const SHELL_TOOLS: McpToolInfo[] = [
   )
 ]
 
+const FILE_TOOLS: McpToolInfo[] = [
+  tool(
+    'read_file',
+    'Read a file: text, code, PDF and Word files as text; images (PNG, JPEG, GIF, WebP, BMP) as the image itself, for models that can see. Relative paths are in the skill workspace folder.',
+    { path: { type: 'string', description: 'Absolute, or relative to the skill workspace folder.' } },
+    ['path']
+  ),
+  tool(
+    'write_file',
+    'Write a text file (a script, data, a page…), creating its folder; an existing file is replaced. Relative paths are in the skill workspace folder.',
+    { path: { type: 'string', description: 'Absolute, or relative to the skill workspace folder.' }, content: { type: 'string' } },
+    ['path', 'content']
+  )
+]
+
 const INSTALL_TOOLS: McpToolInfo[] = [
   tool('skills_refresh', 'Rescan the Skills folder after installing or changing a skill, and list what is installed.', {}, [])
 ]
@@ -108,7 +125,7 @@ const memoryOn = (): boolean => settings.get('memoryEnabled') !== false
 const skillsOn = (): boolean => settings.get('skillsEnabled') !== false
 
 export interface BuiltinOptions {
-  /** Offer run_command and web_fetch (typed turns only, never plugin-sent ones). */
+  /** Offer run_command, web_fetch, read_file and write_file (typed turns only, never plugin-sent ones). */
   shell?: boolean
   /** The user asked to install a skill: say where skills go. */
   install?: boolean
@@ -118,12 +135,12 @@ export function builtinTools(options: BuiltinOptions = {}): McpToolInfo[] {
   return [
     ...(memoryOn() ? MEMORY_TOOLS : []),
     ...(skillsOn() && skillStore.active().length ? SKILL_TOOLS : []),
-    ...(options.shell ? SHELL_TOOLS : []),
+    ...(options.shell ? [...SHELL_TOOLS, ...FILE_TOOLS] : []),
     ...(skillsOn() && options.shell ? INSTALL_TOOLS : [])
   ]
 }
 
-const NAMES = new Set([...MEMORY_TOOLS, ...SKILL_TOOLS, ...SHELL_TOOLS, ...INSTALL_TOOLS].map((t) => t.name))
+const NAMES = new Set([...MEMORY_TOOLS, ...SKILL_TOOLS, ...SHELL_TOOLS, ...FILE_TOOLS, ...INSTALL_TOOLS].map((t) => t.name))
 
 export function isBuiltinTool(name: string): boolean {
   return NAMES.has(name)
@@ -165,6 +182,69 @@ async function webFetch(target: string): Promise<string> {
   const type = res.headers.get('content-type') ?? ''
   const body = await res.text()
   return cut(type.includes('html') ? htmlToText(body) : body, MAX_PAGE_CHARS)
+}
+
+/** Largest file read_file takes. */
+const MAX_FILE_BYTES = 25 * 1024 * 1024
+/** Long edge of images read_file shows the model: enough to read text, small enough to keep requests cheap. */
+const IMAGE_EDGE = 1568
+const IMAGE_TYPES: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp' }
+/** Folders the user let the model read or write in, per chat ("Allow this folder"). */
+const allowedFolders = new Map<string, Set<string>>()
+
+const inside = (path: string, folder: string): boolean => {
+  const rel = relative(folder, path)
+  return !rel.startsWith('..') && !isAbsolute(rel)
+}
+
+/**
+ * Files in the skill workspace (where scripts and their output go) and, for
+ * reading, the chat's attachments are the model's own; anything else is the
+ * user's, and they approve it once per folder for the chat.
+ */
+async function approveFile(path: string, write: boolean, chatId: string | undefined): Promise<void> {
+  const own = write ? [skillWorkspace()] : [skillWorkspace(), userDataPath('Attachments')]
+  if (own.some((folder) => inside(path, folder))) return
+  const allowed = chatId ? allowedFolders.get(chatId) : undefined
+  if (allowed && [...allowed].some((folder) => inside(path, folder))) return
+  const answer = await askApproval(chatId, {
+    title: write ? 'Let the model write this file?' : 'Let the model read this file?',
+    command: path,
+    detail: write ? (existsSync(path) ? 'It replaces the file that is there.' : 'A new file.') : 'What it contains goes to the model.',
+    alwaysLabel: 'Allow this folder'
+  })
+  if (answer === 'deny') throw new Error(`The user didn't allow ${write ? 'writing' : 'reading'} ${path}. Ask them how to continue.`)
+  if (answer === 'always' && chatId) allowedFolders.set(chatId, new Set([...(allowed ?? []), dirname(path)]))
+}
+
+async function readFile(pathArg: string, chatId?: string): Promise<McpToolResult> {
+  const path = resolve(skillWorkspace(), pathArg.trim())
+  if (!existsSync(path) || !statSync(path).isFile()) throw new Error(`${path} does not exist`)
+  if (statSync(path).size > MAX_FILE_BYTES) throw new Error(`${path} is larger than ${MAX_FILE_BYTES / 1024 / 1024} MB`)
+  await approveFile(path, false, chatId)
+  const bytes = readFileSync(path)
+  const type = IMAGE_TYPES[extname(path).toLowerCase()]
+  if (type) {
+    const image = nativeImage.createFromBuffer(bytes)
+    if (image.isEmpty()) throw new Error(`${path} is not an image Llama Run can open`)
+    const { width, height } = image.getSize()
+    const scale = Math.min(1, IMAGE_EDGE / Math.max(width, height))
+    const shown = scale < 1 ? image.resize({ width: Math.round(width * scale), height: Math.round(height * scale), quality: 'best' }) : image
+    const jpeg = type === 'image/jpeg'
+    const data = (jpeg ? shown.toJPEG(90) : shown.toPNG()).toString('base64')
+    const size = scale < 1 ? ` (shown at ${shown.getSize().width}×${shown.getSize().height})` : ''
+    return { content: [{ type: 'text', text: `${path}: image, ${width}×${height} px${size}` }, { type: 'image', data, mimeType: jpeg ? 'image/jpeg' : 'image/png' }], isError: false }
+  }
+  const { text, pages } = await documentText(path, '', bytes)
+  return result(cut(`${path}${pages ? ` (${pages} pages)` : ''}\n${text}`, MAX_PAGE_CHARS))
+}
+
+async function writeFile(pathArg: string, content: string, chatId?: string): Promise<McpToolResult> {
+  const path = resolve(skillWorkspace(), pathArg.trim())
+  await approveFile(path, true, chatId)
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, content, 'utf8')
+  return result(`Wrote ${Buffer.byteLength(content, 'utf8')} bytes to ${path}`)
 }
 
 async function runCommand(command: string, cwdArg?: string, chatId?: string): Promise<string> {
@@ -247,6 +327,10 @@ export async function callBuiltinTool(name: string, args: Record<string, unknown
       }
       case 'web_fetch':
         return result(await webFetch(str(args, 'url')))
+      case 'read_file':
+        return await readFile(str(args, 'path'), context.chatId)
+      case 'write_file':
+        return await writeFile(str(args, 'path'), typeof args.content === 'string' ? args.content : '', context.chatId)
       case 'run_command':
         return result(await runCommand(str(args, 'command'), typeof args.cwd === 'string' ? args.cwd : undefined, context.chatId))
       case 'skills_refresh': {

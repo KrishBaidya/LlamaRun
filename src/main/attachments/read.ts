@@ -37,25 +37,23 @@ async function docxText(bytes: Uint8Array): Promise<string> {
   return value
 }
 
+/** The text of a PDF, Word or text file (a document's pages marked "--- Page N ---"). */
+export async function documentText(name: string, mimeType: string, bytes: Uint8Array): Promise<{ text: string; pages?: number }> {
+  const ext = extname(name).slice(1).toLowerCase()
+  if (ext === 'pdf' || mimeType === 'application/pdf') {
+    const pdf = await pdfText(bytes)
+    if (!pdf.text.replace(/--- Page \d+ ---/g, '').trim()) throw new Error(`${name} has no text layer (a scan?). Attach it as images instead.`)
+    return { text: pdf.text.replace(/\r\n/g, '\n').trim(), pages: pdf.pages }
+  }
+  if (ext === 'docx') return { text: (await docxText(bytes)).replace(/\r\n/g, '\n').trim() }
+  if (isTextFile(name, mimeType)) return { text: new TextDecoder('utf-8').decode(bytes).replace(/\r\n/g, '\n').trim() }
+  throw new Error(`${name}: only PDF, Word (.docx), text and code files can be read`)
+}
+
 /** Reads an attached document into text the model can read. Images are prepared in the renderer. */
 export async function readDocument(name: string, mimeType: string, bytes: Uint8Array): Promise<ChatAttachment> {
   if (bytes.byteLength > MAX_DOCUMENT_BYTES) throw new Error(`${name} is larger than ${MAX_DOCUMENT_BYTES / 1024 / 1024} MB`)
-  const ext = extname(name).slice(1).toLowerCase()
-  let text: string
-  let pages: number | undefined
-  if (ext === 'pdf' || mimeType === 'application/pdf') {
-    const pdf = await pdfText(bytes)
-    text = pdf.text
-    pages = pdf.pages
-    if (!text.replace(/--- Page \d+ ---/g, '').trim()) throw new Error(`${name} has no text layer (a scan?). Attach it as images instead.`)
-  } else if (ext === 'docx') {
-    text = await docxText(bytes)
-  } else if (isTextFile(name, mimeType)) {
-    text = new TextDecoder('utf-8').decode(bytes)
-  } else {
-    throw new Error(`${name}: only PDF, Word (.docx), text and code files can be read`)
-  }
-  text = text.replace(/\r\n/g, '\n').trim()
+  const { text, pages } = await documentText(name, mimeType, bytes)
   const truncated = text.length > MAX_DOCUMENT_CHARS
   // The file itself, kept so the model can work on the original (its images and layout), not only the text read from it.
   const id = randomUUID()
