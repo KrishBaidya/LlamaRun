@@ -70,6 +70,8 @@ export interface InvokeChannels {
   'chats:answerApproval': (id: string, answer: ApprovalAnswer) => void
   /** The open run request for a chat, if any. */
   'chats:pendingApproval': (chatId: string) => ApprovalRequest | null
+  /** Puts back the files a reply changed with its file tools. */
+  'chats:undoFiles': (chatId: string, messageId: string) => void
   /** Answers the model's question card with the option picked or the text typed. */
   'chats:answerQuestion': (id: string, text: string) => void
   /** Keeps a suggestion from the review after a task (the skill, or memory number n), or dismisses them all. */
@@ -236,6 +238,7 @@ export const INVOKE_CHANNELS = [
   'chats:pendingApproval',
   'chats:keepSuggestion',
   'chats:answerQuestion',
+  'chats:undoFiles',
   'chats:contextUsage',
   'models:context',
   'attachments:read',

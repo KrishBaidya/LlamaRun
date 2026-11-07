@@ -14,6 +14,7 @@ import { pythonExecutable, userDataPath } from '../paths'
 import { settings } from '../settings'
 import { cut, skillsDir, skillStore, skillWorkspace } from '../skills/store'
 import { approvals, askApproval } from './approval'
+import { recordChange } from './fileChanges'
 import { decide, proposeRules } from './commandRules'
 
 /**
@@ -385,7 +386,7 @@ export function numbered(path: string, text: string, offset: number, limit: numb
   return `${path}${range}\n${out.join('\n')}${more}`
 }
 
-async function editFile(args: Record<string, unknown>, chatId?: string): Promise<McpToolResult> {
+async function editFile(args: Record<string, unknown>, context: ToolContext): Promise<McpToolResult> {
   const path = resolve(skillWorkspace(), str(args, 'path').trim())
   if (!existsSync(path) || !statSync(path).isFile()) throw new Error(`${path} does not exist`)
   let from = typeof args.old_string === 'string' ? args.old_string : ''
@@ -400,9 +401,10 @@ async function editFile(args: Record<string, unknown>, chatId?: string): Promise
   const count = text.split(from).length - 1
   if (!count) throw new Error(`old_string is not in ${path}. Read the file again and copy the text exactly.`)
   if (count > 1 && args.replace_all !== true) throw new Error(`old_string appears ${count} times in ${path}. Add surrounding text to make it unique, or set replace_all.`)
-  await approveFile(path, true, chatId)
+  await approveFile(path, true, context.chatId)
   const at = text.indexOf(from)
   const edited = args.replace_all === true ? text.split(from).join(to) : text.slice(0, at) + to + text.slice(at + from.length)
+  recordChange(context.chatId, context.messageId, path)
   writeFileSync(path, edited, 'utf8')
   // The first change with a few lines either side, so the model sees it landed without reading the file again.
   const first = edited.slice(0, at).split('\n').length
@@ -420,7 +422,8 @@ function imageResult(label: string, image: NativeImage, jpeg = false): McpToolRe
   return { content: [{ type: 'text', text: `${label}, ${width}×${height} px${size}` }, { type: 'image', data, mimeType: jpeg ? 'image/jpeg' : 'image/png' }], isError: false }
 }
 
-async function render(args: Record<string, unknown>, chatId?: string): Promise<McpToolResult> {
+async function render(args: Record<string, unknown>, context: ToolContext): Promise<McpToolResult> {
+  const chatId = context.chatId
   const output = resolve(skillWorkspace(), str(args, 'output').trim())
   const kind = extname(output).toLowerCase() === '.png' ? 'png' : extname(output).toLowerCase() === '.pdf' ? 'pdf' : null
   if (!kind) throw new Error('output must end in .pdf or .png')
@@ -436,6 +439,7 @@ async function render(args: Record<string, unknown>, chatId?: string): Promise<M
   const width = typeof args.width === 'number' && args.width >= 200 && args.width <= 4000 ? Math.round(args.width) : undefined
   const out = await renderHtml({ html, file, base: skillWorkspace(), folders: [skillWorkspace(), userDataPath('Attachments')] }, kind, width)
   mkdirSync(dirname(output), { recursive: true })
+  recordChange(context.chatId, context.messageId, output)
   if (out.kind === 'pdf') {
     writeFileSync(output, out.bytes)
     return result(`Saved a ${out.pages}-page PDF to ${output}`)
@@ -444,10 +448,11 @@ async function render(args: Record<string, unknown>, chatId?: string): Promise<M
   return imageResult(`Saved ${output}${out.cut ? ' (cut at 10000 px tall)' : ''}`, out.image)
 }
 
-async function writeFile(pathArg: string, content: string, chatId?: string): Promise<McpToolResult> {
+async function writeFile(pathArg: string, content: string, context: ToolContext): Promise<McpToolResult> {
   const path = resolve(skillWorkspace(), pathArg.trim())
-  await approveFile(path, true, chatId)
+  await approveFile(path, true, context.chatId)
   mkdirSync(dirname(path), { recursive: true })
+  recordChange(context.chatId, context.messageId, path)
   writeFileSync(path, content, 'utf8')
   return result(`Wrote ${Buffer.byteLength(content, 'utf8')} bytes to ${path}`)
 }
@@ -585,11 +590,11 @@ export async function callBuiltinTool(name: string, args: Record<string, unknown
       case 'read_file':
         return await readFile(str(args, 'path'), context, args.offset, args.limit)
       case 'write_file':
-        return await writeFile(str(args, 'path'), typeof args.content === 'string' ? args.content : '', context.chatId)
+        return await writeFile(str(args, 'path'), typeof args.content === 'string' ? args.content : '', context)
       case 'edit_file':
-        return await editFile(args, context.chatId)
+        return await editFile(args, context)
       case 'render_html':
-        return await render(args, context.chatId)
+        return await render(args, context)
       case 'run_command':
         return result(await runCommand(str(args, 'command'), typeof args.cwd === 'string' ? args.cwd : undefined, context.chatId))
       case 'skills_refresh': {

@@ -171,6 +171,10 @@ export interface ChatMessage {
   parts?: MessagePart[]
   /** After a long task: a skill and memories the review proposes keeping, until the user keeps or dismisses them. */
   suggestions?: TaskSuggestions
+  /** The user's files this reply changed or created with its file tools (undo can put them back). */
+  changedFiles?: string[]
+  /** How many files "Undo file changes" put back. */
+  undoneFiles?: number
   /** User messages sent by a plugin (e.g. a voice assistant) rather than typed. */
   via?: { plugin: string; voice?: boolean }
   /** Assistant messages: stopped at the tool-round cap and can be continued. */

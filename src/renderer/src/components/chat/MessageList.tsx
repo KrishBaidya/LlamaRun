@@ -295,6 +295,12 @@ const AssistantMessage = memo(function AssistantMessage({
         </div>
       ) : null}
 
+      {chatId && message.changedFiles?.length && !streaming ? <ChangedFiles chatId={chatId} message={message} /> : null}
+      {message.undoneFiles ? (
+        <p className="text-xs text-muted-foreground italic">
+          Undid the changes to {message.undoneFiles} file{message.undoneFiles === 1 ? '' : 's'}.
+        </p>
+      ) : null}
       {chatId && message.suggestions && !streaming && <SuggestionsCard chatId={chatId} message={message} />}
 
       {message.status === 'error' && <ErrorCallout message={message} onRetry={isLast ? onRetry : undefined} />}
@@ -329,6 +335,32 @@ const AssistantMessage = memo(function AssistantMessage({
 })
 
 /** The model wants to run something on this PC: allow it once, always, or not at all (like Claude Code). */
+/** The user's files a reply changed with its file tools, and the way back. */
+function ChangedFiles({ chatId, message }: { chatId: string; message: ChatMessage }) {
+  const [error, setError] = useState<string | null>(null)
+  const files = message.changedFiles!
+  const name = (p: string): string => p.split(/[\\/]/).pop() ?? p
+  return (
+    <div className="flex flex-col gap-1 text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span title={files.join('\n')}>
+          Changed {files.length === 1 ? name(files[0]) : `${files.length} files`}
+        </span>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-6 px-2 text-xs"
+          title="Put the originals back and remove files this reply created. Changes made by commands or scripts aren't included."
+          onClick={() => api.chats.undoFiles(chatId, message.id).catch((e: unknown) => setError(String(e instanceof Error ? e.message : e)))}
+        >
+          <RotateCcw className="size-3" /> Undo file changes
+        </Button>
+      </div>
+      {error && <p className="text-destructive">{error}</p>}
+    </div>
+  )
+}
+
 /** What the review after a long task proposes keeping. Nothing is kept until the user clicks. */
 function SuggestionsCard({ chatId, message }: { chatId: string; message: ChatMessage }) {
   const [error, setError] = useState<string | null>(null)

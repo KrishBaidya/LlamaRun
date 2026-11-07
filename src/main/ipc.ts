@@ -164,6 +164,7 @@ export function registerIpc(): void {
   })
   handle('chats:compact', (_e, id, instructions) => chatService.compact(id, instructions))
   handle('chats:answerApproval', (_e, id, answer) => approvals.answer(id, answer))
+  handle('chats:undoFiles', (_e, chatId, messageId) => chatService.undoFiles(String(chatId), String(messageId)))
   handle('chats:answerQuestion', (_e, id, text) => approvals.reply(String(id), String(text ?? '')))
   handle('chats:keepSuggestion', (_e, chatId, messageId, what) => chatService.keepSuggestion(String(chatId), String(messageId), what))
   handle('chats:pendingApproval', (_e, chatId) => approvals.current(chatId))

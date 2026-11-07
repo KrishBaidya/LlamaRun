@@ -56,6 +56,7 @@ vi.mock('electron', async () => {
 
 const { builtinTools, callBuiltinTool } = await import('../src/main/assistant/builtins')
 const { allowedRequest } = await import('../src/main/assistant/render')
+const { changedFiles, undoChanges } = await import('../src/main/assistant/fileChanges')
 const { approvals } = await import('../src/main/assistant/approval')
 
 const { toolResultToText } = await import('../src/main/llm/toolPayload')
@@ -227,6 +228,25 @@ describe('file tools', () => {
     await callBuiltinTool('run_command', { command: 'Write-Output three' }, { chatId: 'r4' })
     expect(asked).toHaveLength(1)
   }, 30_000)
+
+  // OpenCode's snapshots and Hermes' /undo: the user's files go back to how they were before the reply.
+  it("keep the user's original before a reply changes it, so undo puts it back and removes new files", async () => {
+    answerWith('always')
+    const report = join(elsewhere, 'undo-report.txt')
+    writeFileSync(report, 'original text\n')
+    const ctx = { chatId: 'u1', messageId: 'reply-1' }
+    await callBuiltinTool('edit_file', { path: report, old_string: 'original', new_string: 'edited' }, ctx)
+    await callBuiltinTool('write_file', { path: report, content: 'rewritten\n' }, ctx)
+    const created = join(elsewhere, 'undo-new.txt')
+    await callBuiltinTool('write_file', { path: created, content: 'new' }, ctx)
+    // The model's own workspace isn't tracked.
+    await callBuiltinTool('write_file', { path: 'scratch.py', content: 'print(1)' }, ctx)
+    expect(changedFiles('u1', 'reply-1')).toEqual([report, created])
+    expect(undoChanges('u1', 'reply-1')).toEqual([report, created])
+    expect(readFileSync(report, 'utf8')).toBe('original text\n')
+    expect(existsSync(created)).toBe(false)
+    expect(changedFiles('u1', 'reply-1')).toEqual([])
+  })
 
   it('say plainly when a file is missing', async () => {
     const r = await callBuiltinTool('read_file', { path: 'nope.txt' }, { chatId: 'c1' })

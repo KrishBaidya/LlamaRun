@@ -5,6 +5,7 @@ import { analytics } from '../analytics'
 import { approvals } from '../assistant/approval'
 import { builtinInstructions, builtinTools, callBuiltinTool, installNote, isBuiltinTool } from '../assistant/builtins'
 import { RUN_CODE, RUN_CODE_TOOL, runCode } from '../assistant/codeMode'
+import { changedFiles, forgetChanges, undoChanges } from '../assistant/fileChanges'
 import { documentBlock } from '../attachments/read'
 import { indicator } from '../computer/indicator'
 import { computer, computerInstructions, isComputerTool } from '../computer/tools'
@@ -262,6 +263,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     this.paused.delete(id)
     chatStore.delete(id)
     refreshPrompt(id)
+    forgetChanges(id)
   }
 
   cancel(id: string): void {
@@ -282,6 +284,18 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     } catch {
       // A nicety, not part of the reply.
     }
+  }
+
+  /** Puts back the files a reply changed and removes the ones it created. */
+  undoFiles(chatId: string, messageId: string): void {
+    const chat = chatStore.get(chatId)
+    const message = chat?.messages.find((m) => m.id === messageId)
+    if (!chat || !message?.changedFiles?.length) return
+    if (this.running.has(chatId)) throw new Error('Wait for the current response to finish first.')
+    message.undoneFiles = undoChanges(chatId, messageId).length
+    delete message.changedFiles
+    chatStore.save(chat, false)
+    this.emit('event', { type: 'update', chatId, message: { ...message } })
   }
 
   /** Keeps the review's skill or one of its memories (the user accepted it), or dismisses them all. */
@@ -721,6 +735,8 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
       if (timer) clearTimeout(timer)
       computer.endTurn(chat.id)
       this.running.delete(chat.id)
+      const changed = changedFiles(chat.id, assistant.id)
+      if (changed.length) assistant.changedFiles = changed
       emitUpdate()
       chatStore.save(chat)
       trackGeneration(assistant, { startedAt, firstTokenAt, toolCalls, usage, paused: !!pause, via: user.via ? 'plugin' : typed ? 'typed' : 'app', resumed: !!resume })
