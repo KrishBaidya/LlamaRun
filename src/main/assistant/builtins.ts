@@ -5,6 +5,7 @@ import { nativeImage, type NativeImage } from 'electron'
 import type { CommandRule, McpToolInfo } from '@shared/types'
 import { analytics } from '../analytics'
 import { documentText } from '../attachments/read'
+import { formatHits, readChat, searchChats } from '../chats/search'
 import { MAX_TOOL_RESULT_CHARS } from '../llm/toolPayload'
 import { renderHtml } from './render'
 import type { McpToolResult } from '../mcp/manager'
@@ -65,6 +66,37 @@ const MEMORY_TOOLS: McpToolInfo[] = [
     'Delete a saved memory (the user asked you to forget it, or it is no longer true). Use its id from the memory list.',
     { id: { type: 'string' } },
     ['id']
+  )
+]
+
+/** Writing skills, like Hermes' skill_manage: a procedure that worked is kept and improved instead of worked out again. */
+const SKILL_WRITE_TOOLS: McpToolInfo[] = [
+  tool(
+    'skill_create',
+    "Save a procedure as a skill, so later chats load it instead of working it out again. The description says when to use it (it decides when the skill is loaded); the body is the instructions in Markdown: the steps, pitfalls you hit, and how to check the result. Saved in the shared skills folder.",
+    {
+      name: { type: 'string', description: 'Short name, e.g. "lab-report-pdf".' },
+      description: { type: 'string', description: 'One line: what it does and when to use it.' },
+      body: { type: 'string', description: 'The instructions, in Markdown.' }
+    },
+    ['name', 'description', 'body']
+  ),
+  tool(
+    'skill_edit',
+    "Improve a skill Llama Run made: replace old_string in its SKILL.md with new_string (exact, once unless replace_all). Installed and Claude Code skills can't be changed.",
+    {
+      skill: { type: 'string' },
+      old_string: { type: 'string' },
+      new_string: { type: 'string' },
+      replace_all: { type: 'boolean' }
+    },
+    ['skill', 'old_string', 'new_string']
+  ),
+  tool(
+    'skill_write_file',
+    'Add or replace a file in a skill Llama Run made, e.g. scripts/make_report.py or templates/report.html.',
+    { skill: { type: 'string' }, path: { type: 'string', description: 'Relative to the skill folder.' }, content: { type: 'string' } },
+    ['skill', 'path', 'content']
   )
 ]
 
@@ -150,6 +182,22 @@ const FILE_TOOLS: McpToolInfo[] = [
   )
 ]
 
+/** Past chats, like Hermes' session_search: how a task went before, without asking the user again. */
+const CHAT_TOOLS: McpToolInfo[] = [
+  tool(
+    'chat_search',
+    "Search the user's earlier chats in Llama Run for words or a phrase: what was asked, said and done before. Returns the best-matching message of each chat.",
+    { query: { type: 'string' }, limit: { type: 'integer', description: 'Most chats to return (default 8).' } },
+    ['query']
+  ),
+  tool(
+    'chat_read',
+    'Read messages of an earlier chat found with chat_search, around a message number.',
+    { chat: { type: 'string', description: 'The chat id from chat_search.' }, around: { type: 'integer', description: 'Message number to center on.' } },
+    ['chat']
+  )
+]
+
 const INSTALL_TOOLS: McpToolInfo[] = [
   tool('skills_refresh', 'Rescan the Skills folder after installing or changing a skill, and list what is installed.', {}, [])
 ]
@@ -168,12 +216,13 @@ export function builtinTools(options: BuiltinOptions = {}): McpToolInfo[] {
   return [
     ...(memoryOn() ? MEMORY_TOOLS : []),
     ...(skillsOn() && skillStore.active().length ? SKILL_TOOLS : []),
-    ...(options.shell ? [...SHELL_TOOLS, ...FILE_TOOLS] : []),
+    ...(skillsOn() && options.shell ? SKILL_WRITE_TOOLS : []),
+    ...(options.shell ? [...SHELL_TOOLS, ...FILE_TOOLS, ...CHAT_TOOLS] : []),
     ...(skillsOn() && options.shell ? INSTALL_TOOLS : [])
   ]
 }
 
-const NAMES = new Set([...MEMORY_TOOLS, ...SKILL_TOOLS, ...SHELL_TOOLS, ...FILE_TOOLS, ...INSTALL_TOOLS].map((t) => t.name))
+const NAMES = new Set([...MEMORY_TOOLS, ...SKILL_TOOLS, ...SKILL_WRITE_TOOLS, ...SHELL_TOOLS, ...FILE_TOOLS, ...CHAT_TOOLS, ...INSTALL_TOOLS].map((t) => t.name))
 
 export function isBuiltinTool(name: string): boolean {
   return NAMES.has(name)
@@ -472,6 +521,21 @@ export async function callBuiltinTool(name: string, args: Record<string, unknown
         const stdin = typeof args.stdin === 'string' ? args.stdin : undefined
         return result(await skillStore.runScript(str(args, 'skill'), str(args, 'script'), list, stdin, context.chatId))
       }
+      case 'chat_search': {
+        const query = str(args, 'query')
+        const limit = Math.max(1, Math.min(20, Math.floor(Number(args.limit) || 8)))
+        return result(formatHits(query, searchChats(query, { exclude: context.chatId, limit })))
+      }
+      case 'chat_read':
+        return result(readChat(str(args, 'chat'), typeof args.around === 'number' ? args.around : undefined))
+      case 'skill_create': {
+        const skill = skillStore.create(str(args, 'name'), str(args, 'description'), str(args, 'body'))
+        return result(`Saved the skill ${skill.name} in ${skill.folder}. Later chats see it in their skill list.`)
+      }
+      case 'skill_edit':
+        return result(skillStore.edit(str(args, 'skill'), str(args, 'old_string'), typeof args.new_string === 'string' ? args.new_string : '', args.replace_all === true))
+      case 'skill_write_file':
+        return result(skillStore.writeSkillFile(str(args, 'skill'), str(args, 'path'), typeof args.content === 'string' ? args.content : ''))
       case 'web_fetch':
         return result(await webFetch(str(args, 'url')))
       case 'read_file':

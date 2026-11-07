@@ -57,8 +57,21 @@ export const MAX_IMAGES = 6
 /** Commands Llama Run handles itself, ahead of any plugin's. */
 export const BUILTIN_COMMANDS: SlashCommand[] = [
   { name: 'compact', description: 'Summarise older messages to free up context', kind: 'builtin', plugin: 'Llama Run', args: '[what to focus on]' },
-  { name: 'new', description: 'Start a new chat', kind: 'builtin', plugin: 'Llama Run' }
+  { name: 'new', description: 'Start a new chat', kind: 'builtin', plugin: 'Llama Run' },
+  { name: 'learn', description: 'Save what worked in this chat as a skill', kind: 'builtin', plugin: 'Llama Run', args: '[what to focus on]' }
 ]
+
+/** What /learn asks the model (Hermes' /learn): turn this chat's working procedure into a skill. */
+export function learnRequest(focus?: string): string {
+  return [
+    'Save what worked in this conversation as a skill with skill_create, so a later chat can do the same task without working it out again:',
+    'the steps that worked, the dead ends to avoid, and how to check the result. Put reusable code in the skill with skill_write_file.',
+    'If a skill Llama Run made already covers this, improve it with skill_edit instead.',
+    focus?.trim() ? `Focus on: ${focus.trim()}` : ''
+  ]
+    .filter(Boolean)
+    .join(' ')
+}
 
 export interface ChatToolOptions {
   /** Offer run_command and web_fetch (see wantsShell). */
@@ -266,6 +279,11 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
       if (!chatId || !chatStore.get(chatId)?.messages.length) throw new Error('Nothing to compact yet')
       await this.compact(chatId, compact[1], true)
       return chatId
+    }
+    const learn = !attachments?.length ? /^\/learn(?:\s+([\s\S]*))?$/i.exec(text.trim()) : null
+    if (learn) {
+      if (!chatId || !chatStore.get(chatId)?.messages.length) throw new Error('Nothing to learn from yet: /learn saves what worked in a chat.')
+      return this.start(chatId, text.trim(), { model, skill: { name: 'learn', instructions: learnRequest(learn[1]) } }).chatId
     }
     const command = !attachments?.length ? pluginHost.matchCommand(text) : null
     if (command) {
