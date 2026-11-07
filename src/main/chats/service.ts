@@ -63,6 +63,8 @@ export interface ChatToolOptions {
   /** Offer run_command and web_fetch (see wantsShell). */
   shell?: boolean
   chatId?: string
+  /** The reply being made. */
+  messageId?: string
   /** Offer the computer_* tools (computer use is on and the user typed this turn). */
   computer?: { screenshots: boolean }
 }
@@ -85,7 +87,7 @@ export function chatTools(options: ChatToolOptions = {}): ToolBridge | undefined
     sequential: (name) => isComputerTool(name),
     call: (name, args) =>
       isBuiltinTool(name)
-        ? callBuiltinTool(name, args, { chatId: options.chatId })
+        ? callBuiltinTool(name, args, { chatId: options.chatId, messageId: options.messageId })
         : options.computer && isComputerTool(name)
           ? computer.call(name, args, { chatId: options.chatId, screenshots: options.computer.screenshots })
           : fromPlugins.has(name)
@@ -570,7 +572,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
       const text = await generate(historyFor(chat.messages.slice(0, -1), chat.compaction), {
         model,
         signal: controller.signal,
-        tools: turn?.tools === false ? undefined : chatTools({ shell, chatId: chat.id, computer: computerOn }),
+        tools: turn?.tools === false ? undefined : chatTools({ shell, chatId: chat.id, messageId: assistant.id, computer: computerOn }),
         system: systemFor(turn?.system, shell, Boolean(computerOn), install, chat.id),
         maxToolRounds: maxRounds,
         vision: Boolean(info?.capabilities?.includes('vision')),

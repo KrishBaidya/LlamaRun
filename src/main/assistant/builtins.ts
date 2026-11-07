@@ -5,6 +5,7 @@ import { nativeImage, type NativeImage } from 'electron'
 import type { McpToolInfo } from '@shared/types'
 import { analytics } from '../analytics'
 import { documentText } from '../attachments/read'
+import { MAX_TOOL_RESULT_CHARS } from '../llm/toolPayload'
 import { renderHtml } from './render'
 import type { McpToolResult } from '../mcp/manager'
 import { memoryStore } from '../memory/store'
@@ -25,6 +26,10 @@ const SERVER = 'Llama Run'
 const COMMAND_TIMEOUT_MS = 10 * 60_000
 const MAX_OUTPUT_CHARS = 16_000
 const MAX_PAGE_CHARS = 40_000
+/** Lines read_file returns at most per call. */
+const READ_LINES = 2000
+/** Characters of file read_file returns per call: under what the model is shown of a result, so "read on" survives. */
+const READ_PAGE_CHARS = MAX_TOOL_RESULT_CHARS - 1000
 
 const result = (text: string, isError = false): McpToolResult => ({ content: [{ type: 'text', text }], isError })
 
@@ -106,15 +111,30 @@ const SHELL_TOOLS: McpToolInfo[] = [
 const FILE_TOOLS: McpToolInfo[] = [
   tool(
     'read_file',
-    'Read a file: text, code, PDF and Word files as text; images (PNG, JPEG, GIF, WebP, BMP) as the image itself, for models that can see. Relative paths are in the skill workspace folder.',
-    { path: { type: 'string', description: 'Absolute, or relative to the skill workspace folder.' } },
+    'Read a file: text and code with numbered lines ("12| …"; the numbers are not part of the file), PDF and Word files as text, images (PNG, JPEG, GIF, WebP, BMP) as the image itself for models that can see. Long files come in pages: pass offset to read on. Relative paths are in the skill workspace folder.',
+    {
+      path: { type: 'string', description: 'Absolute, or relative to the skill workspace folder.' },
+      offset: { type: 'integer', description: 'First line to read (1-based). Default 1.' },
+      limit: { type: 'integer', description: `Most lines to read. Default ${READ_LINES}.` }
+    },
     ['path']
   ),
   tool(
     'write_file',
-    'Write a text file (a script, data, a page…), creating its folder; an existing file is replaced. Relative paths are in the skill workspace folder.',
+    'Write a text file (a script, data, a page…), creating its folder; an existing file is replaced. To change part of a file, use edit_file. Relative paths are in the skill workspace folder.',
     { path: { type: 'string', description: 'Absolute, or relative to the skill workspace folder.' }, content: { type: 'string' } },
     ['path', 'content']
+  ),
+  tool(
+    'edit_file',
+    'Change part of a text file: replace old_string, which must appear exactly once (or set replace_all), with new_string. Returns the changed lines.',
+    {
+      path: { type: 'string', description: 'Absolute, or relative to the skill workspace folder.' },
+      old_string: { type: 'string', description: "The exact text to replace, as it is in the file (without read_file's line numbers)." },
+      new_string: { type: 'string' },
+      replace_all: { type: 'boolean', description: 'Replace every occurrence. Default false.' }
+    },
+    ['path', 'old_string', 'new_string']
   ),
   tool(
     'render_html',
@@ -229,11 +249,27 @@ async function approveFile(path: string, write: boolean, chatId: string | undefi
   if (answer === 'always' && chatId) allowedFolders.set(chatId, new Set([...(allowed ?? []), dirname(path)]))
 }
 
-async function readFile(pathArg: string, chatId?: string): Promise<McpToolResult> {
+/** Reads already returned in a reply (path, range -> the file's state then), so an unchanged repeat costs a line, not the file again. */
+const recentReads = new Map<string, Map<string, string>>()
+
+async function readFile(pathArg: string, context: ToolContext, offsetArg?: unknown, limitArg?: unknown): Promise<McpToolResult> {
   const path = resolve(skillWorkspace(), pathArg.trim())
   if (!existsSync(path) || !statSync(path).isFile()) throw new Error(`${path} does not exist`)
-  if (statSync(path).size > MAX_FILE_BYTES) throw new Error(`${path} is larger than ${MAX_FILE_BYTES / 1024 / 1024} MB`)
-  await approveFile(path, false, chatId)
+  const stat = statSync(path)
+  if (stat.size > MAX_FILE_BYTES) throw new Error(`${path} is larger than ${MAX_FILE_BYTES / 1024 / 1024} MB`)
+  await approveFile(path, false, context.chatId)
+  const offset = Math.max(1, Math.floor(Number(offsetArg) || 1))
+  const limit = Math.max(1, Math.min(READ_LINES, Math.floor(Number(limitArg) || READ_LINES)))
+  const key = `${path}\u0000${offset}\u0000${limit}`
+  const state = `${stat.mtimeMs}:${stat.size}`
+  let reads = context.messageId ? recentReads.get(context.messageId) : undefined
+  if (context.messageId && !reads) {
+    recentReads.set(context.messageId, (reads = new Map()))
+    // Only replies still running need theirs.
+    if (recentReads.size > 20) recentReads.delete(recentReads.keys().next().value!)
+  }
+  if (reads?.get(key) === state) return result(`${path} is unchanged since you read it earlier in this reply.`)
+  reads?.set(key, state)
   const bytes = readFileSync(path)
   const type = IMAGE_TYPES[extname(path).toLowerCase()]
   if (type) {
@@ -242,7 +278,54 @@ async function readFile(pathArg: string, chatId?: string): Promise<McpToolResult
     return imageResult(`${path}: image`, image, type === 'image/jpeg')
   }
   const { text, pages } = await documentText(path, '', bytes)
-  return result(cut(`${path}${pages ? ` (${pages} pages)` : ''}\n${text}`, MAX_PAGE_CHARS))
+  return result(numbered(pages ? `${path} (${pages} pages)` : path, text, offset, limit))
+}
+
+/**
+ * Lines offset..offset+limit-1 numbered, cut on a line boundary to fit what the
+ * model is shown of a tool result (MAX_TOOL_RESULT_CHARS), saying where to read on.
+ */
+export function numbered(path: string, text: string, offset: number, limit: number): string {
+  const lines = text.split('\n')
+  if (offset > lines.length) return `${path} has ${lines.length} lines; offset ${offset} is past the end.`
+  const out: string[] = []
+  let size = 0
+  let last = offset - 1
+  for (let i = offset - 1; i < Math.min(lines.length, offset - 1 + limit); i++) {
+    const line = `${i + 1}| ${lines[i]}`
+    if (size + line.length > READ_PAGE_CHARS && out.length) break
+    out.push(line)
+    size += line.length + 1
+    last = i + 1
+  }
+  const more = last < lines.length ? `\n…more: read on with offset ${last + 1}.` : ''
+  const range = offset > 1 || more ? ` (lines ${offset}-${last} of ${lines.length})` : ''
+  return `${path}${range}\n${out.join('\n')}${more}`
+}
+
+async function editFile(args: Record<string, unknown>, chatId?: string): Promise<McpToolResult> {
+  const path = resolve(skillWorkspace(), str(args, 'path').trim())
+  if (!existsSync(path) || !statSync(path).isFile()) throw new Error(`${path} does not exist`)
+  let from = typeof args.old_string === 'string' ? args.old_string : ''
+  let to = typeof args.new_string === 'string' ? args.new_string : ''
+  if (!from) throw new Error('old_string is empty; use write_file for a new file')
+  const text = readFileSync(path, 'utf8')
+  // Models write \n; Windows files often have \r\n.
+  if (!text.includes(from) && text.includes('\r\n') && text.includes(from.replace(/\r?\n/g, '\r\n'))) {
+    from = from.replace(/\r?\n/g, '\r\n')
+    to = to.replace(/\r?\n/g, '\r\n')
+  }
+  const count = text.split(from).length - 1
+  if (!count) throw new Error(`old_string is not in ${path}. Read the file again and copy the text exactly.`)
+  if (count > 1 && args.replace_all !== true) throw new Error(`old_string appears ${count} times in ${path}. Add surrounding text to make it unique, or set replace_all.`)
+  await approveFile(path, true, chatId)
+  const at = text.indexOf(from)
+  const edited = args.replace_all === true ? text.split(from).join(to) : text.slice(0, at) + to + text.slice(at + from.length)
+  writeFileSync(path, edited, 'utf8')
+  // The first change with a few lines either side, so the model sees it landed without reading the file again.
+  const first = edited.slice(0, at).split('\n').length
+  const changed = to.split('\n').length
+  return result(`Edited ${path} (${count > 1 ? `${count} replacements` : '1 replacement'}).\n${numbered(path, edited.replace(/\r\n/g, '\n'), Math.max(1, first - 3), changed + 6).split('\n').slice(1).join('\n')}`)
 }
 
 /** An image for the model, scaled down to IMAGE_EDGE, after a line saying what it is. */
@@ -339,6 +422,8 @@ async function runCommand(command: string, cwdArg?: string, chatId?: string): Pr
 /** The chat a tool call comes from, so questions to the user appear in it. */
 export interface ToolContext {
   chatId?: string
+  /** The reply the call belongs to. */
+  messageId?: string
 }
 
 export async function callBuiltinTool(name: string, args: Record<string, unknown>, context: ToolContext = {}): Promise<McpToolResult> {
@@ -368,9 +453,11 @@ export async function callBuiltinTool(name: string, args: Record<string, unknown
       case 'web_fetch':
         return result(await webFetch(str(args, 'url')))
       case 'read_file':
-        return await readFile(str(args, 'path'), context.chatId)
+        return await readFile(str(args, 'path'), context, args.offset, args.limit)
       case 'write_file':
         return await writeFile(str(args, 'path'), typeof args.content === 'string' ? args.content : '', context.chatId)
+      case 'edit_file':
+        return await editFile(args, context.chatId)
       case 'render_html':
         return await render(args, context.chatId)
       case 'run_command':
