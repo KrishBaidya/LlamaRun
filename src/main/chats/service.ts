@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events'
 import type { Chat, ChatAttachment, ChatEvent, ChatMessage, ChatSummary, ContextUsage, ModelContextInfo, ModelInfo, SlashCommand } from '@shared/types'
 import { analytics } from '../analytics'
 import { approvals } from '../assistant/approval'
-import { builtinInstructions, builtinTools, callBuiltinTool, isBuiltinTool } from '../assistant/builtins'
+import { builtinInstructions, builtinTools, callBuiltinTool, installNote, isBuiltinTool } from '../assistant/builtins'
 import { documentBlock } from '../attachments/read'
 import { indicator } from '../computer/indicator'
 import { computer, computerInstructions, isComputerTool } from '../computer/tools'
@@ -94,10 +94,31 @@ export function chatTools(options: ChatToolOptions = {}): ToolBridge | undefined
   }
 }
 
-/** Instructions for a turn: memories and skills, computer use, what plugins added, then the turn's own. */
-export function systemFor(turn?: string, shell = false, computerOn = false, install = false): string | undefined {
-  const parts = [builtinInstructions({ shell, install }), computerOn ? computerInstructions() : '', pluginHost.contextText(), turn?.trim()].filter(Boolean)
+/**
+ * Each chat's memories-and-skills block as it was at its first turn. Kept as is,
+ * the prompt starts the same on every turn and the provider's prompt cache keeps
+ * working; a memory saved mid-chat shows in its tool result and joins the prompt
+ * at the next chat or compaction (which starts the cache over anyway).
+ */
+const promptSnapshots = new Map<string, string>()
+
+/**
+ * Instructions for a turn, most stable first so a cached prefix lasts: memories
+ * and skills, what plugins added, computer use, an install note, then the turn's own.
+ */
+export function systemFor(turn?: string, shell = false, computerOn = false, install = false, chatId?: string): string | undefined {
+  let base = chatId ? promptSnapshots.get(chatId) : undefined
+  if (base === undefined) {
+    base = builtinInstructions({ shell })
+    if (chatId) promptSnapshots.set(chatId, base)
+  }
+  const parts = [base, pluginHost.contextText(), computerOn ? computerInstructions() : '', install ? installNote() : '', turn?.trim()].filter(Boolean)
   return parts.length ? parts.join('\n\n') : undefined
+}
+
+/** Takes a fresh memories-and-skills block on the chat's next turn. */
+export function refreshPrompt(chatId: string): void {
+  promptSnapshots.delete(chatId)
 }
 
 function imageOf(a: ChatAttachment): HistoryImage | null {
@@ -218,6 +239,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     this.cancel(id)
     this.paused.delete(id)
     chatStore.delete(id)
+    refreshPrompt(id)
   }
 
   cancel(id: string): void {
@@ -309,7 +331,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     const id = model || chat?.model || settings.get('selectedModel')
     const info = await contextFor(id)
     const tools = chatTools()?.tools ?? []
-    return usageOf(info, estimateTokens(historyFor(chat?.messages ?? [], chat?.compaction), systemFor(), tools))
+    return usageOf(info, estimateTokens(historyFor(chat?.messages ?? [], chat?.compaction), systemFor(undefined, false, false, false, chat?.id), tools))
   }
 
   /** Summarises the chat's older messages now (the /compact command and the menu item). */
@@ -332,7 +354,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     const split = splitForCompaction(chat.messages, settings.get('compactKeepTurns') ?? 4, chat.compaction)
     if (!split) throw new Error('Nothing to compact yet: the conversation is still short.')
     const info = await contextFor(model)
-    const system = systemFor()
+    const system = systemFor(undefined, false, false, false, chat.id)
     const tokensBefore = estimateTokens(historyFor(chat.messages, chat.compaction), system)
     this.emit('event', { type: 'status', chatId: chat.id, status: 'compacting' })
     try {
@@ -346,6 +368,8 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
       const compaction = { summary, throughMessageId: through.id, createdAt: Date.now(), tokensBefore, tokensAfter: 0, ...(manual ? { manual } : {}) }
       compaction.tokensAfter = estimateTokens(historyFor(chat.messages, compaction), system)
       chat.compaction = compaction
+      // The cache starts over after a compaction: memories and skills saved since join the prompt now.
+      refreshPrompt(chat.id)
       chatStore.save(chat, false)
       analytics.track('chat_compacted', { trigger: manual ? 'manual' : 'auto', tokens_before: tokensBefore, tokens_after: compaction.tokensAfter })
       this.emit('event', { type: 'chat', chat })
@@ -366,7 +390,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     if (settings.get('autoCompact') === false) return
     const used = estimateTokens(
       historyFor(chat.messages, chat.compaction),
-      systemFor(undefined, shell, Boolean(computerOn)),
+      systemFor(undefined, shell, Boolean(computerOn), false, chat.id),
       chatTools({ shell, computer: computerOn })?.tools
     )
     if (used < (info.tokens * info.compactAtPercent) / 100) return
@@ -547,7 +571,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
         model,
         signal: controller.signal,
         tools: turn?.tools === false ? undefined : chatTools({ shell, chatId: chat.id, computer: computerOn }),
-        system: systemFor(turn?.system, shell, Boolean(computerOn), install),
+        system: systemFor(turn?.system, shell, Boolean(computerOn), install, chat.id),
         maxToolRounds: maxRounds,
         vision: Boolean(info?.capabilities?.includes('vision')),
         // Each computer-use step is a small decision: low thinking keeps it fast and cheap.

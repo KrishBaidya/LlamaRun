@@ -432,14 +432,15 @@ export function builtinInstructions(options: BuiltinOptions = {}): string {
         ...skills.filter((s) => s.modelInvocable).map((s) => `- ${s.name}: ${shorten(s.description) || '(no description)'}`)
       )
     }
-    if (options.install) {
-      lines.push(
-        `To install a skill the user links to: read its README with web_fetch and follow the install steps with run_command, so each skill ends up as its own folder with a SKILL.md inside ${skillsDir()}. Then call skills_refresh and tell the user what was installed.`
-      )
-    }
     if (lines.length > 1) parts.push(lines.join('\n'))
   }
+  if (options.install) parts.push(installNote())
   return parts.join('\n\n')
+}
+
+/** For turns that install a skill: where skills go. Kept apart so the rest of the instructions stay the same across turns. */
+export function installNote(): string {
+  return `To install a skill the user links to: read its README with web_fetch and follow the install steps with run_command, so each skill ends up as its own folder with a SKILL.md inside ${skillsDir()}. Then call skills_refresh and tell the user what was installed.`
 }
 
 /** The first message of an "Install with AI" chat. */
