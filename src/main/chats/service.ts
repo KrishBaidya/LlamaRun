@@ -40,6 +40,8 @@ export interface TurnOptions {
   system?: string
   /** Offer the MCP tools. Defaults to true. */
   tools?: boolean
+  /** A scheduled run nobody is watching: no computer use, and it can't schedule more routines. */
+  routine?: boolean
 }
 
 export interface SendOptions {
@@ -82,6 +84,8 @@ export interface ChatToolOptions {
   chatId?: string
   /** The reply being made. */
   messageId?: string
+  /** A routine's run (see TurnOptions.routine). */
+  routine?: boolean
   /** Offer the computer_* tools (computer use is on and the user typed this turn). */
   computer?: { screenshots: boolean }
 }
@@ -209,7 +213,7 @@ export async function contextFor(model: string): Promise<ModelContextInfo> {
  * or cloud (the server takes them inside tool results).
  */
 export function computerFor(typed: boolean, info: ModelInfo | undefined, turn?: TurnOptions): ChatToolOptions['computer'] {
-  if (!typed || turn?.tools === false || !settings.get('computerUse')) return undefined
+  if (!typed || turn?.tools === false || turn?.routine || !settings.get('computerUse')) return undefined
   const vision = Boolean(info?.capabilities?.includes('vision'))
   return { screenshots: settings.get('computerScreenshots') !== false && vision }
 }
@@ -644,7 +648,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
       const text = await generate(historyFor(chat.messages.slice(0, -1), chat.compaction), {
         model,
         signal: controller.signal,
-        tools: turn?.tools === false ? undefined : chatTools({ shell, chatId: chat.id, messageId: assistant.id, computer: computerOn }),
+        tools: turn?.tools === false ? undefined : chatTools({ shell, chatId: chat.id, messageId: assistant.id, computer: computerOn, routine: turn?.routine }),
         system: systemFor(turn?.system, shell, Boolean(computerOn), install, chat.id),
         maxToolRounds: maxRounds,
         vision: Boolean(info?.capabilities?.includes('vision')),

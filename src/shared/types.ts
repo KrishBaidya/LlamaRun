@@ -339,6 +339,23 @@ export interface UserProfile {
 }
 
 /** Something the model remembers about the user, shown to it on every turn. */
+/** A prompt Llama Run runs on a schedule (Hermes' cron, OpenCode's /schedule), each run a turn in its own chat. */
+export interface Routine {
+  id: string
+  prompt: string
+  /** As the user wrote it: "daily 9:00", "every 2h", "in 30m", a cron expression… */
+  when: string
+  /** Next run (ms); null once a one-time routine has run. */
+  next: number | null
+  paused?: boolean
+  createdAt: number
+  lastRun?: number
+  lastStatus?: 'done' | 'error' | 'stopped'
+  /** The chat its runs go into, made by the first run. */
+  chatId?: string
+  model?: string
+}
+
 /** What the review after a long task proposes keeping. */
 export interface TaskSuggestions {
   skill?: { name: string; description: string; body: string }

@@ -6,6 +6,7 @@ import type { CommandRule, McpToolInfo, MemoryKind } from '@shared/types'
 import { analytics } from '../analytics'
 import { documentText } from '../attachments/read'
 import { formatHits, readChat, searchChats } from '../chats/search'
+import { describeRoutine, routineStore } from '../routines/store'
 import { MAX_TOOL_RESULT_CHARS } from '../llm/toolPayload'
 import { renderHtml } from './render'
 import type { McpToolResult } from '../mcp/manager'
@@ -215,6 +216,23 @@ const TASK_TOOLS: McpToolInfo[] = [
   )
 ]
 
+/** Scheduled prompts, like Hermes' cron and OpenCode's /schedule. */
+const ROUTINE_TOOLS: McpToolInfo[] = [
+  tool(
+    'routine_create',
+    "Schedule a prompt to run by itself, in its own chat, while Llama Run is open (it stays in the tray); the result shows as a notification. when: \"in 30m\", \"every 2h\", \"daily 9:00\", \"weekdays at 9am\", \"every monday 18:30\", \"2026-11-20 08:00\" or a cron expression. Runs can't ask for approval: commands the user hasn't allowed with a rule are skipped, and computer use is off.",
+    { prompt: { type: 'string', description: 'What to do each time, written as the user would ask it.' }, when: { type: 'string' } },
+    ['prompt', 'when']
+  ),
+  tool('routine_list', "List the user's routines: what, when, and how the last run went.", {}, []),
+  tool(
+    'routine_update',
+    'Pause, resume, remove or run now one of the routines.',
+    { id: { type: 'string' }, action: { type: 'string', enum: ['pause', 'resume', 'remove', 'run'] } },
+    ['id', 'action']
+  )
+]
+
 /** Past chats, like Hermes' session_search: how a task went before, without asking the user again. */
 const CHAT_TOOLS: McpToolInfo[] = [
   tool(
@@ -243,6 +261,8 @@ export interface BuiltinOptions {
   shell?: boolean
   /** The user asked to install a skill: say where skills go. */
   install?: boolean
+  /** A routine's run: it can't schedule more routines. */
+  routine?: boolean
 }
 
 export function builtinTools(options: BuiltinOptions = {}): McpToolInfo[] {
@@ -251,11 +271,12 @@ export function builtinTools(options: BuiltinOptions = {}): McpToolInfo[] {
     ...(skillsOn() && skillStore.active().length ? SKILL_TOOLS : []),
     ...(skillsOn() && options.shell ? SKILL_WRITE_TOOLS : []),
     ...(options.shell ? [...SHELL_TOOLS, ...FILE_TOOLS, ...CHAT_TOOLS, ...TASK_TOOLS] : []),
+    ...(options.shell && !options.routine ? ROUTINE_TOOLS : []),
     ...(skillsOn() && options.shell ? INSTALL_TOOLS : [])
   ]
 }
 
-const NAMES = new Set([...MEMORY_TOOLS, ...SKILL_TOOLS, ...SKILL_WRITE_TOOLS, ...SHELL_TOOLS, ...FILE_TOOLS, ...CHAT_TOOLS, ...TASK_TOOLS, ...INSTALL_TOOLS].map((t) => t.name))
+const NAMES = new Set([...MEMORY_TOOLS, ...SKILL_TOOLS, ...SKILL_WRITE_TOOLS, ...SHELL_TOOLS, ...FILE_TOOLS, ...CHAT_TOOLS, ...TASK_TOOLS, ...ROUTINE_TOOLS, ...INSTALL_TOOLS].map((t) => t.name))
 
 export function isBuiltinTool(name: string): boolean {
   return NAMES.has(name)
@@ -558,6 +579,19 @@ export async function callBuiltinTool(name: string, args: Record<string, unknown
         const list = Array.isArray(args.args) ? args.args.map(String) : []
         const stdin = typeof args.stdin === 'string' ? args.stdin : undefined
         return result(await skillStore.runScript(str(args, 'skill'), str(args, 'script'), list, stdin, context.chatId))
+      }
+      case 'routine_create': {
+        const routine = routineStore.add(str(args, 'prompt'), str(args, 'when'))
+        return result(`Scheduled ${describeRoutine(routine)}.`)
+      }
+      case 'routine_list': {
+        const list = routineStore.list()
+        return result(list.length ? list.map(describeRoutine).join('\n') : 'No routines yet.')
+      }
+      case 'routine_update': {
+        const action = String(args.action)
+        if (!['pause', 'resume', 'remove', 'run'].includes(action)) throw new Error('action is pause, resume, remove or run')
+        return result(routineStore.act(str(args, 'id'), action as 'pause' | 'resume' | 'remove' | 'run'))
       }
       case 'todo_update': {
         // The list itself is drawn from this call's arguments in the chat; the model just needs to know it landed.

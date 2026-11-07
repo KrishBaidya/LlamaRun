@@ -17,9 +17,15 @@ class Approvals extends EventEmitter<{ changed: [chatId: string, request: Approv
   private queues = new Map<string, Promise<unknown>>()
   /** What the user picked or typed for an open question, until question() reads it. */
   private replies = new Map<string, string>()
+  /**
+   * Chats running with nobody to answer (a routine): every question is denied at
+   * once, so only what the user's rules already allow happens (Hermes fails closed too).
+   */
+  readonly unattended = new Set<string>()
 
   /** `signal` takes the question down (answered "deny") when whoever asked stops waiting. */
   ask(chatId: string, request: Omit<ApprovalRequest, 'id'>, signal?: AbortSignal, onId?: (id: string) => void): Promise<Approval> {
+    if (this.unattended.has(chatId)) return Promise.resolve('deny')
     const run = (): Promise<Approval> =>
       new Promise((resolve) => {
         if (signal?.aborted) return resolve('deny')
