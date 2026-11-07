@@ -18,6 +18,7 @@ import { configFromDirectoryEntry, isServerConfig } from './mcp/config'
 import { clearDirectoryCache, getDirectoryServer, listDirectory, readmeUrl } from './mcp/directory'
 import { mcp } from './mcp/manager'
 import { memoryStore } from './memory/store'
+import { routineStore } from './routines/store'
 import { pluginDataDir, pluginsDir } from './paths'
 import { pluginHost } from './plugins/host'
 import { inspectPlugin, installPlugin } from './plugins/install'
@@ -177,6 +178,9 @@ export function registerIpc(): void {
   handle('attachments:read', (_e, name, mimeType, bytes) => readDocument(String(name), String(mimeType ?? ''), bytes))
 
   handle('memory:list', () => memoryStore.list())
+  handle('routines:list', () => routineStore.list())
+  handle('routines:add', (_e, prompt, when) => (routineStore.add(String(prompt), String(when)), routineStore.list()))
+  handle('routines:act', (_e, id, action) => (routineStore.act(String(id), action), routineStore.list()))
   handle('memory:add', (_e, text) => (analytics.track('memory_changed', { action: 'add', source: 'user' }), memoryStore.add(String(text), 'user'), memoryStore.list()))
   handle('memory:update', (_e, id, text) => (analytics.track('memory_changed', { action: 'update', source: 'user' }), memoryStore.update(id, String(text), 'user'), memoryStore.list()))
   handle('memory:remove', (_e, id) => (analytics.track('memory_changed', { action: 'remove', source: 'user' }), memoryStore.remove(id), memoryStore.list()))
@@ -332,6 +336,7 @@ export function registerIpc(): void {
     win.webContents.on('did-finish-load', () => void injectCss(win).catch(() => {}))
   })
   memoryStore.on('changed', (list) => broadcast('memory:changed', list))
+  routineStore.on('changed', (list) => broadcast('routines:changed', list))
   approvals.on('changed', (chatId, request) => {
     broadcast('chat:event', { type: 'approval', chatId, request })
     // Nobody can answer a question in a chat no window shows: open it.

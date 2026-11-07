@@ -15,6 +15,7 @@ import type {
   McpToolInfo,
   HudSnapshot,
   MemoryItem,
+  Routine,
   ModelContextInfo,
   ModelCatalog,
   MenuAnchor,
@@ -87,6 +88,10 @@ export interface InvokeChannels {
   'attachments:read': (name: string, mimeType: string, bytes: Uint8Array) => ChatAttachment
 
   'memory:list': () => MemoryItem[]
+  /** Scheduled prompts. */
+  'routines:list': () => Routine[]
+  'routines:add': (prompt: string, when: string) => Routine[]
+  'routines:act': (id: string, action: 'pause' | 'resume' | 'remove' | 'run') => Routine[]
   'memory:add': (text: string) => MemoryItem[]
   'memory:update': (id: string, text: string) => MemoryItem[]
   'memory:remove': (id: string) => MemoryItem[]
@@ -187,6 +192,7 @@ export interface EventChannels {
   'hud:state': HudSnapshot
   'settings:navigate': string
   'memory:changed': MemoryItem[]
+  'routines:changed': Routine[]
   'skills:changed': SkillInfo[]
   'commands:changed': SlashCommand[]
 }
@@ -243,6 +249,9 @@ export const INVOKE_CHANNELS = [
   'models:context',
   'attachments:read',
   'memory:list',
+  'routines:list',
+  'routines:add',
+  'routines:act',
   'memory:add',
   'memory:update',
   'memory:remove',
@@ -320,5 +329,6 @@ export const EVENT_CHANNELS = [
   'settings:navigate',
   'memory:changed',
   'skills:changed',
-  'commands:changed'
+  'commands:changed',
+  'routines:changed'
 ] as const satisfies readonly EventChannel[]
