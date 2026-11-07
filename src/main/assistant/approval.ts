@@ -15,13 +15,16 @@ export type Approval = ApprovalAnswer
 class Approvals extends EventEmitter<{ changed: [chatId: string, request: ApprovalRequest | null] }> {
   private pending = new Map<string, { chatId: string; request: ApprovalRequest; resolve: (a: Approval) => void }>()
   private queues = new Map<string, Promise<unknown>>()
+  /** What the user picked or typed for an open question, until question() reads it. */
+  private replies = new Map<string, string>()
 
   /** `signal` takes the question down (answered "deny") when whoever asked stops waiting. */
-  ask(chatId: string, request: Omit<ApprovalRequest, 'id'>, signal?: AbortSignal): Promise<Approval> {
+  ask(chatId: string, request: Omit<ApprovalRequest, 'id'>, signal?: AbortSignal, onId?: (id: string) => void): Promise<Approval> {
     const run = (): Promise<Approval> =>
       new Promise((resolve) => {
         if (signal?.aborted) return resolve('deny')
         const full: ApprovalRequest = { id: randomUUID(), ...request }
+        onId?.(full.id)
         this.pending.set(full.id, { chatId, request: full, resolve })
         this.emit('changed', chatId, full)
         signal?.addEventListener('abort', () => this.answer(full.id, 'deny'), { once: true })
@@ -38,6 +41,26 @@ class Approvals extends EventEmitter<{ changed: [chatId: string, request: Approv
     this.pending.delete(id)
     this.emit('changed', entry.chatId, null)
     entry.resolve(answer)
+  }
+
+  /**
+   * A question from the model with choices (Hermes' clarify, OpenCode's question),
+   * shown as a card in the chat's queue. Resolves with what the user picked or
+   * typed, or null when they dismissed it or the reply stopped.
+   */
+  async question(chatId: string, question: string, options: string[], other: boolean, signal?: AbortSignal): Promise<string | null> {
+    let id = ''
+    const answer = await this.ask(chatId, { kind: 'question', title: question, command: '', detail: '', alwaysLabel: '', options, other }, signal, (assigned) => (id = assigned))
+    const text = this.replies.get(id) ?? null
+    this.replies.delete(id)
+    return answer === 'deny' ? null : text
+  }
+
+  /** The user's answer to a question card. */
+  reply(id: string, text: string): void {
+    if (!this.pending.has(id)) return
+    this.replies.set(id, text)
+    this.answer(id, 'once')
   }
 
   /** The open question for a chat, so a window that opens later can show it. */

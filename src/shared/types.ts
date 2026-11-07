@@ -246,6 +246,10 @@ export interface ApprovalRequest {
   alwaysLabel: string
   /** Label of an "allow for the rest of this chat" button, when there is one. */
   chatLabel?: string
+  /** "question": the model asks the user (title) to pick one of `options`, or to type an answer when `other`. */
+  kind?: 'question'
+  options?: string[]
+  other?: boolean
 }
 
 export interface AppearanceInfo {

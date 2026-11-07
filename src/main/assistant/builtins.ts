@@ -13,7 +13,7 @@ import { kindOf, MEMORY_BUDGET, memoryStore } from '../memory/store'
 import { pythonExecutable, userDataPath } from '../paths'
 import { settings } from '../settings'
 import { cut, skillsDir, skillStore, skillWorkspace } from '../skills/store'
-import { askApproval } from './approval'
+import { approvals, askApproval } from './approval'
 import { decide, proposeRules } from './commandRules'
 
 /**
@@ -185,6 +185,35 @@ const FILE_TOOLS: McpToolInfo[] = [
   )
 ]
 
+/** Working with the user on a longer task: a visible plan (Hermes' todo, OpenCode's todowrite) and questions with choices. */
+const TASK_TOOLS: McpToolInfo[] = [
+  tool(
+    'todo_update',
+    'Show the user a to-do list for a task with several steps, and keep it current: send the whole list each time, each item with its status.',
+    {
+      items: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: { text: { type: 'string' }, status: { type: 'string', enum: ['pending', 'in_progress', 'done'] } },
+          required: ['text', 'status']
+        }
+      }
+    },
+    ['items']
+  ),
+  tool(
+    'ask_user',
+    'Ask the user a question and wait for the answer: they pick one of the options (or type their own when other is true). For a choice only they can make.',
+    {
+      question: { type: 'string' },
+      options: { type: 'array', items: { type: 'string' }, description: '2 to 6 short choices.' },
+      other: { type: 'boolean', description: 'Let them type an answer of their own. Default true.' }
+    },
+    ['question', 'options']
+  )
+]
+
 /** Past chats, like Hermes' session_search: how a task went before, without asking the user again. */
 const CHAT_TOOLS: McpToolInfo[] = [
   tool(
@@ -220,12 +249,12 @@ export function builtinTools(options: BuiltinOptions = {}): McpToolInfo[] {
     ...(memoryOn() ? MEMORY_TOOLS : []),
     ...(skillsOn() && skillStore.active().length ? SKILL_TOOLS : []),
     ...(skillsOn() && options.shell ? SKILL_WRITE_TOOLS : []),
-    ...(options.shell ? [...SHELL_TOOLS, ...FILE_TOOLS, ...CHAT_TOOLS] : []),
+    ...(options.shell ? [...SHELL_TOOLS, ...FILE_TOOLS, ...CHAT_TOOLS, ...TASK_TOOLS] : []),
     ...(skillsOn() && options.shell ? INSTALL_TOOLS : [])
   ]
 }
 
-const NAMES = new Set([...MEMORY_TOOLS, ...SKILL_TOOLS, ...SKILL_WRITE_TOOLS, ...SHELL_TOOLS, ...FILE_TOOLS, ...CHAT_TOOLS, ...INSTALL_TOOLS].map((t) => t.name))
+const NAMES = new Set([...MEMORY_TOOLS, ...SKILL_TOOLS, ...SKILL_WRITE_TOOLS, ...SHELL_TOOLS, ...FILE_TOOLS, ...CHAT_TOOLS, ...TASK_TOOLS, ...INSTALL_TOOLS].map((t) => t.name))
 
 export function isBuiltinTool(name: string): boolean {
   return NAMES.has(name)
@@ -524,6 +553,17 @@ export async function callBuiltinTool(name: string, args: Record<string, unknown
         const list = Array.isArray(args.args) ? args.args.map(String) : []
         const stdin = typeof args.stdin === 'string' ? args.stdin : undefined
         return result(await skillStore.runScript(str(args, 'skill'), str(args, 'script'), list, stdin, context.chatId))
+      }
+      case 'todo_update': {
+        // The list itself is drawn from this call's arguments in the chat; the model just needs to know it landed.
+        const items = Array.isArray(args.items) ? (args.items as { status?: string }[]) : []
+        return result(`To-do list updated: ${items.filter((i) => i.status === 'done').length} of ${items.length} done.`)
+      }
+      case 'ask_user': {
+        if (!context.chatId) throw new Error('There is no chat to ask in')
+        const options = (Array.isArray(args.options) ? args.options.map(String) : []).filter((o) => o.trim()).slice(0, 6)
+        const answer = await approvals.question(context.chatId, str(args, 'question'), options, args.other !== false)
+        return result(answer === null ? 'The user dismissed the question without answering.' : `The user answered: ${answer}`)
       }
       case 'chat_search': {
         const query = str(args, 'query')

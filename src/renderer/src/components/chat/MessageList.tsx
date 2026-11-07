@@ -1,5 +1,5 @@
 import { Fragment, memo, useEffect, useRef, useState } from 'react'
-import { AlertCircle, Blocks, Bot, Brain, Check, ChevronDown, Copy, FoldVertical, Loader2, Mic, Play, RotateCcw, ShieldQuestion, Sparkles, Wand2, Wrench } from 'lucide-react'
+import { AlertCircle, Blocks, Bot, Brain, Check, ChevronDown, Copy, FoldVertical, Loader2, MessageCircleQuestion, Mic, Play, RotateCcw, ShieldQuestion, Sparkles, Wand2, Wrench } from 'lucide-react'
 import type { ApprovalAnswer, ApprovalRequest, ChatCompaction, ChatMessage, ToolPart } from '@shared/types'
 import { Markdown } from '@/components/markdown'
 import { Button } from '@/components/ui/button'
@@ -237,6 +237,7 @@ const AssistantMessage = memo(function AssistantMessage({
   const streaming = message.status === 'streaming'
   // Replies with parts show text and tool calls in the order they happened; older ones keep the chip row.
   const parts = message.parts?.length ? message.parts : null
+  const lastTodo = parts?.filter((p): p is ToolPart => p.type === 'tool' && p.name === 'todo_update').at(-1)?.id
   return (
     <div className="group flex flex-col gap-2">
       {!parts && message.tools?.length ? (
@@ -263,7 +264,18 @@ const AssistantMessage = memo(function AssistantMessage({
       {parts ? (
         <>
           {parts.map((p, i) =>
-            p.type === 'tool' ? <ToolCard key={p.id} part={p} /> : p.type === 'thinking' ? <ThinkingNote key={i} text={p.text} /> : p.text.trim() ? <Markdown key={i} text={p.text} /> : null
+            p.type === 'tool' ? (
+              p.name === 'todo_update' ? (
+                // Only the latest list is drawn; earlier updates are replaced by it.
+                p.id === lastTodo ? <TodoList key={p.id} part={p} /> : null
+              ) : (
+                <ToolCard key={p.id} part={p} />
+              )
+            ) : p.type === 'thinking' ? (
+              <ThinkingNote key={i} text={p.text} />
+            ) : p.text.trim() ? (
+              <Markdown key={i} text={p.text} />
+            ) : null
           )}
           {streaming && parts[parts.length - 1]?.type === 'tool' && (parts[parts.length - 1] as ToolPart).status !== 'running' && (
             <span className="shimmer-text w-fit text-sm">Thinking…</span>
@@ -360,8 +372,73 @@ function SuggestionsCard({ chatId, message }: { chatId: string; message: ChatMes
   )
 }
 
+/** The model's to-do list (todo_update): only its latest version is drawn, where it was last updated. */
+function TodoList({ part }: { part: ToolPart }) {
+  const items = (Array.isArray(part.args?.items) ? part.args.items : []) as { text?: string; status?: string }[]
+  if (!items.length) return null
+  return (
+    <div className="flex w-full max-w-full flex-col gap-1 rounded-lg border border-border/70 bg-card px-3 py-2 text-xs">
+      {items.map((item, i) => (
+        <div key={i} className={cn('flex items-start gap-2', item.status === 'done' && 'text-muted-foreground line-through')}>
+          {item.status === 'done' ? (
+            <Check className="mt-0.5 size-3 shrink-0" />
+          ) : item.status === 'in_progress' ? (
+            <Loader2 className="mt-0.5 size-3 shrink-0 animate-spin" />
+          ) : (
+            <span className="mt-0.5 size-3 shrink-0 rounded-full border border-muted-foreground/60" />
+          )}
+          <span className="min-w-0">{item.text}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** The model asks the user to choose (ask_user): an option, an answer of their own, or no answer. */
+function QuestionCard({ request }: { request: ApprovalRequest }) {
+  const [text, setText] = useState('')
+  const reply = (answer: string): void => void api.chats.answerQuestion(request.id, answer)
+  return (
+    <div className="flex flex-col gap-2.5 rounded-xl border border-primary/40 bg-primary/5 px-3.5 py-3 text-sm">
+      <div className="flex items-center gap-2 font-medium">
+        <MessageCircleQuestion className="size-4 text-primary" /> {request.title}
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {(request.options ?? []).map((option) => (
+          <Button key={option} size="sm" variant="outline" onClick={() => reply(option)}>
+            {option}
+          </Button>
+        ))}
+      </div>
+      {request.other && (
+        <form
+          className="flex gap-1.5"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (text.trim()) reply(text.trim())
+          }}
+        >
+          <input
+            className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 text-sm"
+            placeholder="Or type your answer"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+          />
+          <Button size="sm" type="submit" disabled={!text.trim()}>
+            Send
+          </Button>
+        </form>
+      )}
+      <Button size="sm" variant="ghost" className="w-fit" onClick={() => void api.chats.answerApproval(request.id, 'deny')}>
+        Skip
+      </Button>
+    </div>
+  )
+}
+
 function ApprovalCard({ request }: { request: ApprovalRequest }) {
   const answer = (a: ApprovalAnswer): void => void api.chats.answerApproval(request.id, a)
+  if (request.kind === 'question') return <QuestionCard request={request} />
   return (
     <div className="flex flex-col gap-2.5 rounded-xl border border-primary/40 bg-primary/5 px-3.5 py-3 text-sm">
       <div className="flex items-center gap-2 font-medium">
