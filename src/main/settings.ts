@@ -21,6 +21,7 @@ export const DEFAULT_SETTINGS: Settings = {
   skillsDisabled: {},
   skillsTrusted: {},
   allowedCommands: [],
+  commandRules: [],
   autoCompact: true,
   autoCompactPercent: 80,
   compactKeepTurns: 4,

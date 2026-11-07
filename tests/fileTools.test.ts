@@ -209,6 +209,25 @@ describe('file tools', () => {
     expect(text(await callBuiltinTool('read_file', { path: 'long.txt' }, { chatId: 'c1', messageId: 'm2' }))).toContain('1| line 1')
   })
 
+  // Seen in chats: a card for every python command. "Always allow python *" now covers the next ones.
+  it('run commands under a saved rule without asking, and offer "Allow for this chat"', async () => {
+    let asked = answerWith('always')
+    expect(text(await callBuiltinTool('run_command', { command: 'echo first' }, { chatId: 'r1' }))).toContain('first')
+    expect(asked[0]).toMatchObject({ alwaysLabel: 'Always allow echo *', chatLabel: 'Allow for this chat' })
+    asked = answerWith('deny')
+    expect(text(await callBuiltinTool('run_command', { command: 'echo second' }, { chatId: 'r2' }))).toContain('second')
+    expect(asked).toEqual([])
+
+    asked = answerWith('chat')
+    await callBuiltinTool('run_command', { command: 'Write-Output one' }, { chatId: 'r3' })
+    await callBuiltinTool('run_command', { command: 'Write-Output two' }, { chatId: 'r3' })
+    expect(asked).toHaveLength(1)
+    // Only for that chat.
+    asked = answerWith('once')
+    await callBuiltinTool('run_command', { command: 'Write-Output three' }, { chatId: 'r4' })
+    expect(asked).toHaveLength(1)
+  }, 30_000)
+
   it('say plainly when a file is missing', async () => {
     const r = await callBuiltinTool('read_file', { path: 'nope.txt' }, { chatId: 'c1' })
     expect(r.isError).toBe(true)

@@ -29,8 +29,10 @@ export interface Settings {
   skillsDisabled: Record<string, boolean>
   /** Skill folder name -> its scripts run without asking. */
   skillsTrusted: Record<string, boolean>
-  /** Shell commands the user chose "Always allow" for (exact text). */
+  /** Old form of commandRules: exact commands the user chose "Always allow" for. Moved into commandRules on first use. */
   allowedCommands: string[]
+  /** Which shell commands run without asking (allow) or never run (deny), like OpenCode's permission rules. */
+  commandRules: CommandRule[]
   /** Summarise older messages when a chat gets close to the model's context window. */
   autoCompact: boolean
   /** Compact when the conversation fills this share (percent) of the model's window. */
@@ -218,7 +220,13 @@ export type ChatEvent =
   /** The model is waiting for the user to allow a command or script (null: answered). */
   | { type: 'approval'; chatId: string; request: ApprovalRequest | null }
 
-export type ApprovalAnswer = 'once' | 'always' | 'deny'
+/** A shell command rule: `pattern` matches a whole command, `*` matching anything; a pattern ending in " *" also matches the command alone. */
+export interface CommandRule {
+  pattern: string
+  effect: 'allow' | 'deny'
+}
+
+export type ApprovalAnswer = 'once' | 'chat' | 'always' | 'deny'
 
 /** "May the model run this?", shown as a card in the chat, like Claude Code's permission prompt. */
 export interface ApprovalRequest {
@@ -228,8 +236,10 @@ export interface ApprovalRequest {
   command: string
   /** Where it runs, and anything else worth knowing. */
   detail: string
-  /** Label of the "always" button, e.g. "Always allow this skill". */
+  /** Label of the "always" button, e.g. "Always allow this skill". Empty: no such button (the request always asks). */
   alwaysLabel: string
+  /** Label of an "allow for the rest of this chat" button, when there is one. */
+  chatLabel?: string
 }
 
 export interface AppearanceInfo {

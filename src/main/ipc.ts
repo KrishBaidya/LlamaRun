@@ -118,6 +118,7 @@ export function registerIpc(): void {
       'memoryEnabled',
       'skillsEnabled',
       'allowedCommands',
+      'commandRules',
       'autoCompact',
       'autoCompactPercent',
       'compactKeepTurns',

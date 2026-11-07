@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { delimiter, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { nativeImage, type NativeImage } from 'electron'
-import type { McpToolInfo } from '@shared/types'
+import type { CommandRule, McpToolInfo } from '@shared/types'
 import { analytics } from '../analytics'
 import { documentText } from '../attachments/read'
 import { MAX_TOOL_RESULT_CHARS } from '../llm/toolPayload'
@@ -13,6 +13,7 @@ import { pythonExecutable, userDataPath } from '../paths'
 import { settings } from '../settings'
 import { cut, skillsDir, skillStore, skillWorkspace } from '../skills/store'
 import { askApproval } from './approval'
+import { decide, proposeRules } from './commandRules'
 
 /**
  * Tools Llama Run itself gives the model, next to the MCP servers' and plugins':
@@ -370,6 +371,19 @@ async function writeFile(pathArg: string, content: string, chatId?: string): Pro
   return result(`Wrote ${Buffer.byteLength(content, 'utf8')} bytes to ${path}`)
 }
 
+/** Command patterns allowed for the rest of a chat ("Allow for this chat"). */
+const chatRules = new Map<string, string[]>()
+
+/** The user's command rules, with the old exact-command list moved in on first use. */
+export function commandRules(): CommandRule[] {
+  const rules = settings.get('commandRules') ?? []
+  const legacy = settings.get('allowedCommands') ?? []
+  if (!legacy.length) return rules
+  const moved = [...rules, ...legacy.filter((c) => !rules.some((r) => r.pattern === c)).map((pattern) => ({ pattern, effect: 'allow' as const }))]
+  settings.set({ commandRules: moved, allowedCommands: [] })
+  return moved
+}
+
 /** The environment commands and scripts run in: "python" and "pip" are the bundled Python, output is UTF-8. */
 export function commandEnv(): NodeJS.ProcessEnv {
   const python = dirname(pythonExecutable())
@@ -382,16 +396,23 @@ async function runCommand(command: string, cwdArg?: string, chatId?: string): Pr
   mkdirSync(skillsDir(), { recursive: true })
   mkdirSync(skillWorkspace(), { recursive: true })
   if (!existsSync(cwd)) throw new Error(`${cwd} does not exist`)
-  const allowed = settings.get('allowedCommands') ?? []
-  if (!allowed.includes(command)) {
+  const rules = commandRules()
+  const decision = decide(command, rules, chatId ? (chatRules.get(chatId) ?? []) : [])
+  if (decision.effect === 'deny') throw new Error(`Not run: the user's rule "${decision.rule}" blocks it. Ask them how to continue.`)
+  if (decision.effect === 'ask') {
+    // What "always" and "this chat" would allow from now on: the program (and subcommand), like "python *".
+    const proposed = proposeRules(command, rules)
+    const scope = proposed.length ? proposed.join(', ') : command
     const answer = await askApproval(chatId, {
       title: 'Run this command on your computer?',
       command,
-      detail: `In ${cwd}`,
-      alwaysLabel: 'Always allow this command'
+      detail: decision.hardline ? `In ${cwd}. It ${decision.hardline}, so it always asks.` : `In ${cwd}`,
+      alwaysLabel: decision.hardline || !proposed.length ? '' : `Always allow ${scope}`,
+      ...(decision.hardline ? {} : { chatLabel: 'Allow for this chat' })
     })
     if (answer === 'deny') throw new Error('The user denied this command. Ask them how to continue.')
-    if (answer === 'always') settings.set({ allowedCommands: [...allowed, command] })
+    if (answer === 'always' && proposed.length) settings.set({ commandRules: [...rules, ...proposed.map((pattern) => ({ pattern, effect: 'allow' as const }))] })
+    if (answer === 'chat' && chatId) chatRules.set(chatId, [...(chatRules.get(chatId) ?? []), ...(proposed.length ? proposed : [command])])
   }
   const [shell, args] =
     process.platform === 'win32'

@@ -1,6 +1,6 @@
 import { Fragment, memo, useEffect, useRef, useState } from 'react'
 import { AlertCircle, Blocks, Bot, Brain, Check, ChevronDown, Copy, FoldVertical, Loader2, Mic, Play, RotateCcw, ShieldQuestion, Sparkles, Wand2, Wrench } from 'lucide-react'
-import type { ApprovalRequest, ChatCompaction, ChatMessage, ToolPart } from '@shared/types'
+import type { ApprovalAnswer, ApprovalRequest, ChatCompaction, ChatMessage, ToolPart } from '@shared/types'
 import { Markdown } from '@/components/markdown'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -314,7 +314,7 @@ const AssistantMessage = memo(function AssistantMessage({
 
 /** The model wants to run something on this PC: allow it once, always, or not at all (like Claude Code). */
 function ApprovalCard({ request }: { request: ApprovalRequest }) {
-  const answer = (a: 'once' | 'always' | 'deny'): void => void api.chats.answerApproval(request.id, a)
+  const answer = (a: ApprovalAnswer): void => void api.chats.answerApproval(request.id, a)
   return (
     <div className="flex flex-col gap-2.5 rounded-xl border border-primary/40 bg-primary/5 px-3.5 py-3 text-sm">
       <div className="flex items-center gap-2 font-medium">
@@ -328,9 +328,16 @@ function ApprovalCard({ request }: { request: ApprovalRequest }) {
         <Button size="sm" onClick={() => answer('once')}>
           Allow once
         </Button>
-        <Button size="sm" variant="outline" onClick={() => answer('always')}>
-          {request.alwaysLabel}
-        </Button>
+        {request.chatLabel && (
+          <Button size="sm" variant="outline" onClick={() => answer('chat')}>
+            {request.chatLabel}
+          </Button>
+        )}
+        {request.alwaysLabel && (
+          <Button size="sm" variant="outline" onClick={() => answer('always')}>
+            {request.alwaysLabel}
+          </Button>
+        )}
         <Button size="sm" variant="ghost" onClick={() => answer('deny')}>
           Deny
         </Button>

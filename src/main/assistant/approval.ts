@@ -57,19 +57,26 @@ export const approvals = new Approvals()
 /** Outside a chat (no card to show), a native dialog asks instead. */
 async function askNative(request: Omit<ApprovalRequest, 'id'>): Promise<Approval> {
   const parent = BrowserWindow.getFocusedWindow() ?? undefined
+  // The same choices as the card, without the ones this request doesn't offer.
+  const choices: [string, Approval][] = [
+    ['Allow once', 'once'],
+    ...(request.chatLabel ? [[request.chatLabel, 'chat'] as [string, Approval]] : []),
+    ...(request.alwaysLabel ? [[request.alwaysLabel, 'always'] as [string, Approval]] : []),
+    ['Deny', 'deny']
+  ]
   const options: Electron.MessageBoxOptions = {
     type: 'question',
     title: request.title,
     message: request.title,
     detail: request.detail,
-    buttons: ['Allow once', request.alwaysLabel, 'Deny'],
+    buttons: choices.map(([label]) => label),
     defaultId: 0,
-    cancelId: 2,
+    cancelId: choices.length - 1,
     noLink: true,
     icon: iconPath()
   }
   const { response } = parent ? await dialog.showMessageBox(parent, options) : await dialog.showMessageBox(options)
-  return response === 0 ? 'once' : response === 1 ? 'always' : 'deny'
+  return choices[response]?.[1] ?? 'deny'
 }
 
 export function askApproval(chatId: string | undefined, request: Omit<ApprovalRequest, 'id'>, signal?: AbortSignal): Promise<Approval> {
