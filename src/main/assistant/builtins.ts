@@ -2,14 +2,14 @@ import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { delimiter, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { nativeImage, type NativeImage } from 'electron'
-import type { CommandRule, McpToolInfo } from '@shared/types'
+import type { CommandRule, McpToolInfo, MemoryKind } from '@shared/types'
 import { analytics } from '../analytics'
 import { documentText } from '../attachments/read'
 import { formatHits, readChat, searchChats } from '../chats/search'
 import { MAX_TOOL_RESULT_CHARS } from '../llm/toolPayload'
 import { renderHtml } from './render'
 import type { McpToolResult } from '../mcp/manager'
-import { memoryStore } from '../memory/store'
+import { kindOf, MEMORY_BUDGET, memoryStore } from '../memory/store'
 import { pythonExecutable, userDataPath } from '../paths'
 import { settings } from '../settings'
 import { cut, skillsDir, skillStore, skillWorkspace } from '../skills/store'
@@ -51,8 +51,11 @@ const tool = (name: string, description: string, properties: Record<string, unkn
 const MEMORY_TOOLS: McpToolInfo[] = [
   tool(
     'memory_save',
-    'Remember a lasting fact about the user (name, job, preferences, projects, people, how they like answers). One short fact per call, starting with "User" or their name, e.g. "User prefers metric units". Use "they" or the name, never a guessed he/she. Not for details of the current task only.',
-    { text: { type: 'string', description: 'The fact, e.g. "Prefers metric units".' } },
+    'Remember something for later chats. kind "user": a lasting fact about the user (name, job, preferences, projects, people, how they like answers), starting with "User" or their name, e.g. "User prefers metric units"; use "they" or the name, never a guessed he/she. kind "note": something you learned that will help later (a fact about their setup, a convention, a fix that worked). One short entry per call, not details of the current task only. Space is limited; when it is full, merge or remove entries first.',
+    {
+      text: { type: 'string', description: 'The fact, e.g. "User prefers metric units".' },
+      kind: { type: 'string', enum: ['user', 'note'], description: 'Default: user if it starts with "User", otherwise note.' }
+    },
     ['text']
   ),
   tool(
@@ -503,7 +506,8 @@ export async function callBuiltinTool(name: string, args: Record<string, unknown
   try {
     switch (name) {
       case 'memory_save': {
-        const item = memoryStore.add(str(args, 'text'), 'model')
+        const kind = args.kind === 'user' || args.kind === 'note' ? args.kind : undefined
+        const item = memoryStore.add(str(args, 'text'), 'model', kind)
         return result(`Saved memory ${item.id}: ${item.text}`)
       }
       case 'memory_update': {
@@ -582,14 +586,17 @@ export function builtinInstructions(options: BuiltinOptions = {}): string {
   ]
   if (memoryOn()) {
     const items = memoryStore.list()
+    // Each kind with how full it is, so the model knows when to merge before saving more.
+    const group = (kind: MemoryKind, title: string): string => {
+      const of = items.filter((m) => kindOf(m) === kind)
+      return of.length ? `${title} (${memoryStore.used(kind)} of ${MEMORY_BUDGET[kind]} characters; id: entry):\n${of.map((m) => `- ${m.id}: ${m.text}`).join('\n')}` : ''
+    }
     parts.push(
       [
         '## Memory',
-        'You remember things about the user between chats. Use them when they help, without announcing it.',
+        'You remember things between chats. Use them when they help, without announcing it.',
         'When the user tells you something lasting about themselves, or asks you to remember something, save it with memory_save. Fix outdated memories with memory_update and delete them with memory_forget when asked. Never save passwords, keys or other secrets.',
-        items.length
-          ? `What you remember (id: fact):\n${items.map((m) => `- ${m.id}: ${m.text}`).join('\n')}`
-          : 'You do not remember anything about the user yet.'
+        items.length ? [group('user', 'About the user'), group('note', 'Your notes')].filter(Boolean).join('\n') : 'You do not remember anything yet.'
       ].join('\n')
     )
   }

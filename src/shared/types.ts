@@ -325,11 +325,16 @@ export interface UserProfile {
 }
 
 /** Something the model remembers about the user, shown to it on every turn. */
+/** user: a lasting fact about the user; note: something the model learned that helps later. */
+export type MemoryKind = 'user' | 'note'
+
 export interface MemoryItem {
   id: string
   text: string
   /** Who wrote it: 'user', 'model', or a plugin's name. */
   source: string
+  /** Missing on older memories: those starting with "User" are about the user. */
+  kind?: MemoryKind
   createdAt: number
   updatedAt: number
 }

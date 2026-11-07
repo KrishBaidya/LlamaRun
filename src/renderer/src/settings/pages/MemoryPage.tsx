@@ -50,6 +50,11 @@ function MemoryRow({ item }: { item: MemoryItem }) {
         </p>
       )}
       <div className="flex shrink-0 items-center gap-1.5 pt-0.5">
+        {item.kind === 'note' && (
+          <Badge variant="outline" title="Something the AI learned that helps later, rather than a fact about you">
+            Note
+          </Badge>
+        )}
         <SourceBadge source={item.source} />
         <span className="text-2xs text-muted-foreground" title={new Date(item.updatedAt).toLocaleString()}>
           {relativeTime(item.updatedAt)}
