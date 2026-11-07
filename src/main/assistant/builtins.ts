@@ -370,6 +370,13 @@ async function writeFile(pathArg: string, content: string, chatId?: string): Pro
   return result(`Wrote ${Buffer.byteLength(content, 'utf8')} bytes to ${path}`)
 }
 
+/** The environment commands and scripts run in: "python" and "pip" are the bundled Python, output is UTF-8. */
+export function commandEnv(): NodeJS.ProcessEnv {
+  const python = dirname(pythonExecutable())
+  const path = [python, join(python, 'Scripts'), process.env.PATH ?? process.env.Path ?? ''].join(delimiter)
+  return { ...process.env, PATH: path, Path: path, PYTHONIOENCODING: 'utf-8', GIT_TERMINAL_PROMPT: '0' }
+}
+
 async function runCommand(command: string, cwdArg?: string, chatId?: string): Promise<string> {
   const cwd = resolve(cwdArg?.trim() || skillWorkspace())
   mkdirSync(skillsDir(), { recursive: true })
@@ -386,18 +393,12 @@ async function runCommand(command: string, cwdArg?: string, chatId?: string): Pr
     if (answer === 'deny') throw new Error('The user denied this command. Ask them how to continue.')
     if (answer === 'always') settings.set({ allowedCommands: [...allowed, command] })
   }
-  const python = dirname(pythonExecutable())
-  const path = [python, join(python, 'Scripts'), process.env.PATH ?? process.env.Path ?? ''].join(delimiter)
   const [shell, args] =
     process.platform === 'win32'
       ? ['powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command]]
       : ['/bin/sh', ['-c', command]]
   return new Promise((done, fail) => {
-    const proc = spawn(shell, args, {
-      cwd,
-      windowsHide: true,
-      env: { ...process.env, PATH: path, Path: path, PYTHONIOENCODING: 'utf-8', GIT_TERMINAL_PROMPT: '0' }
-    })
+    const proc = spawn(shell, args, { cwd, windowsHide: true, env: commandEnv() })
     let out = ''
     let timedOut = false
     const timer = setTimeout(() => {

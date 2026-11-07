@@ -4,6 +4,7 @@ import type { Chat, ChatAttachment, ChatEvent, ChatMessage, ChatSummary, Context
 import { analytics } from '../analytics'
 import { approvals } from '../assistant/approval'
 import { builtinInstructions, builtinTools, callBuiltinTool, installNote, isBuiltinTool } from '../assistant/builtins'
+import { RUN_CODE, RUN_CODE_TOOL, runCode } from '../assistant/codeMode'
 import { documentBlock } from '../attachments/read'
 import { indicator } from '../computer/indicator'
 import { computer, computerInstructions, isComputerTool } from '../computer/tools'
@@ -75,24 +76,28 @@ export interface ChatToolOptions {
  * the MCP servers' and the plugins'.
  */
 export function chatTools(options: ChatToolOptions = {}): ToolBridge | undefined {
-  const own = [...builtinTools(options), ...(options.computer ? computer.tools() : [])]
+  const own = [...builtinTools(options), ...(options.computer ? computer.tools() : []), ...(options.shell ? [RUN_CODE_TOOL] : [])]
   const ownNames = new Set(own.map((t) => t.name))
   const mcpTools = mcp.tools().filter((t) => !isBuiltinTool(t.name) && !ownNames.has(t.name))
   const pluginTools = pluginHost.modelTools(new Set([...own, ...mcpTools].map((t) => t.name)))
   if (!own.length && !mcpTools.length && !pluginTools.length) return undefined
   const fromPlugins = new Set(pluginTools.map((t) => t.name))
-  return {
-    tools: [...own, ...mcpTools, ...pluginTools],
-    // One desktop, one action at a time; other tools in the same step run together.
-    sequential: (name) => isComputerTool(name),
-    call: (name, args) =>
-      isBuiltinTool(name)
-        ? callBuiltinTool(name, args, { chatId: options.chatId, messageId: options.messageId })
-        : options.computer && isComputerTool(name)
-          ? computer.call(name, args, { chatId: options.chatId, screenshots: options.computer.screenshots })
-          : fromPlugins.has(name)
-            ? pluginHost.callModelTool(name, args)
+  const tools = [...own, ...mcpTools, ...pluginTools]
+  const call: ToolBridge['call'] = (name, args) =>
+    isBuiltinTool(name)
+      ? callBuiltinTool(name, args, { chatId: options.chatId, messageId: options.messageId })
+      : options.computer && isComputerTool(name)
+        ? computer.call(name, args, { chatId: options.chatId, screenshots: options.computer.screenshots })
+        : fromPlugins.has(name)
+          ? pluginHost.callModelTool(name, args)
+          : name === RUN_CODE
+            ? runCode(args, { tools: tools.filter((t) => t.name !== RUN_CODE), call }, { chatId: options.chatId })
             : mcp.callTool(name, args)
+  return {
+    tools,
+    // One desktop, one action at a time; other tools in the same step run together. A script may drive the desktop too.
+    sequential: (name) => isComputerTool(name) || name === RUN_CODE,
+    call
   }
 }
 
