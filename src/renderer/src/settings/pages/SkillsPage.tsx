@@ -253,6 +253,12 @@ export function SkillsPage() {
           <SettingRow title="Use skills" description="Offer installed skills to your models. When one fits your request, the model loads it and can run its scripts (you're asked first).">
             <Switch checked={on} onCheckedChange={(v) => void update({ skillsEnabled: v })} />
           </SettingRow>
+          <SettingRow
+            title="Suggest what to keep after long tasks"
+            description={`After a reply with ${settings?.reviewMinToolCalls ?? 6} or more tool calls, a quick model proposes a skill or memories under it. Nothing is saved unless you click.`}
+          >
+            <Switch checked={settings?.reviewAfterTasks !== false} onCheckedChange={(v) => void update({ reviewAfterTasks: v })} />
+          </SettingRow>
         </CardContent>
       </Card>
 

@@ -104,6 +104,7 @@ export function ChatApp() {
           {hasThread ? (
             <>
               <MessageList
+                chatId={chat!.id}
                 messages={chat!.messages}
                 busy={busy}
                 onRetry={retry}

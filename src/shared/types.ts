@@ -33,6 +33,10 @@ export interface Settings {
   allowedCommands: string[]
   /** Which shell commands run without asking (allow) or never run (deny), like OpenCode's permission rules. */
   commandRules: CommandRule[]
+  /** After a reply with many tool calls, a cheap model proposes a skill or memories to keep (shown under the reply). */
+  reviewAfterTasks: boolean
+  /** Tool calls a reply needs before it's reviewed. */
+  reviewMinToolCalls: number
   /** Summarise older messages when a chat gets close to the model's context window. */
   autoCompact: boolean
   /** Compact when the conversation fills this share (percent) of the model's window. */
@@ -165,6 +169,8 @@ export interface ChatMessage {
    * Older chats don't have it.
    */
   parts?: MessagePart[]
+  /** After a long task: a skill and memories the review proposes keeping, until the user keeps or dismisses them. */
+  suggestions?: TaskSuggestions
   /** User messages sent by a plugin (e.g. a voice assistant) rather than typed. */
   via?: { plugin: string; voice?: boolean }
   /** Assistant messages: stopped at the tool-round cap and can be continued. */
@@ -325,6 +331,12 @@ export interface UserProfile {
 }
 
 /** Something the model remembers about the user, shown to it on every turn. */
+/** What the review after a long task proposes keeping. */
+export interface TaskSuggestions {
+  skill?: { name: string; description: string; body: string }
+  memories?: { text: string; kind: MemoryKind }[]
+}
+
 /** user: a lasting fact about the user; note: something the model learned that helps later. */
 export type MemoryKind = 'user' | 'note'
 

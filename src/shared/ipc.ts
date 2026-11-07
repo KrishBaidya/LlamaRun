@@ -70,6 +70,8 @@ export interface InvokeChannels {
   'chats:answerApproval': (id: string, answer: ApprovalAnswer) => void
   /** The open run request for a chat, if any. */
   'chats:pendingApproval': (chatId: string) => ApprovalRequest | null
+  /** Keeps a suggestion from the review after a task (the skill, or memory number n), or dismisses them all. */
+  'chats:keepSuggestion': (chatId: string, messageId: string, what: 'skill' | number | 'dismiss') => void
   /** Summarises the older messages now (like /compact). */
   'chats:compact': (chatId: string, instructions?: string) => void
   /** How full the model's context window is for this chat (or a new one) with this model. */
@@ -230,6 +232,7 @@ export const INVOKE_CHANNELS = [
   'chats:compact',
   'chats:answerApproval',
   'chats:pendingApproval',
+  'chats:keepSuggestion',
   'chats:contextUsage',
   'models:context',
   'attachments:read',

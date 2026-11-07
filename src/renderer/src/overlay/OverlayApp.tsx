@@ -197,6 +197,7 @@ export function OverlayApp() {
           <div className="flex min-h-0 flex-1 flex-col border-t" style={{ maxHeight: Math.max(120, maxHeight - CHROME_HEIGHT) }}>
             <MessageList
               compact
+              chatId={chat!.id}
               messages={chat!.messages}
               busy={busy}
               onRetry={retry}

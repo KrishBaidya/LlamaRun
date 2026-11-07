@@ -219,12 +219,14 @@ function ToolCard({ part }: { part: ToolPart }) {
 }
 
 const AssistantMessage = memo(function AssistantMessage({
+  chatId,
   message,
   isLast,
   busy,
   onRetry,
   onContinue
 }: {
+  chatId?: string
   message: ChatMessage
   isLast: boolean
   busy?: boolean
@@ -281,6 +283,8 @@ const AssistantMessage = memo(function AssistantMessage({
         </div>
       ) : null}
 
+      {chatId && message.suggestions && !streaming && <SuggestionsCard chatId={chatId} message={message} />}
+
       {message.status === 'error' && <ErrorCallout message={message} onRetry={isLast ? onRetry : undefined} />}
       {message.toolLimit && isLast && <ToolLimitCallout message={message} onContinue={busy ? undefined : onContinue} />}
       {message.status === 'cancelled' && (
@@ -313,6 +317,49 @@ const AssistantMessage = memo(function AssistantMessage({
 })
 
 /** The model wants to run something on this PC: allow it once, always, or not at all (like Claude Code). */
+/** What the review after a long task proposes keeping. Nothing is kept until the user clicks. */
+function SuggestionsCard({ chatId, message }: { chatId: string; message: ChatMessage }) {
+  const [error, setError] = useState<string | null>(null)
+  const s = message.suggestions!
+  const keep = (what: 'skill' | number | 'dismiss'): void => {
+    setError(null)
+    api.chats.keepSuggestion(chatId, message.id, what).catch((e: unknown) => setError(e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(e)))
+  }
+  return (
+    <div className="flex flex-col gap-2 rounded-xl border border-border/70 bg-card px-3.5 py-3 text-sm">
+      <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+        <Sparkles className="size-3.5" /> Keep for next time?
+      </div>
+      {s.skill && (
+        <div className="flex items-start gap-2">
+          <div className="min-w-0 flex-1">
+            <p className="font-medium">Skill: {s.skill.name}</p>
+            <p className="text-xs text-muted-foreground">{s.skill.description}</p>
+          </div>
+          <Button size="sm" variant="outline" onClick={() => keep('skill')}>
+            Save skill
+          </Button>
+        </div>
+      )}
+      {s.memories?.map((m, i) => (
+        <div key={m.text} className="flex items-start gap-2">
+          <p className="min-w-0 flex-1 text-xs">
+            <span className="text-muted-foreground">{m.kind === 'user' ? 'About you: ' : 'Note: '}</span>
+            {m.text}
+          </p>
+          <Button size="sm" variant="outline" onClick={() => keep(i)}>
+            Remember
+          </Button>
+        </div>
+      ))}
+      {error && <p className="text-xs text-destructive">{error}</p>}
+      <Button size="sm" variant="ghost" className="w-fit" onClick={() => keep('dismiss')}>
+        Dismiss
+      </Button>
+    </div>
+  )
+}
+
 function ApprovalCard({ request }: { request: ApprovalRequest }) {
   const answer = (a: ApprovalAnswer): void => void api.chats.answerApproval(request.id, a)
   return (
@@ -379,6 +426,7 @@ function CompactionDivider({ compaction }: { compaction: ChatCompaction }) {
  * right-aligned bubbles, assistant turns as plain full-width markdown.
  */
 export function MessageList({
+  chatId,
   messages,
   busy,
   onRetry,
@@ -389,6 +437,7 @@ export function MessageList({
   compacting,
   approval
 }: {
+  chatId?: string
   messages: ChatMessage[]
   busy: boolean
   onRetry?: () => void
@@ -429,7 +478,7 @@ export function MessageList({
             {m.role === 'user' ? (
               <UserMessage message={m} />
             ) : (
-              <AssistantMessage message={m} isLast={i === messages.length - 1} busy={busy} onRetry={onRetry} onContinue={onContinue} />
+              <AssistantMessage chatId={chatId} message={m} isLast={i === messages.length - 1} busy={busy} onRetry={onRetry} onContinue={onContinue} />
             )}
             {compaction?.throughMessageId === m.id && <CompactionDivider compaction={compaction} />}
           </Fragment>

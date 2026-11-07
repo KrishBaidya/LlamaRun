@@ -22,7 +22,9 @@ import { isCloudModel } from '../llm/models'
 import { mcp } from '../mcp/manager'
 import { pluginHost } from '../plugins/host'
 import { settings } from '../settings'
+import { memoryStore } from '../memory/store'
 import { skillStore } from '../skills/store'
+import { reviewTask } from './review'
 import { joinRound } from '../llm/toolRun'
 import { COMPACT_SYSTEM, compactionRequest, splitForCompaction, SUMMARY_INTRO, transcriptOf, visibleMessages } from './compact'
 import { contextWindowFor, estimateTokens, usageOf } from './context'
@@ -267,6 +269,39 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     approvals.cancelChat(id)
     // A batch of steps the driver is running stops now, not when it finishes.
     void computer.cancel(id)
+  }
+
+  /** The review after a long task; its suggestions appear under the reply. A failed review just shows nothing. */
+  private async review(chat: Chat, assistant: ChatMessage, model: string): Promise<void> {
+    try {
+      const suggestions = await reviewTask(chat, assistant, model)
+      if (!suggestions) return
+      assistant.suggestions = suggestions
+      chatStore.save(chat, false)
+      this.emit('event', { type: 'update', chatId: chat.id, message: { ...assistant } })
+    } catch {
+      // A nicety, not part of the reply.
+    }
+  }
+
+  /** Keeps the review's skill or one of its memories (the user accepted it), or dismisses them all. */
+  keepSuggestion(chatId: string, messageId: string, what: 'skill' | number | 'dismiss'): void {
+    const chat = chatStore.get(chatId)
+    const message = chat?.messages.find((m) => m.id === messageId)
+    const s = message?.suggestions
+    if (!chat || !message || !s) return
+    if (what === 'skill' && s.skill) {
+      skillStore.create(s.skill.name, s.skill.description, s.skill.body)
+      delete s.skill
+    } else if (typeof what === 'number' && s.memories?.[what]) {
+      // The user chose to keep it, so it goes in like one they added.
+      memoryStore.add(s.memories[what].text, 'user', s.memories[what].kind)
+      s.memories.splice(what, 1)
+      if (!s.memories.length) delete s.memories
+    }
+    if (what === 'dismiss' || (!s.skill && !s.memories)) delete message.suggestions
+    chatStore.save(chat, false)
+    this.emit('event', { type: 'update', chatId, message: { ...message } })
   }
 
   isRunning(id: string): boolean {
@@ -689,6 +724,9 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
       emitUpdate()
       chatStore.save(chat)
       trackGeneration(assistant, { startedAt, firstTokenAt, toolCalls, usage, paused: !!pause, via: user.via ? 'plugin' : typed ? 'typed' : 'app', resumed: !!resume })
+      // A long task that finished: propose what's worth keeping, without holding up the reply.
+      const reviewing = settings.get('reviewAfterTasks') !== false && (settings.get('skillsEnabled') !== false || settings.get('memoryEnabled') !== false)
+      if (reviewing && typed && !pause && assistant.status === 'done' && toolCalls >= (settings.get('reviewMinToolCalls') || 6)) void this.review(chat, assistant, assistant.model || chat.model)
     }
     return { ...assistant }
   }
