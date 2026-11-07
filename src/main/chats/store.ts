@@ -61,6 +61,11 @@ class ChatStore extends EventEmitter<{ changed: [] }> {
     return this.all().get(id)
   }
 
+  /** Every chat in memory, for searching them. */
+  everyChat(): Chat[] {
+    return [...this.all().values()]
+  }
+
   create(model: string, ephemeral = false): Chat {
     const now = Date.now()
     const chat: Chat = { id: randomUUID(), title: 'New chat', model, createdAt: now, updatedAt: now, messages: [] }
