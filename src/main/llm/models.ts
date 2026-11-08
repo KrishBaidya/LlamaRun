@@ -1,7 +1,8 @@
 import { app } from 'electron'
 import { z } from 'zod'
 import { BASE_SERVER_URL } from '@shared/constants'
-import type { ModelCapability, ModelGroup, ModelInfo, ModelStatus, ModelTier } from '@shared/types'
+import { THINKING_LEVELS } from '@shared/thinking'
+import type { ModelCapability, ModelGroup, ModelInfo, ModelModality, ModelStatus, ModelTier, ThinkingLevel } from '@shared/types'
 import { readJson, writeJson } from '../jsonFile'
 import { userDataPath } from '../paths'
 import snapshotJson from './models.snapshot.json'
@@ -52,6 +53,9 @@ interface CacheFile {
 }
 
 // Lenient on purpose: unknown fields/values from a newer server are dropped, not fatal.
+// Model-card fields: a malformed one is dropped (`catch`), never the whole model.
+const card = <T extends z.ZodType>(schema: T) => schema.nullish().catch(undefined)
+
 const ModelSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -60,8 +64,36 @@ const ModelSchema = z.object({
   capabilities: z.array(z.string()).nullish(),
   tier: z.string().nullish(),
   contextWindow: z.number().positive().nullish(),
-  status: z.string().nullish()
+  status: z.string().nullish(),
+  maxOutputTokens: card(z.number().positive()),
+  inputs: card(z.array(z.string())),
+  outputs: card(z.array(z.string())),
+  thinking: card(z.object({ levels: z.array(z.string()), default: z.string().nullish() })),
+  features: card(z.array(z.string())),
+  updated: card(z.string()),
+  knowledgeCutoff: card(z.string()),
+  deprecated: card(z.object({ on: z.string(), replacement: z.string().nullish() }))
 })
+
+const MODALITIES: readonly ModelModality[] = ['text', 'image', 'video', 'audio', 'pdf']
+const known = <T extends string>(allowed: readonly T[], values: string[] | null | undefined): T[] =>
+  (values ?? []).filter((v): v is T => (allowed as readonly string[]).includes(v))
+
+/** The model-card fields this build understands. Unknown features stay (they're only shown); unknown levels and modalities go. */
+function modelCard(model: z.infer<typeof ModelSchema>): Partial<ModelInfo> {
+  const levels = known(THINKING_LEVELS, model.thinking?.levels)
+  const fallback = model.thinking?.default
+  return {
+    ...(model.maxOutputTokens ? { maxOutputTokens: model.maxOutputTokens } : {}),
+    ...(model.inputs ? { inputs: known(MODALITIES, model.inputs) } : {}),
+    ...(model.outputs ? { outputs: known(MODALITIES, model.outputs) } : {}),
+    ...(levels.length ? { thinking: { levels, ...(fallback && levels.includes(fallback as ThinkingLevel) ? { default: fallback as ThinkingLevel } : {}) } } : {}),
+    ...(model.features ? { features: model.features } : {}),
+    ...(model.updated ? { updated: model.updated } : {}),
+    ...(model.knowledgeCutoff ? { knowledgeCutoff: model.knowledgeCutoff } : {}),
+    ...(model.deprecated ? { deprecated: { on: model.deprecated.on, ...(model.deprecated.replacement ? { replacement: model.deprecated.replacement } : {}) } } : {})
+  }
+}
 
 const CatalogSchema = z.object({
   version: z.union([z.string(), z.number()]).transform(String).nullish(),
@@ -121,7 +153,8 @@ export function parseCatalog(body: unknown, origin = 'server'): CloudCatalog | n
         ),
         tier: pick(TIERS, model.tier),
         contextWindow: model.contextWindow ?? undefined,
-        status: pick(STATUSES, model.status)
+        status: pick(STATUSES, model.status),
+        ...modelCard(model)
       })
     }
     if (models.length) groups.push({ provider: group.provider, label: group.label, models })

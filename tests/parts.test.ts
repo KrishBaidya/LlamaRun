@@ -14,12 +14,15 @@ vi.mock('electron', () => ({
 }))
 
 // A model that says something, calls a tool, then answers: the shape of a real tool-using reply.
-const model = vi.hoisted(() => ({ script: null as null | ((opts: Record<string, unknown>) => Promise<string>) }))
+const model = vi.hoisted(() => ({
+  script: null as null | ((opts: Record<string, unknown>) => Promise<string>),
+  groups: [] as { provider: string; label: string; models: Record<string, unknown>[] }[]
+}))
 vi.mock('../src/main/llm', async (importOriginal) => {
   const real = await importOriginal<typeof import('../src/main/llm')>()
   return {
     ...real,
-    modelCatalog: async () => ({ groups: [], ollamaRunning: false }),
+    modelCatalog: async () => ({ groups: model.groups, ollamaRunning: false }),
     generate: (_input: unknown, opts: Record<string, unknown>) => model.script!(opts)
   }
 })
@@ -127,6 +130,25 @@ describe('running tool calls', () => {
 
 describe('a chat reply with tools', () => {
   afterEach(() => vi.restoreAllMocks())
+
+  it("sends the thinking level chosen for the chat, fitted to the model's levels", async () => {
+    vi.spyOn(pluginHost, 'beforeTextGeneration').mockResolvedValue({ cancel: false, input_text: 'hi', model: '' } as never)
+    vi.spyOn(pluginHost, 'afterTextGeneration').mockImplementation(async (_i, response) => ({ response_text: response }) as never)
+    model.groups = [
+      { provider: 'gemini', label: 'Gemini', models: [{ id: 'flash', name: 'Flash', provider: 'gemini', cloud: true, capabilities: ['thinking'], thinking: { levels: ['low', 'medium', 'high'], default: 'medium' } }] }
+    ]
+    const seen: unknown[] = []
+    model.script = async (opts) => {
+      seen.push(opts.thinking)
+      return 'ok'
+    }
+    await chatService.ask(null, 'hi', { model: 'flash', ephemeral: true, thinking: 'high' }).done
+    // Minimal isn't one of Flash's levels: it gets low, as the server would.
+    await chatService.ask(null, 'hi', { model: 'flash', ephemeral: true, thinking: 'minimal' }).done
+    await chatService.ask(null, 'hi', { model: 'flash', ephemeral: true }).done
+    model.groups = []
+    expect(seen).toEqual(['high', 'low', undefined])
+  })
 
   it("shows a thinking model's thoughts between tool calls, apart from the reply, and never sends them back", async () => {
     vi.spyOn(pluginHost, 'beforeTextGeneration').mockResolvedValue({ cancel: false, input_text: 'make a pdf', model: '' } as never)

@@ -81,15 +81,49 @@ export function formatContextWindow(tokens: number): string {
   return String(tokens)
 }
 
-/** "Pro" / "Preview" tags for cloud models; renders nothing for plain free, stable models. */
+/** "2026-12-01" → "Dec 1, 2026". */
+export function formatDay(day: string): string {
+  const date = new Date(`${day}T00:00:00Z`)
+  return Number.isNaN(date.getTime()) ? day : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+}
+
+/** "2026-09" → "Sep 2026". */
+export function formatMonth(month: string): string {
+  const date = new Date(`${month}-01T00:00:00Z`)
+  return Number.isNaN(date.getTime()) ? month : date.toLocaleDateString(undefined, { month: 'short', year: 'numeric', timeZone: 'UTC' })
+}
+
+/** "search-grounding" → "Search grounding"; a few read better spelled out. */
+export function featureLabel(feature: string): string {
+  const named: Record<string, string> = { 'url-context': 'URL context', 'maps-grounding': 'Google Maps grounding', flex: 'Flex inference', priority: 'Priority inference', 'live-api': 'Live API', batch: 'Batch API' }
+  return named[feature] ?? feature.charAt(0).toUpperCase() + feature.slice(1).replace(/-/g, ' ')
+}
+
+/** What the provider says happens to a retiring model, for tooltips and notices. */
+export function deprecationNote(model: ModelInfo, replacementName?: string): string | null {
+  if (!model.deprecated) return null
+  const to = replacementName ?? model.deprecated.replacement
+  return `Being retired: from ${formatDay(model.deprecated.on)}, requests go to ${to ?? 'a newer model'}.`
+}
+
+/** "Pro" / "Preview" / "Deprecated" tags for cloud models; renders nothing for plain free, stable models. */
 export function ModelBadges({ model, className }: { model: ModelInfo; className?: string }) {
   const pro = model.tier === 'pro'
   const preview = model.status === 'preview'
   const dev = model.status === 'dev'
-  if (!pro && !preview && !dev) return null
+  const retiring = deprecationNote(model)
+  if (!pro && !preview && !dev && !retiring) return null
   const chip = 'inline-flex h-4.5 shrink-0 items-center rounded px-1 text-2xs leading-none font-medium'
   return (
     <span className={cn('flex shrink-0 items-center gap-1', className)}>
+      {retiring && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className={cn(chip, 'bg-destructive/12 text-destructive')}>Deprecated</span>
+          </TooltipTrigger>
+          <TooltipContent>{retiring}</TooltipContent>
+        </Tooltip>
+      )}
       {pro && (
         <Tooltip>
           <TooltipTrigger asChild>

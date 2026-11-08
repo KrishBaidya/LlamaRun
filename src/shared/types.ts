@@ -64,7 +64,18 @@ export interface ModelContextOverride {
   contextTokens?: number
   /** Compact at this percent for this model instead of the default. */
   compactAtPercent?: number
+  /** How hard this model thinks by default (a chat can choose its own). Absent: the model's own default. */
+  thinking?: ThinkingChoice
 }
+
+/** How hard a cloud thinking model thinks, least to most. Each model takes some of these (its card's `thinking.levels`). */
+export type ThinkingLevel = 'minimal' | 'low' | 'medium' | 'high'
+
+/** A thinking setting: a cloud level, or `off`/`on` for local models (Ollama's `think`). */
+export type ThinkingChoice = ThinkingLevel | 'off' | 'on'
+
+/** What a model reads and writes (its model card). */
+export type ModelModality = 'text' | 'image' | 'video' | 'audio' | 'pdf'
 
 /** The context window a model gets, and where the number came from. */
 export interface ModelContextInfo {
@@ -201,6 +212,8 @@ export interface Chat {
   compaction?: ChatCompaction
   /** Started by "Install with AI": the model may read web pages and run approved commands. */
   installer?: boolean
+  /** How hard the model thinks in this chat, chosen in the chat box. Absent: the model's default from Model settings. */
+  thinking?: ThinkingChoice
 }
 
 export interface ChatSummary {
@@ -296,6 +309,20 @@ export interface ModelInfo {
   family?: string
   /** Local models: when it was downloaded or last updated (ms). */
   modifiedAt?: number
+  /** Cloud models, from the provider's model card. */
+  maxOutputTokens?: number
+  inputs?: ModelModality[]
+  outputs?: ModelModality[]
+  /** Levels the model takes, least to most, and its own default (absent: the provider decides). */
+  thinking?: { levels: ThinkingLevel[]; default?: ThinkingLevel }
+  /** The provider's supported features, e.g. "search-grounding", "code-execution". */
+  features?: string[]
+  /** Last model update, "YYYY-MM". */
+  updated?: string
+  /** "YYYY-MM". */
+  knowledgeCutoff?: string
+  /** The provider retires or reroutes the model on `on` ("YYYY-MM-DD"), to `replacement` when given. */
+  deprecated?: { on: string; replacement?: string }
 }
 
 export interface ModelGroup {

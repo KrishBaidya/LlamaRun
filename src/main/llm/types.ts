@@ -1,4 +1,4 @@
-import type { GenerationErrorCode, McpToolInfo } from '@shared/types'
+import type { GenerationErrorCode, McpToolInfo, ThinkingChoice } from '@shared/types'
 import type { McpToolResult } from '../mcp/manager'
 
 export { toolResultToText } from './toolPayload'
@@ -102,8 +102,11 @@ export interface GenerateOptions {
   vision?: boolean
   /** Ollama: token counts for each request of the turn (one per tool round), as Ollama reports them. */
   onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void
-  /** How hard a thinking model thinks (cloud). Computer-use steps ask for "low": faster and far fewer output tokens. */
-  thinking?: 'minimal' | 'low' | 'medium' | 'high'
+  /**
+   * How hard a thinking model thinks (see resolveThinking): a level for cloud
+   * models, `off`/`on` for Ollama's `think`. Absent: the model's own default.
+   */
+  thinking?: ThinkingChoice
 }
 
 /** Maximum model -> tool -> model round trips before pausing (or forcing an answer). */

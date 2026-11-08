@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
-import type { Chat, ChatAttachment, ChatEvent, ChatMessage, ChatSummary, ContextUsage, ModelContextInfo, ModelInfo, SlashCommand } from '@shared/types'
+import { resolveThinking } from '@shared/thinking'
+import type { Chat, ChatAttachment, ChatEvent, ChatMessage, ChatSummary, ContextUsage, ModelContextInfo, ModelInfo, SlashCommand, ThinkingChoice } from '@shared/types'
 import { analytics } from '../analytics'
 import { approvals } from '../assistant/approval'
 import { builtinInstructions, builtinTools, callBuiltinTool, installNote, isBuiltinTool } from '../assistant/builtins'
@@ -54,6 +55,8 @@ export interface SendOptions {
   attachments?: ChatAttachment[]
   /** The user ran a skill as a /command. */
   skill?: ChatMessage['skill']
+  /** A new chat created for this message thinks this hard (chosen in the chat box before it existed). */
+  thinking?: ThinkingChoice
 }
 
 /** Most images one message may carry. */
@@ -262,6 +265,16 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     this.emit('event', { type: 'chat', chat })
   }
 
+  /** How hard the model thinks in this chat; undefined goes back to the model's default. */
+  setThinking(id: string, thinking: ThinkingChoice | undefined): void {
+    const chat = chatStore.get(id)
+    if (!chat) return
+    if (thinking) chat.thinking = thinking
+    else delete chat.thinking
+    chatStore.save(chat, false)
+    this.emit('event', { type: 'chat', chat })
+  }
+
   delete(id: string): void {
     this.cancel(id)
     this.paused.delete(id)
@@ -326,7 +339,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     return this.running.has(id)
   }
 
-  async send(chatId: string | null, text: string, model?: string, attachments?: ChatAttachment[]): Promise<string> {
+  async send(chatId: string | null, text: string, model?: string, attachments?: ChatAttachment[], thinking?: ThinkingChoice): Promise<string> {
     const compact = !attachments?.length ? /^\/compact(?:\s+([\s\S]*))?$/i.exec(text.trim()) : null
     if (compact) {
       if (!chatId || !chatStore.get(chatId)?.messages.length) throw new Error('Nothing to compact yet')
@@ -347,9 +360,9 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     if (invoked) {
       analytics.track('skill_invoked', { via: 'slash' })
       const instructions = skillStore.invoke(invoked.skill, invoked.args)
-      return this.start(chatId, text.trim(), { model, attachments, skill: { name: invoked.skill.name, instructions } }).chatId
+      return this.start(chatId, text.trim(), { model, attachments, thinking, skill: { name: invoked.skill.name, instructions } }).chatId
     }
-    return this.start(chatId, text, { model, attachments }).chatId
+    return this.start(chatId, text, { model, attachments, thinking }).chatId
   }
 
   /** Opens an "Install with AI" chat: the model reads the README and installs it, asking before each command. */
@@ -498,6 +511,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     if (chatId && !existing && options.via) throw new Error(`No chat with id ${chatId}`)
     const chat = existing || this.create(options.model, options.ephemeral)
     if (this.running.has(chat.id)) throw new Error('Wait for the current response to finish, or stop it first.')
+    if (!existing && options.thinking) chat.thinking = options.thinking
     if (!chat.model) chat.model = settings.get('selectedModel')
     // A plugin may pick the model per message; typed messages use the chat's model.
     if (existing && options.via && options.model) chat.model = options.model
@@ -652,8 +666,8 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
         system: systemFor(turn?.system, shell, Boolean(computerOn), install, chat.id),
         maxToolRounds: maxRounds,
         vision: Boolean(info?.capabilities?.includes('vision')),
-        // Each computer-use step is a small decision: low thinking keeps it fast and cheap.
-        ...(computerOn && info?.capabilities?.includes('thinking') ? { thinking: 'low' as const } : {}),
+        // The chat's choice, else the model's default from Model settings, else low for computer-use steps.
+        thinking: resolveThinking(info, { chat: chat.thinking, modelDefault: settings.get('modelContext')?.[model]?.thinking, computerOn: Boolean(computerOn) }),
         // Compaction keeps the history inside the window; this cut is the safety net.
         historyChars: Math.floor(context.tokens * 4 * 0.9),
         contextTokens: context.tokens,

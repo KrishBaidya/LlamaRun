@@ -31,6 +31,7 @@ import type {
   Settings,
   SkillInfo,
   SlashCommand,
+  ThinkingChoice,
   UserProfile
 } from './types'
 
@@ -60,8 +61,10 @@ export interface InvokeChannels {
   'chats:rename': (id: string, title: string) => void
   'chats:delete': (id: string) => void
   'chats:setModel': (id: string, model: string) => void
+  /** How hard the model thinks in this chat; null goes back to the model's default. */
+  'chats:setThinking': (id: string, thinking: ThinkingChoice | null) => void
   /** Sends a user message; creates the chat when chatId is null. Returns the chat id. */
-  'chats:send': (chatId: string | null, text: string, model?: string, attachments?: ChatAttachment[]) => string
+  'chats:send': (chatId: string | null, text: string, model?: string, attachments?: ChatAttachment[], thinking?: ThinkingChoice) => string
   'chats:cancel': (chatId: string) => void
   /** Re-runs the last user message (after an error or to get a new answer). */
   'chats:retry': (chatId: string) => void
@@ -235,6 +238,7 @@ export const INVOKE_CHANNELS = [
   'chats:rename',
   'chats:delete',
   'chats:setModel',
+  'chats:setThinking',
   'chats:send',
   'chats:cancel',
   'chats:retry',

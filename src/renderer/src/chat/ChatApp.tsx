@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { FoldVertical, MessageSquare } from 'lucide-react'
-import type { ChatAttachment } from '@shared/types'
+import type { ChatAttachment, ThinkingChoice } from '@shared/types'
 import { Composer, type ComposerHandle } from '@/components/chat/Composer'
 import { ContextRing } from '@/components/chat/ContextRing'
 import { MessageList } from '@/components/chat/MessageList'
 import { ModelPicker } from '@/components/chat/ModelPicker'
+import { ThinkingPicker } from '@/components/chat/ThinkingPicker'
 import { TitleBar } from '@/components/TitleBar'
 import { Button } from '@/components/ui/button'
 import { Toaster } from '@/components/ui/sonner'
@@ -23,6 +24,7 @@ export function ChatApp() {
   const chats = useChatList()
   const [chatId, setChatId] = useState<string | null>(initialChatId)
   const [draftModel, setDraftModel] = useState('')
+  const [draftThinking, setDraftThinking] = useState<ThinkingChoice | undefined>()
   const composer = useRef<ComposerHandle>(null)
 
   const select = useCallback((id: string | null) => {
@@ -58,10 +60,16 @@ export function ChatApp() {
     if (chat) void api.chats.setModel(chat.id, m)
     else setDraftModel(m)
   }
+  // Before the chat exists, the choice waits here and goes with its first message.
+  const thinking = chat ? chat.thinking : draftThinking
+  const setThinking = (t: ThinkingChoice | undefined): void => {
+    if (chat) void api.chats.setThinking(chat.id, t ?? null)
+    else setDraftThinking(t)
+  }
   const hasThread = !!chat?.messages.length
   const onSend = (text: string, attachments: ChatAttachment[]): Promise<unknown> | void => {
     if (/^\/new\s*$/i.test(text)) return select(null)
-    return send(text, model, attachments)
+    return send(text, model, attachments, chat ? undefined : draftThinking)
   }
   const last = chat?.messages[chat.messages.length - 1]
   const version = `${chat?.id}:${chat?.messages.length}:${last?.status}:${chat?.compaction?.createdAt ?? 0}`
@@ -75,7 +83,12 @@ export function ChatApp() {
       placeholder={hasThread ? 'Reply…' : 'Ask anything…'}
       onSend={onSend}
       onStop={stop}
-      toolbar={<ModelPicker value={model} onChange={setModel} />}
+      toolbar={
+        <>
+          <ModelPicker value={model} onChange={setModel} />
+          <ThinkingPicker model={model} value={thinking} onChange={setThinking} />
+        </>
+      }
       status={<ContextRing chatId={hasThread ? chat!.id : null} model={model} version={version} onCompact={() => void compact()} />}
     />
   )
