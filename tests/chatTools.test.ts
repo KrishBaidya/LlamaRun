@@ -98,3 +98,19 @@ describe('chatTools', () => {
     vi.restoreAllMocks()
   })
 })
+
+describe('MCP tools across servers', () => {
+  it('lists each tool name once, from the first server that has it', () => {
+    const connections = (mcp as unknown as { connections: Map<string, { tools: ReturnType<typeof tool>[] }> }).connections
+    const before = new Map(connections)
+    connections.clear()
+    connections.set('KiCad', { tools: [tool('place_part', 'KiCad'), tool('route', 'KiCad')] })
+    connections.set('KiCad copy', { tools: [tool('place_part', 'KiCad copy'), tool('export_gerbers', 'KiCad copy')] })
+    try {
+      expect(mcp.tools().map((t) => `${t.server}:${t.name}`)).toEqual(['KiCad:place_part', 'KiCad:route', 'KiCad copy:export_gerbers'])
+    } finally {
+      connections.clear()
+      for (const [k, v] of before) connections.set(k, v)
+    }
+  })
+})

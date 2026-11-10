@@ -31,22 +31,25 @@ export function ContextRing({
   onCompact?: () => void
   className?: string
 }) {
-  const [usage, setUsage] = useState<ContextUsage | null>(null)
+  // A measurement belongs to one chat and model: another chat (a new one, say) never shows it while its own loads.
+  const key = `${chatId ?? 'new'}:${model}`
+  const [measured, setMeasured] = useState<{ key: string; usage: ContextUsage } | null>(null)
   useEffect(() => {
     if (!model) return
     let alive = true
     const t = setTimeout(() => {
       void api.chats
         .contextUsage(chatId, model)
-        .then((u) => alive && setUsage(u))
+        .then((usage) => alive && setMeasured({ key, usage }))
         .catch(() => {})
     }, 250)
     return () => {
       alive = false
       clearTimeout(t)
     }
-  }, [chatId, model, version])
+  }, [chatId, model, version, key])
 
+  const usage = measured?.key === key ? measured.usage : null
   if (!usage) return null
   const r = 7
   const c = 2 * Math.PI * r
@@ -81,6 +84,12 @@ export function ContextRing({
         <p className="font-medium">
           {usage.percent}% of context used · {formatTokens(usage.used)} / {formatTokens(usage.tokens)}
         </p>
+        {usage.breakdown && (
+          <p className="text-muted-foreground">
+            Conversation {formatTokens(usage.breakdown.conversation)} · Instructions {formatTokens(usage.breakdown.instructions)} · Tools{' '}
+            {formatTokens(usage.breakdown.tools)} ({usage.breakdown.toolCount})
+          </p>
+        )}
         <p className="text-muted-foreground">Window: {SOURCE[usage.source]}. Auto-compacts at {usage.compactAtPercent}%.</p>
         {chatId && <p className="text-muted-foreground">Click to compact now.</p>}
       </TooltipContent>

@@ -29,7 +29,7 @@ import { skillStore } from '../skills/store'
 import { reviewTask } from './review'
 import { joinRound } from '../llm/toolRun'
 import { COMPACT_SYSTEM, compactionRequest, splitForCompaction, SUMMARY_INTRO, transcriptOf, visibleMessages } from './compact'
-import { contextWindowFor, estimateTokens, usageOf } from './context'
+import { contextWindowFor, estimateParts, estimateTokens, usageOf } from './context'
 import { appendText, appendThinking, finishTool, recalledReplies, replaceText, replyForModel, textOf, toolPart } from './parts'
 import { chatStore, titleFrom } from './store'
 
@@ -421,8 +421,11 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     const chat = chatId ? chatStore.get(chatId) : undefined
     const id = model || chat?.model || settings.get('selectedModel')
     const info = await contextFor(id)
-    const tools = chatTools()?.tools ?? []
-    return usageOf(info, estimateTokens(historyFor(chat?.messages ?? [], chat?.compaction), systemFor(undefined, false, false, false, chat?.id), tools))
+    // Measured with the tools a typed turn sends, so the ring matches what the next message costs.
+    const computerOn = settings.get('computerUse') ? { screenshots: false } : undefined
+    const tools = chatTools({ shell: true, computer: computerOn })?.tools ?? []
+    const parts = estimateParts(historyFor(chat?.messages ?? [], chat?.compaction), systemFor(undefined, true, Boolean(computerOn), false, chat?.id), tools)
+    return usageOf(info, parts.conversation + parts.instructions + parts.tools, parts)
   }
 
   /** Summarises the chat's older messages now (the /compact command and the menu item). */

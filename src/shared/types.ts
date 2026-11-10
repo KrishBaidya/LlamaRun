@@ -87,10 +87,20 @@ export interface ModelContextInfo {
   compactAtPercent: number
 }
 
+/** Estimated tokens of the next request, by part. */
+export interface ContextBreakdown {
+  conversation: number
+  instructions: number
+  /** Every tool definition sent with each request (built-in, MCP and plugin tools). */
+  tools: number
+  toolCount: number
+}
+
 export interface ContextUsage extends ModelContextInfo {
   /** Estimated tokens the next request would use. */
   used: number
   percent: number
+  breakdown?: ContextBreakdown
 }
 
 /** Older messages of a chat replaced, for the model, by a summary. */
