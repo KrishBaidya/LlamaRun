@@ -9,7 +9,7 @@
 [![Latest release](https://img.shields.io/github/v/release/KrishBaidya/LlamaRun?label=release&color=0B7A80)](https://github.com/KrishBaidya/LlamaRun/releases/latest)
 [![Build](https://img.shields.io/github/actions/workflow/status/KrishBaidya/LlamaRun/build.yml?branch=master)](https://github.com/KrishBaidya/LlamaRun/actions/workflows/build.yml)
 [![License: GPL-3.0](https://img.shields.io/github/license/KrishBaidya/LlamaRun?color=0B7A80)](LICENSE)
-[![Windows 10/11](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D4)](https://github.com/KrishBaidya/LlamaRun/releases/latest)
+[![Windows x64](https://img.shields.io/badge/platform-Windows%20x64-0078D4)](https://github.com/KrishBaidya/LlamaRun/releases/latest)
 [![Stars](https://img.shields.io/github/stars/KrishBaidya/LlamaRun?style=social)](https://github.com/KrishBaidya/LlamaRun/stargazers)
 
 [**Download for Windows**](https://github.com/KrishBaidya/LlamaRun/releases/latest) · [Website](https://llamarun.krishbaidya.me) · [Plugin SDK](docs/plugin-sdk.md) · [Report a bug](https://github.com/KrishBaidya/LlamaRun/issues/new)
