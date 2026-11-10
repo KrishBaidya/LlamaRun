@@ -51,6 +51,7 @@ LlamaRun 1 launched on the Microsoft Store in 2024 and reached 1,000+ users. Thi
 - Memory: the AI remembers what you tell it about yourself. You can see, edit or clear it in Settings.
 - Skills and `/` commands: add skills from a ZIP, a folder or a GitHub link. Skills live in the shared `~/.agents/skills` folder, and your Claude Code skills appear automatically. Type `/` to run any skill or plugin command.
 - MCP: browse a directory of MCP servers and install them in one click. STDIO and Streamable HTTP/SSE servers both work, with local and cloud models.
+- Computer use: turn it on in Settings and the AI can open apps, click, type and press keys on your PC through [Cua Driver](https://cua.ai/docs/cua-driver). It works in the background, so your own mouse and keyboard keep working. It asks before it controls each app, and you can stop it any time with <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>Esc</kbd>.
 - Python plugins: each plugin runs on a bundled Python 3.13 in its own sandboxed process, with only the permissions you approve. Plugins can add tools, `/commands`, settings pages, panels (in Python or TSX), dialogs and notifications. See the [Plugin SDK](docs/plugin-sdk.md) and the [examples](examples/plugins).
 - Windows-native feel: Mica and Acrylic backdrops, your accent colour, a tray icon and launch at login.
 

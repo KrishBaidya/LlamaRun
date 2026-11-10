@@ -8,7 +8,16 @@ const shared = { '@shared': resolve('src/shared') }
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
-    resolve: { alias: shared }
+    resolve: { alias: shared },
+    build: {
+      rollupOptions: {
+        input: {
+          index: resolve('src/main/index.ts'),
+          // Utility process that runs Cua Driver for computer use (see src/main/computer/driver.ts).
+          computerWorker: resolve('src/main/computer/worker.ts')
+        }
+      }
+    }
   },
   preload: {
     plugins: [externalizeDepsPlugin()],

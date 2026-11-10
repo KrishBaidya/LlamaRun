@@ -122,6 +122,11 @@ export function registerIpc(): void {
       'autoCompactPercent',
       'compactKeepTurns',
       'modelContext',
+      'computerUse',
+      'computerScreenshots',
+      'computerMaxSteps',
+      'computerAllowedApps',
+      'computerBlockedApps',
       'telemetryEnabled'
     ]
     const clean = Object.fromEntries(Object.entries(patch).filter(([k]) => allowed.includes(k as keyof Settings)))

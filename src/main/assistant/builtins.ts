@@ -1,11 +1,14 @@
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync } from 'node:fs'
-import { delimiter, dirname, join, resolve } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { delimiter, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
+import { nativeImage, type NativeImage } from 'electron'
 import type { McpToolInfo } from '@shared/types'
 import { analytics } from '../analytics'
+import { documentText } from '../attachments/read'
+import { renderHtml } from './render'
 import type { McpToolResult } from '../mcp/manager'
 import { memoryStore } from '../memory/store'
-import { pythonExecutable } from '../paths'
+import { pythonExecutable, userDataPath } from '../paths'
 import { settings } from '../settings'
 import { cut, skillsDir, skillStore, skillWorkspace } from '../skills/store'
 import { askApproval } from './approval'
@@ -14,7 +17,8 @@ import { askApproval } from './approval'
  * Tools Llama Run itself gives the model, next to the MCP servers' and plugins':
  * memory (what it knows about the user), skills (SKILL.md folders it can load
  * and whose Python scripts it can run), and, like Claude Code, reading web
- * pages and running commands (each one approved) to install skills from a README.
+ * pages and running commands (each one approved): the general way to get a task
+ * done that no tool covers, and how skills get installed from a README.
  */
 
 const SERVER = 'Llama Run'
@@ -84,7 +88,7 @@ const SKILL_TOOLS: McpToolInfo[] = [
   )
 ]
 
-const INSTALL_TOOLS: McpToolInfo[] = [
+const SHELL_TOOLS: McpToolInfo[] = [
   tool(
     'web_fetch',
     'Read a web page or file as text, e.g. a README. GitHub repository links return the README.',
@@ -93,10 +97,39 @@ const INSTALL_TOOLS: McpToolInfo[] = [
   ),
   tool(
     'run_command',
-    `Run a ${process.platform === 'win32' ? 'PowerShell' : 'shell'} command on the user's computer (git clone, pip install, an install script…) and get its output. The user approves each command. Runs in the Skills folder unless cwd is given. "python" and "pip" are Llama Run's bundled Python.`,
+    `Run a ${process.platform === 'win32' ? 'PowerShell' : 'shell'} command on the user's computer (run a script you wrote, convert a file, pip install, git clone…) and get its output. The user approves each command. Runs in the skill workspace folder (where skill scripts write files) unless cwd is given. "python" and "pip" are Llama Run's bundled Python.`,
     { command: { type: 'string' }, cwd: { type: 'string', description: 'Working folder (absolute).' } },
     ['command']
+  )
+]
+
+const FILE_TOOLS: McpToolInfo[] = [
+  tool(
+    'read_file',
+    'Read a file: text, code, PDF and Word files as text; images (PNG, JPEG, GIF, WebP, BMP) as the image itself, for models that can see. Relative paths are in the skill workspace folder.',
+    { path: { type: 'string', description: 'Absolute, or relative to the skill workspace folder.' } },
+    ['path']
   ),
+  tool(
+    'write_file',
+    'Write a text file (a script, data, a page…), creating its folder; an existing file is replaced. Relative paths are in the skill workspace folder.',
+    { path: { type: 'string', description: 'Absolute, or relative to the skill workspace folder.' }, content: { type: 'string' } },
+    ['path', 'content']
+  ),
+  tool(
+    'render_html',
+    "Render HTML with Llama Run's built-in Chromium and save it as a PDF (printed like a browser prints; CSS @page sets size and margins, A4 by default) or a PNG of the whole page (returned as an image to models that can see). Give the markup itself or an HTML file. Relative URLs load from the skill workspace folder (or the HTML file's folder); local files load from there and from the chat's attachments.",
+    {
+      html: { type: 'string', description: 'The markup. Or give file.' },
+      file: { type: 'string', description: 'An HTML file to render instead of html.' },
+      output: { type: 'string', description: 'Where to save: a .pdf or .png path, absolute or relative to the skill workspace folder.' },
+      width: { type: 'integer', description: 'PNG only: page width in pixels (default 1200).' }
+    },
+    ['output']
+  )
+]
+
+const INSTALL_TOOLS: McpToolInfo[] = [
   tool('skills_refresh', 'Rescan the Skills folder after installing or changing a skill, and list what is installed.', {}, [])
 ]
 
@@ -104,19 +137,22 @@ const memoryOn = (): boolean => settings.get('memoryEnabled') !== false
 const skillsOn = (): boolean => settings.get('skillsEnabled') !== false
 
 export interface BuiltinOptions {
-  /** Offer run_command and web_fetch (typed turns only, never plugin-sent ones). */
+  /** Offer run_command, web_fetch, read_file and write_file (typed turns only, never plugin-sent ones). */
   shell?: boolean
+  /** The user asked to install a skill: say where skills go. */
+  install?: boolean
 }
 
 export function builtinTools(options: BuiltinOptions = {}): McpToolInfo[] {
   return [
     ...(memoryOn() ? MEMORY_TOOLS : []),
     ...(skillsOn() && skillStore.active().length ? SKILL_TOOLS : []),
+    ...(options.shell ? [...SHELL_TOOLS, ...FILE_TOOLS] : []),
     ...(skillsOn() && options.shell ? INSTALL_TOOLS : [])
   ]
 }
 
-const NAMES = new Set([...MEMORY_TOOLS, ...SKILL_TOOLS, ...INSTALL_TOOLS].map((t) => t.name))
+const NAMES = new Set([...MEMORY_TOOLS, ...SKILL_TOOLS, ...SHELL_TOOLS, ...FILE_TOOLS, ...INSTALL_TOOLS].map((t) => t.name))
 
 export function isBuiltinTool(name: string): boolean {
   return NAMES.has(name)
@@ -160,9 +196,101 @@ async function webFetch(target: string): Promise<string> {
   return cut(type.includes('html') ? htmlToText(body) : body, MAX_PAGE_CHARS)
 }
 
+/** Largest file read_file takes. */
+const MAX_FILE_BYTES = 25 * 1024 * 1024
+/** Long edge of images read_file shows the model: enough to read text, small enough to keep requests cheap. */
+const IMAGE_EDGE = 1568
+const IMAGE_TYPES: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp' }
+/** Folders the user let the model read or write in, per chat ("Allow this folder"). */
+const allowedFolders = new Map<string, Set<string>>()
+
+const inside = (path: string, folder: string): boolean => {
+  const rel = relative(folder, path)
+  return !rel.startsWith('..') && !isAbsolute(rel)
+}
+
+/**
+ * Files in the skill workspace (where scripts and their output go) and, for
+ * reading, the chat's attachments are the model's own; anything else is the
+ * user's, and they approve it once per folder for the chat.
+ */
+async function approveFile(path: string, write: boolean, chatId: string | undefined): Promise<void> {
+  const own = write ? [skillWorkspace()] : [skillWorkspace(), userDataPath('Attachments')]
+  if (own.some((folder) => inside(path, folder))) return
+  const allowed = chatId ? allowedFolders.get(chatId) : undefined
+  if (allowed && [...allowed].some((folder) => inside(path, folder))) return
+  const answer = await askApproval(chatId, {
+    title: write ? 'Let the model write this file?' : 'Let the model read this file?',
+    command: path,
+    detail: write ? (existsSync(path) ? 'It replaces the file that is there.' : 'A new file.') : 'What it contains goes to the model.',
+    alwaysLabel: 'Allow this folder'
+  })
+  if (answer === 'deny') throw new Error(`The user didn't allow ${write ? 'writing' : 'reading'} ${path}. Ask them how to continue.`)
+  if (answer === 'always' && chatId) allowedFolders.set(chatId, new Set([...(allowed ?? []), dirname(path)]))
+}
+
+async function readFile(pathArg: string, chatId?: string): Promise<McpToolResult> {
+  const path = resolve(skillWorkspace(), pathArg.trim())
+  if (!existsSync(path) || !statSync(path).isFile()) throw new Error(`${path} does not exist`)
+  if (statSync(path).size > MAX_FILE_BYTES) throw new Error(`${path} is larger than ${MAX_FILE_BYTES / 1024 / 1024} MB`)
+  await approveFile(path, false, chatId)
+  const bytes = readFileSync(path)
+  const type = IMAGE_TYPES[extname(path).toLowerCase()]
+  if (type) {
+    const image = nativeImage.createFromBuffer(bytes)
+    if (image.isEmpty()) throw new Error(`${path} is not an image Llama Run can open`)
+    return imageResult(`${path}: image`, image, type === 'image/jpeg')
+  }
+  const { text, pages } = await documentText(path, '', bytes)
+  return result(cut(`${path}${pages ? ` (${pages} pages)` : ''}\n${text}`, MAX_PAGE_CHARS))
+}
+
+/** An image for the model, scaled down to IMAGE_EDGE, after a line saying what it is. */
+function imageResult(label: string, image: NativeImage, jpeg = false): McpToolResult {
+  const { width, height } = image.getSize()
+  const scale = Math.min(1, IMAGE_EDGE / Math.max(width, height))
+  const shown = scale < 1 ? image.resize({ width: Math.round(width * scale), height: Math.round(height * scale), quality: 'best' }) : image
+  const data = (jpeg ? shown.toJPEG(90) : shown.toPNG()).toString('base64')
+  const size = scale < 1 ? ` (shown at ${shown.getSize().width}×${shown.getSize().height})` : ''
+  return { content: [{ type: 'text', text: `${label}, ${width}×${height} px${size}` }, { type: 'image', data, mimeType: jpeg ? 'image/jpeg' : 'image/png' }], isError: false }
+}
+
+async function render(args: Record<string, unknown>, chatId?: string): Promise<McpToolResult> {
+  const output = resolve(skillWorkspace(), str(args, 'output').trim())
+  const kind = extname(output).toLowerCase() === '.png' ? 'png' : extname(output).toLowerCase() === '.pdf' ? 'pdf' : null
+  if (!kind) throw new Error('output must end in .pdf or .png')
+  const html = typeof args.html === 'string' && args.html.trim() ? args.html : undefined
+  const file = !html && typeof args.file === 'string' && args.file.trim() ? resolve(skillWorkspace(), args.file.trim()) : undefined
+  if (!html && !file) throw new Error('Give html or file')
+  if (file) {
+    if (!existsSync(file)) throw new Error(`${file} does not exist`)
+    await approveFile(file, false, chatId)
+  }
+  await approveFile(output, true, chatId)
+  mkdirSync(skillWorkspace(), { recursive: true })
+  const width = typeof args.width === 'number' && args.width >= 200 && args.width <= 4000 ? Math.round(args.width) : undefined
+  const out = await renderHtml({ html, file, base: skillWorkspace(), folders: [skillWorkspace(), userDataPath('Attachments')] }, kind, width)
+  mkdirSync(dirname(output), { recursive: true })
+  if (out.kind === 'pdf') {
+    writeFileSync(output, out.bytes)
+    return result(`Saved a ${out.pages}-page PDF to ${output}`)
+  }
+  writeFileSync(output, out.image.toPNG())
+  return imageResult(`Saved ${output}${out.cut ? ' (cut at 10000 px tall)' : ''}`, out.image)
+}
+
+async function writeFile(pathArg: string, content: string, chatId?: string): Promise<McpToolResult> {
+  const path = resolve(skillWorkspace(), pathArg.trim())
+  await approveFile(path, true, chatId)
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, content, 'utf8')
+  return result(`Wrote ${Buffer.byteLength(content, 'utf8')} bytes to ${path}`)
+}
+
 async function runCommand(command: string, cwdArg?: string, chatId?: string): Promise<string> {
-  const cwd = resolve(cwdArg?.trim() || skillsDir())
+  const cwd = resolve(cwdArg?.trim() || skillWorkspace())
   mkdirSync(skillsDir(), { recursive: true })
+  mkdirSync(skillWorkspace(), { recursive: true })
   if (!existsSync(cwd)) throw new Error(`${cwd} does not exist`)
   const allowed = settings.get('allowedCommands') ?? []
   if (!allowed.includes(command)) {
@@ -239,6 +367,12 @@ export async function callBuiltinTool(name: string, args: Record<string, unknown
       }
       case 'web_fetch':
         return result(await webFetch(str(args, 'url')))
+      case 'read_file':
+        return await readFile(str(args, 'path'), context.chatId)
+      case 'write_file':
+        return await writeFile(str(args, 'path'), typeof args.content === 'string' ? args.content : '', context.chatId)
+      case 'render_html':
+        return await render(args, context.chatId)
       case 'run_command':
         return result(await runCommand(str(args, 'command'), typeof args.cwd === 'string' ? args.cwd : undefined, context.chatId))
       case 'skills_refresh': {
@@ -298,7 +432,7 @@ export function builtinInstructions(options: BuiltinOptions = {}): string {
         ...skills.filter((s) => s.modelInvocable).map((s) => `- ${s.name}: ${shorten(s.description) || '(no description)'}`)
       )
     }
-    if (options.shell) {
+    if (options.install) {
       lines.push(
         `To install a skill the user links to: read its README with web_fetch and follow the install steps with run_command, so each skill ends up as its own folder with a SKILL.md inside ${skillsDir()}. Then call skills_refresh and tell the user what was installed.`
       )

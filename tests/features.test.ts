@@ -179,7 +179,15 @@ describe('memory', () => {
 })
 
 describe('shell tools', () => {
-  it('are only offered for install requests or "Install with AI" chats', async () => {
+  it('are offered in every typed turn (each command approved), never in plugin-sent ones', async () => {
+    const { builtinTools } = await import('../src/main/assistant/builtins')
+    const names = (shell: boolean): string[] => builtinTools({ shell }).map((t) => t.name)
+    expect(names(true)).toEqual(expect.arrayContaining(['run_command', 'web_fetch']))
+    expect(names(false)).not.toContain('run_command')
+    expect(names(false)).not.toContain('web_fetch')
+  })
+
+  it('say where skills go only for install requests or "Install with AI" chats', async () => {
     const { wantsShell } = await import('../src/main/chats/service')
     expect(wantsShell({}, 'Install the skill at https://github.com/anthropics/skills')).toBe(true)
     expect(wantsShell({}, 'please install skills from anthropics/skills')).toBe(true)

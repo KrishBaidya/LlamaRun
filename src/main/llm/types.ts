@@ -15,6 +15,17 @@ export class GenerationError extends Error {
 export interface ToolBridge {
   tools: McpToolInfo[]
   call(name: string, args: Record<string, unknown>): Promise<McpToolResult>
+  /** Tools that must not run at the same time as others (they act on the user's desktop). */
+  sequential?(name: string): boolean
+}
+
+/** A tool call as the model made it, for showing it while it runs. */
+export interface ToolCallInfo {
+  /** Unique within the reply. */
+  id: string
+  name: string
+  server: string
+  args: Record<string, unknown>
 }
 
 /** One prior turn of a conversation, oldest first. The last entry is the new user message. */
@@ -61,7 +72,12 @@ export interface GenerateOptions {
   model: string
   signal?: AbortSignal
   onToken?: (text: string) => void
-  onTool?: (name: string, server: string) => void
+  /** A thinking model's summary of its reasoning, as it streams (shown to the user, not part of the reply). */
+  onThinking?: (text: string) => void
+  /** A tool call is about to run. */
+  onTool?: (call: ToolCallInfo) => void
+  /** A tool call finished (`result`), or threw (`error`). */
+  onToolResult?: (id: string, result: McpToolResult | null, error?: string) => void
   /** MCP tools the model may call. Omit for a plain text completion. */
   tools?: ToolBridge
   /**
@@ -80,8 +96,14 @@ export interface GenerateOptions {
   historyChars?: number
   /** Ollama: context window for this request (`num_ctx`), from the model's own size or the user's override. */
   contextTokens?: number
+  /** Most model -> tool -> model rounds before pausing (defaults to MAX_TOOL_ROUNDS). */
+  maxToolRounds?: number
+  /** The model can see images: tool results' images (screenshots) are sent along. */
+  vision?: boolean
   /** Ollama: token counts for each request of the turn (one per tool round), as Ollama reports them. */
   onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void
+  /** How hard a thinking model thinks (cloud). Computer-use steps ask for "low": faster and far fewer output tokens. */
+  thinking?: 'minimal' | 'low' | 'medium' | 'high'
 }
 
 /** Maximum model -> tool -> model round trips before pausing (or forcing an answer). */

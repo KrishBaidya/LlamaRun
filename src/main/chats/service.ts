@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
-import type { Chat, ChatAttachment, ChatEvent, ChatMessage, ChatSummary, ContextUsage, ModelContextInfo, SlashCommand } from '@shared/types'
+import type { Chat, ChatAttachment, ChatEvent, ChatMessage, ChatSummary, ContextUsage, ModelContextInfo, ModelInfo, SlashCommand } from '@shared/types'
 import { analytics } from '../analytics'
 import { approvals } from '../assistant/approval'
 import { builtinInstructions, builtinTools, callBuiltinTool, isBuiltinTool } from '../assistant/builtins'
 import { documentBlock } from '../attachments/read'
+import { indicator } from '../computer/indicator'
+import { computer, computerInstructions, isComputerTool } from '../computer/tools'
 import {
   generate,
   GenerationError,
@@ -20,8 +22,10 @@ import { mcp } from '../mcp/manager'
 import { pluginHost } from '../plugins/host'
 import { settings } from '../settings'
 import { skillStore } from '../skills/store'
+import { joinRound } from '../llm/toolRun'
 import { COMPACT_SYSTEM, compactionRequest, splitForCompaction, SUMMARY_INTRO, transcriptOf, visibleMessages } from './compact'
 import { contextWindowFor, estimateTokens, usageOf } from './context'
+import { appendText, appendThinking, finishTool, recalledReplies, replaceText, replyForModel, textOf, toolPart } from './parts'
 import { chatStore, titleFrom } from './store'
 
 const FLUSH_MS = 16
@@ -55,30 +59,44 @@ export const BUILTIN_COMMANDS: SlashCommand[] = [
   { name: 'new', description: 'Start a new chat', kind: 'builtin', plugin: 'Llama Run' }
 ]
 
+export interface ChatToolOptions {
+  /** Offer run_command and web_fetch (see wantsShell). */
+  shell?: boolean
+  chatId?: string
+  /** Offer the computer_* tools (computer use is on and the user typed this turn). */
+  computer?: { screenshots: boolean }
+}
+
 /**
- * The tools a chat turn offers: Llama Run's own (memory, skills, and for typed
- * turns the approved shell and web tools), the MCP servers' and the plugins'.
+ * The tools a chat turn offers: Llama Run's own (memory, skills, for typed
+ * turns the approved shell and web tools and, when it's on, computer use),
+ * the MCP servers' and the plugins'.
  */
-export function chatTools(options: { shell?: boolean; chatId?: string } = {}): ToolBridge | undefined {
-  const own = builtinTools(options)
-  const mcpTools = mcp.tools().filter((t) => !isBuiltinTool(t.name))
+export function chatTools(options: ChatToolOptions = {}): ToolBridge | undefined {
+  const own = [...builtinTools(options), ...(options.computer ? computer.tools() : [])]
+  const ownNames = new Set(own.map((t) => t.name))
+  const mcpTools = mcp.tools().filter((t) => !isBuiltinTool(t.name) && !ownNames.has(t.name))
   const pluginTools = pluginHost.modelTools(new Set([...own, ...mcpTools].map((t) => t.name)))
   if (!own.length && !mcpTools.length && !pluginTools.length) return undefined
   const fromPlugins = new Set(pluginTools.map((t) => t.name))
   return {
     tools: [...own, ...mcpTools, ...pluginTools],
+    // One desktop, one action at a time; other tools in the same step run together.
+    sequential: (name) => isComputerTool(name),
     call: (name, args) =>
       isBuiltinTool(name)
         ? callBuiltinTool(name, args, { chatId: options.chatId })
-        : fromPlugins.has(name)
-          ? pluginHost.callModelTool(name, args)
-          : mcp.callTool(name, args)
+        : options.computer && isComputerTool(name)
+          ? computer.call(name, args, { chatId: options.chatId, screenshots: options.computer.screenshots })
+          : fromPlugins.has(name)
+            ? pluginHost.callModelTool(name, args)
+            : mcp.callTool(name, args)
   }
 }
 
-/** Instructions for a turn: memories and skills, what plugins added, then the turn's own. */
-export function systemFor(turn?: string, shell = false): string | undefined {
-  const parts = [builtinInstructions({ shell }), pluginHost.contextText(), turn?.trim()].filter(Boolean)
+/** Instructions for a turn: memories and skills, computer use, what plugins added, then the turn's own. */
+export function systemFor(turn?: string, shell = false, computerOn = false, install = false): string | undefined {
+  const parts = [builtinInstructions({ shell, install }), computerOn ? computerInstructions() : '', pluginHost.contextText(), turn?.trim()].filter(Boolean)
   return parts.length ? parts.join('\n\n') : undefined
 }
 
@@ -102,13 +120,16 @@ function userContent(m: ChatMessage): string {
  */
 export function historyFor(messages: ChatMessage[], compaction?: Chat['compaction']): HistoryMessage[] {
   const visible = visibleMessages(messages, compaction)
+  const recall = recalledReplies(visible.messages)
   const turns = visible.messages
-    .filter((m) => m.role === 'user' || (m.status === 'done' && m.content))
+    .filter((m) => m.role === 'user' || m.status === 'done')
     .map((m): HistoryMessage => {
-      if (m.role !== 'user') return { role: m.role, content: m.content }
+      if (m.role !== 'user') return { role: m.role, content: replyForModel(m, recall.has(m.id)) }
       const images = (m.attachments ?? []).map(imageOf).filter((i): i is HistoryImage => !!i)
       return { role: 'user', content: userContent(m) || 'See the attached image.', ...(images.length ? { images } : {}) }
     })
+    // A reply with nothing to show the model (no text, tools no longer recalled) is left out.
+    .filter((m) => m.role === 'user' || m.content)
   if (!visible.summary) return turns
   return [
     { role: 'user', content: `${SUMMARY_INTRO}\n\n${visible.summary}` },
@@ -118,20 +139,35 @@ export function historyFor(messages: ChatMessage[], compaction?: Chat['compactio
 }
 
 /**
- * Whether a typed turn gets web_fetch and run_command: in "Install with AI"
- * chats, or when the user asks to install a skill from a link. Other turns
- * never see them, so a model can't wander into the shell unprompted.
+ * Whether a typed turn is installing a skill: in "Install with AI" chats, or
+ * when the user asks to install a skill from a link. Those turns are told where
+ * skills go. (Every typed turn gets web_fetch and run_command, each command
+ * approved by the user; plugin-sent turns never do.)
  */
 export function wantsShell(chat: Pick<Chat, 'installer'>, text: string): boolean {
   if (chat.installer) return true
   return /\binstall/i.test(text) && /\bskills?\b/i.test(text) && /(https?:\/\/|github\.com|gitlab\.com|\.git\b|\b[\w.-]+\/[\w.-]+\b)/i.test(text)
 }
 
+async function modelInfo(model: string): Promise<ModelInfo | undefined> {
+  const catalog = await modelCatalog().catch(() => null)
+  return catalog?.groups.flatMap((g) => g.models).find((m) => m.id === model)
+}
+
 /** The context window this model gets (its own size, or the user's override). */
 export async function contextFor(model: string): Promise<ModelContextInfo> {
-  const catalog = await modelCatalog().catch(() => null)
-  const info = catalog?.groups.flatMap((g) => g.models).find((m) => m.id === model)
-  return contextWindowFor(model, info, settings.all)
+  return contextWindowFor(model, await modelInfo(model), settings.all)
+}
+
+/**
+ * Whether a turn may operate the computer, and how: only turns the user typed,
+ * with computer use on. Screenshots go to models that can see images, local
+ * or cloud (the server takes them inside tool results).
+ */
+export function computerFor(typed: boolean, info: ModelInfo | undefined, turn?: TurnOptions): ChatToolOptions['computer'] {
+  if (!typed || turn?.tools === false || !settings.get('computerUse')) return undefined
+  const vision = Boolean(info?.capabilities?.includes('vision'))
+  return { screenshots: settings.get('computerScreenshots') !== false && vision }
 }
 
 /**
@@ -147,6 +183,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
   constructor() {
     super()
     chatStore.on('changed', () => this.emit('changed', this.list()))
+    indicator.on('stop', (chatId) => this.cancel(chatId))
   }
 
   list(): ChatSummary[] {
@@ -186,6 +223,8 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
   cancel(id: string): void {
     this.running.get(id)?.abort()
     approvals.cancelChat(id)
+    // A batch of steps the driver is running stops now, not when it finishes.
+    void computer.cancel(id)
   }
 
   isRunning(id: string): boolean {
@@ -316,9 +355,20 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
   }
 
   /** Compacts first when the next request would pass the model's threshold (auto-compact). */
-  private async autoCompact(chat: Chat, model: string, info: ModelContextInfo, signal: AbortSignal, shell: boolean): Promise<void> {
+  private async autoCompact(
+    chat: Chat,
+    model: string,
+    info: ModelContextInfo,
+    signal: AbortSignal,
+    shell: boolean,
+    computerOn?: ChatToolOptions['computer']
+  ): Promise<void> {
     if (settings.get('autoCompact') === false) return
-    const used = estimateTokens(historyFor(chat.messages, chat.compaction), systemFor(undefined, shell), chatTools({ shell })?.tools)
+    const used = estimateTokens(
+      historyFor(chat.messages, chat.compaction),
+      systemFor(undefined, shell, Boolean(computerOn)),
+      chatTools({ shell, computer: computerOn })?.tools
+    )
     if (used < (info.tokens * info.compactAtPercent) / 100) return
     try {
       await this.compactNow(chat, model, undefined, false, signal)
@@ -415,7 +465,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     user: ChatMessage,
     resume?: { assistant: ChatMessage; pause: ToolPause },
     turn?: TurnOptions,
-    /** A turn the user typed (not a plugin): it may get the approved shell and web tools (see wantsShell). */
+    /** A turn the user typed (not a plugin): it gets the approved shell and web tools. */
     typed = false
   ): Promise<ChatMessage> {
     const controller = new AbortController()
@@ -428,10 +478,15 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
       content: '',
       status: 'streaming',
       model: chat.model,
+      parts: [],
       createdAt: Date.now()
     }
+    // Replies from before parts existed (a paused one being continued) start their list with the text so far.
+    assistant.parts ??= assistant.content ? [{ type: 'text', text: assistant.content }] : []
+    const parts = assistant.parts
     const prior = assistant.content
     let pause: ToolPause | undefined
+    let maxRounds = MAX_TOOL_ROUNDS
     // For analytics: timing, tool use and (Ollama) token counts of this turn.
     const startedAt = Date.now()
     let firstTokenAt = 0
@@ -442,12 +497,15 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     }
 
     let pending = ''
+    let pendingThinking = ''
     let timer: NodeJS.Timeout | null = null
     const flush = (): void => {
       if (timer) clearTimeout(timer)
       timer = null
+      if (pendingThinking) this.emit('event', { type: 'thinking', chatId: chat.id, messageId: assistant.id, text: pendingThinking })
       if (pending) this.emit('event', { type: 'delta', chatId: chat.id, messageId: assistant.id, text: pending })
       pending = ''
+      pendingThinking = ''
     }
 
     try {
@@ -470,9 +528,13 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
       }
       const model = before.model || chat.model
       assistant.model = model
-      const context = await contextFor(model)
-      const shell = typed && wantsShell(chat, user.prompt ?? user.content)
-      if (!resume) await this.autoCompact(chat, model, context, controller.signal, shell)
+      const info = await modelInfo(model)
+      const context = contextWindowFor(model, info, settings.all)
+      const shell = typed
+      const install = typed && wantsShell(chat, user.prompt ?? user.content)
+      const computerOn = computerFor(typed, info, turn)
+      maxRounds = computerOn ? Math.min(500, Math.max(MAX_TOOL_ROUNDS, settings.get('computerMaxSteps') || 0)) : MAX_TOOL_ROUNDS
+      if (!resume) await this.autoCompact(chat, model, context, controller.signal, shell, computerOn)
       if (controller.signal.aborted) throw new Error('Stopped')
 
       if (resume) emitUpdate()
@@ -484,8 +546,12 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
       const text = await generate(historyFor(chat.messages.slice(0, -1), chat.compaction), {
         model,
         signal: controller.signal,
-        tools: turn?.tools === false ? undefined : chatTools({ shell, chatId: chat.id }),
-        system: systemFor(turn?.system, shell),
+        tools: turn?.tools === false ? undefined : chatTools({ shell, chatId: chat.id, computer: computerOn }),
+        system: systemFor(turn?.system, shell, Boolean(computerOn), install),
+        maxToolRounds: maxRounds,
+        vision: Boolean(info?.capabilities?.includes('vision')),
+        // Each computer-use step is a small decision: low thinking keeps it fast and cheap.
+        ...(computerOn && info?.capabilities?.includes('thinking') ? { thinking: 'low' as const } : {}),
         // Compaction keeps the history inside the window; this cut is the safety net.
         historyChars: Math.floor(context.tokens * 4 * 0.9),
         contextTokens: context.tokens,
@@ -497,18 +563,35 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
           usage.inputTokens += u.inputTokens
           usage.outputTokens += u.outputTokens
         },
+        onThinking: (t) => {
+          // Sent in the order it happened: text waiting to go out goes first.
+          if (pending) flush()
+          appendThinking(parts, t)
+          pendingThinking += t
+          timer ??= setTimeout(flush, FLUSH_MS)
+        },
         onToken: (t) => {
+          if (pendingThinking) flush()
           firstTokenAt ||= Date.now()
           assistant.content += t
+          appendText(parts, t)
           pending += t
           timer ??= setTimeout(flush, FLUSH_MS)
         },
-        onTool: (name, server) => {
+        onTool: (call) => {
           flush()
           toolCalls++
-          const tool = { name, server }
+          const tool = { name: call.name, server: call.server }
+          const part = toolPart(call.id, call.name, call.server, call.args)
+          parts.push(part)
           assistant.tools = [...(assistant.tools ?? []), tool]
-          this.emit('event', { type: 'tool', chatId: chat.id, messageId: assistant.id, tool })
+          this.emit('event', { type: 'tool', chatId: chat.id, messageId: assistant.id, tool, part: { ...part } })
+        },
+        onToolResult: (id, result, error) => {
+          const part = parts.find((p) => p.type === 'tool' && p.id === id)
+          if (part?.type !== 'tool') return
+          finishTool(part, result, error)
+          this.emit('event', { type: 'tool-done', chatId: chat.id, messageId: assistant.id, part: { ...part } })
         }
       })
       flush()
@@ -516,22 +599,27 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
       if (controller.signal.aborted) {
         assistant.status = 'cancelled'
         assistant.note = 'Stopped'
+        assistant.content = textOf(parts)
         return { ...assistant }
       }
-      assistant.content = prior + text
+      // A continued reply carries on after a paragraph break, like a new round.
+      assistant.content = joinRound(prior, text, Boolean(prior && text))
       if (pause) {
         // Stopped at the cap; after-hooks run once the reply is finished.
         this.paused.set(chat.id, { messageId: assistant.id, pause, turn })
         assistant.toolLimit = true
-        assistant.note = `Paused after ${MAX_TOOL_ROUNDS} rounds of tool calls`
+        assistant.note = `Paused after ${maxRounds} rounds of tool calls`
         assistant.status = 'done'
         return { ...assistant }
       }
       const after = await pluginHost.afterTextGeneration(before.input_text, assistant.content, model)
+      if (after.response_text !== assistant.content) assistant.parts = replaceText(parts, after.response_text)
       assistant.content = after.response_text
       assistant.status = 'done'
     } catch (err) {
       flush()
+      // Streamed tokens have no breaks between rounds; the parts do.
+      if (parts.length) assistant.content = textOf(parts)
       if (controller.signal.aborted) {
         assistant.status = 'cancelled'
         assistant.note = 'Stopped'
@@ -547,6 +635,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
       }
     } finally {
       if (timer) clearTimeout(timer)
+      computer.endTurn(chat.id)
       this.running.delete(chat.id)
       emitUpdate()
       chatStore.save(chat)

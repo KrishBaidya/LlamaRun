@@ -25,6 +25,11 @@ export const DEFAULT_SETTINGS: Settings = {
   autoCompactPercent: 80,
   compactKeepTurns: 4,
   modelContext: {},
+  computerUse: false,
+  computerScreenshots: true,
+  computerMaxSteps: 50,
+  computerAllowedApps: [],
+  computerBlockedApps: [],
   telemetryEnabled: true
 }
 
@@ -53,8 +58,20 @@ class SettingsStore extends EventEmitter<{ changed: [Settings, Partial<Settings>
 
   /** Restores defaults for user-facing preferences; onboarding state, plugin choices and the analytics choice are kept. */
   reset(): Settings {
-    const { isFirstRun, pluginsEnabled, pluginGrants, pluginLinks, skillsDisabled, skillsTrusted, modelContext, telemetryEnabled } = this.all
-    return this.set({ ...DEFAULT_SETTINGS, isFirstRun, pluginsEnabled, pluginGrants, pluginLinks, skillsDisabled, skillsTrusted, modelContext, telemetryEnabled })
+    const { isFirstRun, pluginsEnabled, pluginGrants, pluginLinks, skillsDisabled, skillsTrusted, modelContext, telemetryEnabled, computerAllowedApps, computerBlockedApps } = this.all
+    return this.set({
+      ...DEFAULT_SETTINGS,
+      isFirstRun,
+      pluginsEnabled,
+      pluginGrants,
+      pluginLinks,
+      skillsDisabled,
+      skillsTrusted,
+      modelContext,
+      telemetryEnabled,
+      computerAllowedApps,
+      computerBlockedApps
+    })
   }
 }
 

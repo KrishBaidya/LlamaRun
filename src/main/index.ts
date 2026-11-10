@@ -4,6 +4,7 @@ import { app, dialog } from 'electron'
 import { PROTOCOL } from '@shared/constants'
 import { analytics } from './analytics'
 import { auth, PROFILE_FRESH_MS } from './auth'
+import { closeDriver, warmDriver } from './computer/driver'
 import { registerHotkey } from './hotkey'
 import { applyStartup, registerIpc } from './ipc'
 import { cloudUsage } from './llm/cloud'
@@ -124,8 +125,8 @@ if (!app.requestSingleInstanceLock()) {
     if (shuttingDown) return
     shuttingDown = true
     e.preventDefault()
-    // Give plugins their on_unload and close MCP servers before exiting.
-    void Promise.allSettled([pluginHost.stop(), mcp.stop(), analytics.shutdown()]).finally(() => app.quit())
+    // Give plugins their on_unload, close MCP servers, stop the computer-use driver and flush analytics before exiting.
+    void Promise.allSettled([pluginHost.stop(), mcp.stop(), closeDriver(), analytics.shutdown()]).finally(() => app.quit())
   })
 
   app.whenReady().then(async () => {
@@ -140,6 +141,10 @@ if (!app.requestSingleInstanceLock()) {
     void mcp.start()
     void pluginHost.start()
     void installBundledPlugins()
+    if (settings.get('computerUse')) warmDriver()
+    settings.on('changed', (_all, patch) => {
+      if (patch.computerUse) warmDriver()
+    })
     // Re-read plan usage shortly after cloud replies (and plan/quota refusals).
     cloudUsage.on('changed', () => auth.scheduleRefresh())
     void auth.refreshProfile({ maxAgeMs: PROFILE_FRESH_MS })

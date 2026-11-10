@@ -58,6 +58,32 @@ export function toolSpecs(tools: McpToolInfo[]): ToolSpec[] {
   })
 }
 
+/** Base64 images in a tool result, for models that can see them. */
+export function toolResultImages(result: McpToolResult): string[] {
+  return result.content
+    .map((c) => c as { type?: string; data?: string })
+    .filter((c) => c.type === 'image' && typeof c.data === 'string')
+    .map((c) => c.data as string)
+}
+
+/**
+ * Tool results that a later one replaces (a window's state after the next
+ * action, say). When a new one arrives, the older ones are cut to their
+ * short `superseded` text, so each round's request stays about the same size
+ * instead of growing with every step.
+ */
+export class SupersededResults {
+  private older: (() => void)[] = []
+
+  /** `shorten` puts the short text in place of this result (and drops its images). */
+  add(result: McpToolResult, shorten: (text: string) => void): void {
+    if (result.superseded === undefined) return
+    for (const cut of this.older.splice(0)) cut()
+    const text = result.superseded
+    this.older.push(() => shorten(text))
+  }
+}
+
 /**
  * A tool result as text for the model. Images and other binary content become
  * a short placeholder instead of base64 the model can't use, and long output is
