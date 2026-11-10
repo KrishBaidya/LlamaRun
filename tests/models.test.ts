@@ -189,6 +189,36 @@ describe('cloud model catalog', () => {
     expect(nulls?.groups[0].models[0]).toMatchObject({ id: 'g', description: undefined, contextWindow: undefined, tier: undefined })
   })
 
+  it('keeps the model card, dropping only the parts this build does not understand', () => {
+    const card = {
+      maxOutputTokens: 65_536,
+      inputs: ['text', 'image', 'smell'],
+      outputs: ['text'],
+      thinking: { levels: ['minimal', 'low', 'turbo', 'high'], default: 'low' },
+      features: ['search-grounding', 'teleport'],
+      updated: '2026-09',
+      knowledgeCutoff: '2025-01',
+      deprecated: { on: '2026-12-01', replacement: 'gemini-3.8-flash' }
+    }
+    const parsed = parseCatalog({ groups: [{ provider: 'gemini', label: 'G', models: [model('g', card)] }] })
+    expect(parsed!.groups[0].models[0]).toMatchObject({
+      maxOutputTokens: 65_536,
+      inputs: ['text', 'image'],
+      outputs: ['text'],
+      thinking: { levels: ['minimal', 'low', 'high'], default: 'low' },
+      features: ['search-grounding', 'teleport'],
+      updated: '2026-09',
+      knowledgeCutoff: '2025-01',
+      deprecated: { on: '2026-12-01', replacement: 'gemini-3.8-flash' }
+    })
+    // A broken card field is dropped, not the model; a default outside the levels goes too.
+    const broken = parseCatalog({ groups: [{ provider: 'gemini', label: 'G', models: [model('b', { thinking: 'yes', inputs: 7, deprecated: { when: 'soon' } })] }] })
+    expect(broken!.groups[0].models[0]).toMatchObject({ id: 'b' })
+    expect(broken!.groups[0].models[0].thinking).toBeUndefined()
+    const offLevel = parseCatalog({ groups: [{ provider: 'gemini', label: 'G', models: [model('c', { thinking: { levels: ['low'], default: 'high' } })] }] })
+    expect(offLevel!.groups[0].models[0].thinking).toEqual({ levels: ['low'] })
+  })
+
   it('isCloudModel checks the loaded catalog plus the snapshot without blocking', async () => {
     expect(isCloudModel('gemini-2.5-flash')).toBe(true) // snapshot
     expect(isCloudModel('gemini-9-ultra')).toBe(false)

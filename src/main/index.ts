@@ -12,6 +12,7 @@ import { mcp } from './mcp/manager'
 import { logsDir } from './paths'
 import { installBundledPlugins } from './plugins/bundled'
 import { pluginHost } from './plugins/host'
+import { startRoutines } from './routines/scheduler'
 import { hudHost } from './plugins/ui/hud'
 import { registerPanelScheme } from './plugins/ui/panels'
 import { settings } from './settings'
@@ -141,6 +142,7 @@ if (!app.requestSingleInstanceLock()) {
     void mcp.start()
     void pluginHost.start()
     void installBundledPlugins()
+    startRoutines()
     if (settings.get('computerUse')) warmDriver()
     settings.on('changed', (_all, patch) => {
       if (patch.computerUse) warmDriver()

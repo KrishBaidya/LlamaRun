@@ -15,7 +15,7 @@ vi.mock('electron', () => ({
 }))
 
 const { historyFor } = await import('../src/main/chats/service')
-const { contextWindowFor, estimateTokens, FALLBACK_CONTEXT_TOKENS, OLLAMA_DEFAULT_MAX_CONTEXT } = await import('../src/main/chats/context')
+const { contextWindowFor, estimateParts, estimateTokens, FALLBACK_CONTEXT_TOKENS, OLLAMA_DEFAULT_MAX_CONTEXT } = await import('../src/main/chats/context')
 const { splitForCompaction, transcriptOf, SUMMARY_INTRO } = await import('../src/main/chats/compact')
 const { parseFrontMatter } = await import('../src/main/skills/frontMatter')
 const { resolveSource } = await import('../src/main/skills/source')
@@ -106,6 +106,24 @@ describe('compaction', () => {
     const plain = estimateTokens([{ role: 'user', content: 'x'.repeat(400) }])
     expect(plain).toBe(104)
     expect(estimateTokens([{ role: 'user', content: 'x'.repeat(400), images: [{ data: '', mediaType: 'image/png' }] }])).toBe(plain + 1000)
+  })
+
+  it('splits the estimate into conversation, instructions and tools, counting tools as they are sent', () => {
+    const noisy = {
+      name: 'place_part',
+      server: 'kicad',
+      description: ['  Place a part.', '', '    On the board.  '].join(String.fromCharCode(10)),
+      // Schema noise like titles and $schema is stripped before sending, so it isn't counted.
+      inputSchema: { $schema: 'http://json-schema.org/draft-07/schema#', type: 'object', title: 'PlacePart', properties: { ref: { type: 'string', title: 'Ref' } } }
+    }
+    const parts = estimateParts([{ role: 'user', content: 'x'.repeat(400) }], 'y'.repeat(40), [noisy])
+    expect(parts.conversation).toBe(104)
+    expect(parts.instructions).toBe(10)
+    expect(parts.toolCount).toBe(1)
+    const description = ['Place a part.', 'On the board.'].join(String.fromCharCode(10))
+    const sent = JSON.stringify([{ name: 'place_part', description, parameters: { type: 'object', properties: { ref: { type: 'string' } } } }])
+    expect(parts.tools).toBe(Math.ceil(sent.length / 4))
+    expect(estimateTokens([{ role: 'user', content: 'x'.repeat(400) }], 'y'.repeat(40), [noisy])).toBe(parts.conversation + parts.instructions + parts.tools)
   })
 })
 

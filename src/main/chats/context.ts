@@ -1,5 +1,6 @@
-import type { ContextUsage, McpToolInfo, ModelContextInfo, ModelInfo, Settings } from '@shared/types'
+import type { ContextBreakdown, ContextUsage, McpToolInfo, ModelContextInfo, ModelInfo, Settings } from '@shared/types'
 import type { HistoryMessage } from '../llm'
+import { toolSpecs } from '../llm/toolPayload'
 
 /** A model that reports no context window gets this, and the UI says so. */
 export const FALLBACK_CONTEXT_TOKENS = 8192
@@ -11,12 +12,23 @@ const IMAGE_TOKENS = 1000
 /** About four characters per token across English text and code. */
 export const estimateTextTokens = (text: string): number => Math.ceil(text.length / 4)
 
+/** Where the next request's tokens go. */
+export function estimateParts(history: HistoryMessage[], system?: string, tools: McpToolInfo[] = []): ContextBreakdown {
+  let conversation = 0
+  for (const m of history) conversation += estimateTextTokens(m.content) + 4 + (m.images?.length ?? 0) * IMAGE_TOKENS
+  return {
+    conversation,
+    instructions: estimateTextTokens(system ?? ''),
+    // Measured as sent: the compacted definitions every request carries.
+    tools: tools.length ? estimateTextTokens(JSON.stringify(toolSpecs(tools))) : 0,
+    toolCount: tools.length
+  }
+}
+
 /** Tokens the next request would use: history, instructions and the tool list. */
 export function estimateTokens(history: HistoryMessage[], system?: string, tools: McpToolInfo[] = []): number {
-  let total = estimateTextTokens(system ?? '')
-  for (const m of history) total += estimateTextTokens(m.content) + 4 + (m.images?.length ?? 0) * IMAGE_TOKENS
-  if (tools.length) total += estimateTextTokens(JSON.stringify(tools.map((t) => [t.name, t.description, t.inputSchema])))
-  return total
+  const parts = estimateParts(history, system, tools)
+  return parts.conversation + parts.instructions + parts.tools
 }
 
 /**
@@ -47,6 +59,6 @@ export function clampPercent(value: number): number {
   return Math.min(95, Math.max(50, Math.round(value)))
 }
 
-export function usageOf(info: ModelContextInfo, used: number): ContextUsage {
-  return { ...info, used, percent: Math.min(100, Math.round((used / info.tokens) * 100)) }
+export function usageOf(info: ModelContextInfo, used: number, breakdown?: ContextBreakdown): ContextUsage {
+  return { ...info, used, percent: Math.min(100, Math.round((used / info.tokens) * 100)), ...(breakdown ? { breakdown } : {}) }
 }

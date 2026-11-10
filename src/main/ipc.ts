@@ -2,7 +2,8 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, shell, systemPreferences } from 'electron'
 import type { EventChannel, EventChannels, InvokeChannel, InvokeChannels } from '@shared/ipc'
-import type { Settings } from '@shared/types'
+import type { Settings, ThinkingChoice } from '@shared/types'
+import { THINKING_CHOICES } from '@shared/thinking'
 import { DEFAULT_CLOUD_MODEL } from '@shared/constants'
 import { analytics } from './analytics'
 import { approvals } from './assistant/approval'
@@ -18,6 +19,7 @@ import { configFromDirectoryEntry, isServerConfig } from './mcp/config'
 import { clearDirectoryCache, getDirectoryServer, listDirectory, readmeUrl } from './mcp/directory'
 import { mcp } from './mcp/manager'
 import { memoryStore } from './memory/store'
+import { routineStore } from './routines/store'
 import { pluginDataDir, pluginsDir } from './paths'
 import { pluginHost } from './plugins/host'
 import { inspectPlugin, installPlugin } from './plugins/install'
@@ -118,6 +120,9 @@ export function registerIpc(): void {
       'memoryEnabled',
       'skillsEnabled',
       'allowedCommands',
+      'commandRules',
+      'reviewAfterTasks',
+      'reviewMinToolCalls',
       'autoCompact',
       'autoCompactPercent',
       'compactKeepTurns',
@@ -146,7 +151,10 @@ export function registerIpc(): void {
     analytics.track('model_selected', { scope: 'chat', ...modelProps(String(model)) })
     return chatService.setModel(id, model)
   })
-  handle('chats:send', (e, chatId, text, model, attachments) => {
+  handle('chats:setThinking', (_e, id, thinking) =>
+    chatService.setThinking(String(id), THINKING_CHOICES.includes(thinking as ThinkingChoice) ? (thinking as ThinkingChoice) : undefined)
+  )
+  handle('chats:send', (e, chatId, text, model, attachments, thinking) => {
     const used = model || (chatId ? chatService.get(chatId)?.model : undefined) || settings.get('selectedModel')
     const files = (attachments ?? []) as { kind: string }[]
     analytics.track('message_sent', {
@@ -157,10 +165,13 @@ export function registerIpc(): void {
       slash: /^\s*\//.test(String(text ?? '')),
       ...modelProps(String(used ?? ''))
     })
-    return chatService.send(chatId, text, model, attachments)
+    return chatService.send(chatId, text, model, attachments, THINKING_CHOICES.includes(thinking as ThinkingChoice) ? (thinking as ThinkingChoice) : undefined)
   })
   handle('chats:compact', (_e, id, instructions) => chatService.compact(id, instructions))
   handle('chats:answerApproval', (_e, id, answer) => approvals.answer(id, answer))
+  handle('chats:undoFiles', (_e, chatId, messageId) => chatService.undoFiles(String(chatId), String(messageId)))
+  handle('chats:answerQuestion', (_e, id, text) => approvals.reply(String(id), String(text ?? '')))
+  handle('chats:keepSuggestion', (_e, chatId, messageId, what) => chatService.keepSuggestion(String(chatId), String(messageId), what))
   handle('chats:pendingApproval', (_e, chatId) => approvals.current(chatId))
   handle('chats:contextUsage', (_e, id, model) => chatService.contextUsage(id, model))
   handle('models:context', (_e, models) => Promise.all(models.map((m) => contextFor(m))))
@@ -171,6 +182,9 @@ export function registerIpc(): void {
   handle('attachments:read', (_e, name, mimeType, bytes) => readDocument(String(name), String(mimeType ?? ''), bytes))
 
   handle('memory:list', () => memoryStore.list())
+  handle('routines:list', () => routineStore.list())
+  handle('routines:add', (_e, prompt, when) => (routineStore.add(String(prompt), String(when)), routineStore.list()))
+  handle('routines:act', (_e, id, action) => (routineStore.act(String(id), action), routineStore.list()))
   handle('memory:add', (_e, text) => (analytics.track('memory_changed', { action: 'add', source: 'user' }), memoryStore.add(String(text), 'user'), memoryStore.list()))
   handle('memory:update', (_e, id, text) => (analytics.track('memory_changed', { action: 'update', source: 'user' }), memoryStore.update(id, String(text), 'user'), memoryStore.list()))
   handle('memory:remove', (_e, id) => (analytics.track('memory_changed', { action: 'remove', source: 'user' }), memoryStore.remove(id), memoryStore.list()))
@@ -326,6 +340,7 @@ export function registerIpc(): void {
     win.webContents.on('did-finish-load', () => void injectCss(win).catch(() => {}))
   })
   memoryStore.on('changed', (list) => broadcast('memory:changed', list))
+  routineStore.on('changed', (list) => broadcast('routines:changed', list))
   approvals.on('changed', (chatId, request) => {
     broadcast('chat:event', { type: 'approval', chatId, request })
     // Nobody can answer a question in a chat no window shows: open it.

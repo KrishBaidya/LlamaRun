@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 import { createHashRouter, NavLink, Outlet, RouterProvider, useNavigate } from 'react-router'
-import { Blocks, Boxes, Brain, Home, LogIn, LogOut, MessagesSquare, MousePointerClick, Plug, Sparkles } from 'lucide-react'
+import { AlarmClock, Blocks, Boxes, Brain, Home, LogIn, LogOut, MessagesSquare, MousePointerClick, Plug, Sparkles } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -17,6 +17,7 @@ import { McpPage } from './pages/McpPage'
 import { ModelsPage } from './pages/ModelsPage'
 import { McpServerDetailsPage } from './pages/McpServerDetailsPage'
 import { MemoryPage } from './pages/MemoryPage'
+import { RoutinesPage } from './pages/RoutinesPage'
 import { SkillsPage } from './pages/SkillsPage'
 import { toast } from 'sonner'
 
@@ -25,6 +26,7 @@ const NAV = [
   { to: '/models', label: 'Models', icon: Boxes, end: false },
   { to: '/memory', label: 'Memory', icon: Brain, end: false },
   { to: '/skills', label: 'Skills', icon: Sparkles, end: false },
+  { to: '/routines', label: 'Routines', icon: AlarmClock, end: false },
   { to: '/computer', label: 'Computer use', icon: MousePointerClick, end: false },
   { to: '/plugins', label: 'Plugins', icon: Blocks, end: false },
   { to: '/mcp', label: 'MCP Servers', icon: Plug, end: false }
@@ -134,6 +136,7 @@ const router = createHashRouter([
       { path: 'models', element: <ModelsPage /> },
       { path: 'memory', element: <MemoryPage /> },
       { path: 'skills', element: <SkillsPage /> },
+      { path: 'routines', element: <RoutinesPage /> },
       { path: 'computer', element: <ComputerPage /> },
       { path: 'plugins', element: <PluginsPage /> },
       { path: 'plugins/:id', element: <PluginDetailsPage /> },

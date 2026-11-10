@@ -48,6 +48,14 @@ describe('computer-use turns with Ollama', () => {
     expect(last.map((m) => m.images)).toEqual([undefined, undefined, ['png3']])
   })
 
+  // gemma4 thinks only when asked: Off and On set Ollama's think; no choice leaves its default.
+  it("sends Ollama's think only when a thinking choice is set", async () => {
+    await generateOllama('hi', { model: 'gemma4', thinking: 'on' } as never)
+    await generateOllama('hi', { model: 'gemma4', thinking: 'off' } as never)
+    await generateOllama('hi', { model: 'gemma4' } as never)
+    expect(ollama.requests.map((r) => (r as { think?: boolean }).think)).toEqual([true, false, undefined])
+  })
+
   it('keeps screenshots away from models that cannot see', async () => {
     await generateOllama('open notepad', { model: 'llama3', tools } as never)
     const toolMessages = ollama.requests.at(-1)!.messages.filter((m) => m.role === 'tool')

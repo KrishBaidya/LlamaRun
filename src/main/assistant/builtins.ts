@@ -2,16 +2,21 @@ import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { delimiter, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { nativeImage, type NativeImage } from 'electron'
-import type { McpToolInfo } from '@shared/types'
+import type { CommandRule, McpToolInfo, MemoryKind } from '@shared/types'
 import { analytics } from '../analytics'
 import { documentText } from '../attachments/read'
+import { formatHits, readChat, searchChats } from '../chats/search'
+import { describeRoutine, routineStore } from '../routines/store'
+import { MAX_TOOL_RESULT_CHARS } from '../llm/toolPayload'
 import { renderHtml } from './render'
 import type { McpToolResult } from '../mcp/manager'
-import { memoryStore } from '../memory/store'
+import { kindOf, MEMORY_BUDGET, memoryStore } from '../memory/store'
 import { pythonExecutable, userDataPath } from '../paths'
 import { settings } from '../settings'
 import { cut, skillsDir, skillStore, skillWorkspace } from '../skills/store'
-import { askApproval } from './approval'
+import { approvals, askApproval } from './approval'
+import { recordChange } from './fileChanges'
+import { decide, proposeRules } from './commandRules'
 
 /**
  * Tools Llama Run itself gives the model, next to the MCP servers' and plugins':
@@ -25,6 +30,10 @@ const SERVER = 'Llama Run'
 const COMMAND_TIMEOUT_MS = 10 * 60_000
 const MAX_OUTPUT_CHARS = 16_000
 const MAX_PAGE_CHARS = 40_000
+/** Lines read_file returns at most per call. */
+const READ_LINES = 2000
+/** Characters of file read_file returns per call: under what the model is shown of a result, so "read on" survives. */
+const READ_PAGE_CHARS = MAX_TOOL_RESULT_CHARS - 1000
 
 const result = (text: string, isError = false): McpToolResult => ({ content: [{ type: 'text', text }], isError })
 
@@ -44,8 +53,11 @@ const tool = (name: string, description: string, properties: Record<string, unkn
 const MEMORY_TOOLS: McpToolInfo[] = [
   tool(
     'memory_save',
-    'Remember a lasting fact about the user (name, job, preferences, projects, people, how they like answers). One short fact per call, starting with "User" or their name, e.g. "User prefers metric units". Use "they" or the name, never a guessed he/she. Not for details of the current task only.',
-    { text: { type: 'string', description: 'The fact, e.g. "Prefers metric units".' } },
+    'Remember something for later chats. kind "user": a lasting fact about the user (name, job, preferences, projects, people, how they like answers), starting with "User" or their name, e.g. "User prefers metric units"; use "they" or the name, never a guessed he/she. kind "note": something you learned that will help later (a fact about their setup, a convention, a fix that worked). One short entry per call, not details of the current task only. Space is limited; when it is full, merge or remove entries first.',
+    {
+      text: { type: 'string', description: 'The fact, e.g. "User prefers metric units".' },
+      kind: { type: 'string', enum: ['user', 'note'], description: 'Default: user if it starts with "User", otherwise note.' }
+    },
     ['text']
   ),
   tool(
@@ -59,6 +71,37 @@ const MEMORY_TOOLS: McpToolInfo[] = [
     'Delete a saved memory (the user asked you to forget it, or it is no longer true). Use its id from the memory list.',
     { id: { type: 'string' } },
     ['id']
+  )
+]
+
+/** Writing skills, like Hermes' skill_manage: a procedure that worked is kept and improved instead of worked out again. */
+const SKILL_WRITE_TOOLS: McpToolInfo[] = [
+  tool(
+    'skill_create',
+    "Save a procedure as a skill, so later chats load it instead of working it out again. The description says when to use it (it decides when the skill is loaded); the body is the instructions in Markdown: the steps, pitfalls you hit, and how to check the result. Saved in the shared skills folder.",
+    {
+      name: { type: 'string', description: 'Short name, e.g. "lab-report-pdf".' },
+      description: { type: 'string', description: 'One line: what it does and when to use it.' },
+      body: { type: 'string', description: 'The instructions, in Markdown.' }
+    },
+    ['name', 'description', 'body']
+  ),
+  tool(
+    'skill_edit',
+    "Improve a skill Llama Run made: replace old_string in its SKILL.md with new_string (exact, once unless replace_all). Installed and Claude Code skills can't be changed.",
+    {
+      skill: { type: 'string' },
+      old_string: { type: 'string' },
+      new_string: { type: 'string' },
+      replace_all: { type: 'boolean' }
+    },
+    ['skill', 'old_string', 'new_string']
+  ),
+  tool(
+    'skill_write_file',
+    'Add or replace a file in a skill Llama Run made, e.g. scripts/make_report.py or templates/report.html.',
+    { skill: { type: 'string' }, path: { type: 'string', description: 'Relative to the skill folder.' }, content: { type: 'string' } },
+    ['skill', 'path', 'content']
   )
 ]
 
@@ -106,15 +149,30 @@ const SHELL_TOOLS: McpToolInfo[] = [
 const FILE_TOOLS: McpToolInfo[] = [
   tool(
     'read_file',
-    'Read a file: text, code, PDF and Word files as text; images (PNG, JPEG, GIF, WebP, BMP) as the image itself, for models that can see. Relative paths are in the skill workspace folder.',
-    { path: { type: 'string', description: 'Absolute, or relative to the skill workspace folder.' } },
+    'Read a file: text and code with numbered lines ("12| …"; the numbers are not part of the file), PDF and Word files as text, images (PNG, JPEG, GIF, WebP, BMP) as the image itself for models that can see. Long files come in pages: pass offset to read on. Relative paths are in the skill workspace folder.',
+    {
+      path: { type: 'string', description: 'Absolute, or relative to the skill workspace folder.' },
+      offset: { type: 'integer', description: 'First line to read (1-based). Default 1.' },
+      limit: { type: 'integer', description: `Most lines to read. Default ${READ_LINES}.` }
+    },
     ['path']
   ),
   tool(
     'write_file',
-    'Write a text file (a script, data, a page…), creating its folder; an existing file is replaced. Relative paths are in the skill workspace folder.',
+    'Write a text file (a script, data, a page…), creating its folder; an existing file is replaced. To change part of a file, use edit_file. Relative paths are in the skill workspace folder.',
     { path: { type: 'string', description: 'Absolute, or relative to the skill workspace folder.' }, content: { type: 'string' } },
     ['path', 'content']
+  ),
+  tool(
+    'edit_file',
+    'Change part of a text file: replace old_string, which must appear exactly once (or set replace_all), with new_string. Returns the changed lines.',
+    {
+      path: { type: 'string', description: 'Absolute, or relative to the skill workspace folder.' },
+      old_string: { type: 'string', description: "The exact text to replace, as it is in the file (without read_file's line numbers)." },
+      new_string: { type: 'string' },
+      replace_all: { type: 'boolean', description: 'Replace every occurrence. Default false.' }
+    },
+    ['path', 'old_string', 'new_string']
   ),
   tool(
     'render_html',
@@ -126,6 +184,68 @@ const FILE_TOOLS: McpToolInfo[] = [
       width: { type: 'integer', description: 'PNG only: page width in pixels (default 1200).' }
     },
     ['output']
+  )
+]
+
+/** Working with the user on a longer task: a visible plan (Hermes' todo, OpenCode's todowrite) and questions with choices. */
+const TASK_TOOLS: McpToolInfo[] = [
+  tool(
+    'todo_update',
+    'Show the user a to-do list for a task with several steps, and keep it current: send the whole list each time, each item with its status.',
+    {
+      items: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: { text: { type: 'string' }, status: { type: 'string', enum: ['pending', 'in_progress', 'done'] } },
+          required: ['text', 'status']
+        }
+      }
+    },
+    ['items']
+  ),
+  tool(
+    'ask_user',
+    'Ask the user a question and wait for the answer: they pick one of the options (or type their own when other is true). For a choice only they can make.',
+    {
+      question: { type: 'string' },
+      options: { type: 'array', items: { type: 'string' }, description: '2 to 6 short choices.' },
+      other: { type: 'boolean', description: 'Let them type an answer of their own. Default true.' }
+    },
+    ['question', 'options']
+  )
+]
+
+/** Scheduled prompts, like Hermes' cron and OpenCode's /schedule. */
+const ROUTINE_TOOLS: McpToolInfo[] = [
+  tool(
+    'routine_create',
+    "Schedule a prompt to run by itself, in its own chat, while Llama Run is open (it stays in the tray); the result shows as a notification. when: \"in 30m\", \"every 2h\", \"daily 9:00\", \"weekdays at 9am\", \"every monday 18:30\", \"2026-11-20 08:00\" or a cron expression. Runs can't ask for approval: commands the user hasn't allowed with a rule are skipped, and computer use is off.",
+    { prompt: { type: 'string', description: 'What to do each time, written as the user would ask it.' }, when: { type: 'string' } },
+    ['prompt', 'when']
+  ),
+  tool('routine_list', "List the user's routines: what, when, and how the last run went.", {}, []),
+  tool(
+    'routine_update',
+    'Pause, resume, remove or run now one of the routines.',
+    { id: { type: 'string' }, action: { type: 'string', enum: ['pause', 'resume', 'remove', 'run'] } },
+    ['id', 'action']
+  )
+]
+
+/** Past chats, like Hermes' session_search: how a task went before, without asking the user again. */
+const CHAT_TOOLS: McpToolInfo[] = [
+  tool(
+    'chat_search',
+    "Search the user's earlier chats in Llama Run for words or a phrase: what was asked, said and done before. Returns the best-matching message of each chat.",
+    { query: { type: 'string' }, limit: { type: 'integer', description: 'Most chats to return (default 8).' } },
+    ['query']
+  ),
+  tool(
+    'chat_read',
+    'Read messages of an earlier chat found with chat_search, around a message number.',
+    { chat: { type: 'string', description: 'The chat id from chat_search.' }, around: { type: 'integer', description: 'Message number to center on.' } },
+    ['chat']
   )
 ]
 
@@ -141,18 +261,22 @@ export interface BuiltinOptions {
   shell?: boolean
   /** The user asked to install a skill: say where skills go. */
   install?: boolean
+  /** A routine's run: it can't schedule more routines. */
+  routine?: boolean
 }
 
 export function builtinTools(options: BuiltinOptions = {}): McpToolInfo[] {
   return [
     ...(memoryOn() ? MEMORY_TOOLS : []),
     ...(skillsOn() && skillStore.active().length ? SKILL_TOOLS : []),
-    ...(options.shell ? [...SHELL_TOOLS, ...FILE_TOOLS] : []),
+    ...(skillsOn() && options.shell ? SKILL_WRITE_TOOLS : []),
+    ...(options.shell ? [...SHELL_TOOLS, ...FILE_TOOLS, ...CHAT_TOOLS, ...TASK_TOOLS] : []),
+    ...(options.shell && !options.routine ? ROUTINE_TOOLS : []),
     ...(skillsOn() && options.shell ? INSTALL_TOOLS : [])
   ]
 }
 
-const NAMES = new Set([...MEMORY_TOOLS, ...SKILL_TOOLS, ...SHELL_TOOLS, ...FILE_TOOLS, ...INSTALL_TOOLS].map((t) => t.name))
+const NAMES = new Set([...MEMORY_TOOLS, ...SKILL_TOOLS, ...SKILL_WRITE_TOOLS, ...SHELL_TOOLS, ...FILE_TOOLS, ...CHAT_TOOLS, ...TASK_TOOLS, ...ROUTINE_TOOLS, ...INSTALL_TOOLS].map((t) => t.name))
 
 export function isBuiltinTool(name: string): boolean {
   return NAMES.has(name)
@@ -229,11 +353,27 @@ async function approveFile(path: string, write: boolean, chatId: string | undefi
   if (answer === 'always' && chatId) allowedFolders.set(chatId, new Set([...(allowed ?? []), dirname(path)]))
 }
 
-async function readFile(pathArg: string, chatId?: string): Promise<McpToolResult> {
+/** Reads already returned in a reply (path, range -> the file's state then), so an unchanged repeat costs a line, not the file again. */
+const recentReads = new Map<string, Map<string, string>>()
+
+async function readFile(pathArg: string, context: ToolContext, offsetArg?: unknown, limitArg?: unknown): Promise<McpToolResult> {
   const path = resolve(skillWorkspace(), pathArg.trim())
   if (!existsSync(path) || !statSync(path).isFile()) throw new Error(`${path} does not exist`)
-  if (statSync(path).size > MAX_FILE_BYTES) throw new Error(`${path} is larger than ${MAX_FILE_BYTES / 1024 / 1024} MB`)
-  await approveFile(path, false, chatId)
+  const stat = statSync(path)
+  if (stat.size > MAX_FILE_BYTES) throw new Error(`${path} is larger than ${MAX_FILE_BYTES / 1024 / 1024} MB`)
+  await approveFile(path, false, context.chatId)
+  const offset = Math.max(1, Math.floor(Number(offsetArg) || 1))
+  const limit = Math.max(1, Math.min(READ_LINES, Math.floor(Number(limitArg) || READ_LINES)))
+  const key = `${path}\u0000${offset}\u0000${limit}`
+  const state = `${stat.mtimeMs}:${stat.size}`
+  let reads = context.messageId ? recentReads.get(context.messageId) : undefined
+  if (context.messageId && !reads) {
+    recentReads.set(context.messageId, (reads = new Map()))
+    // Only replies still running need theirs.
+    if (recentReads.size > 20) recentReads.delete(recentReads.keys().next().value!)
+  }
+  if (reads?.get(key) === state) return result(`${path} is unchanged since you read it earlier in this reply.`)
+  reads?.set(key, state)
   const bytes = readFileSync(path)
   const type = IMAGE_TYPES[extname(path).toLowerCase()]
   if (type) {
@@ -242,7 +382,55 @@ async function readFile(pathArg: string, chatId?: string): Promise<McpToolResult
     return imageResult(`${path}: image`, image, type === 'image/jpeg')
   }
   const { text, pages } = await documentText(path, '', bytes)
-  return result(cut(`${path}${pages ? ` (${pages} pages)` : ''}\n${text}`, MAX_PAGE_CHARS))
+  return result(numbered(pages ? `${path} (${pages} pages)` : path, text, offset, limit))
+}
+
+/**
+ * Lines offset..offset+limit-1 numbered, cut on a line boundary to fit what the
+ * model is shown of a tool result (MAX_TOOL_RESULT_CHARS), saying where to read on.
+ */
+export function numbered(path: string, text: string, offset: number, limit: number): string {
+  const lines = text.split('\n')
+  if (offset > lines.length) return `${path} has ${lines.length} lines; offset ${offset} is past the end.`
+  const out: string[] = []
+  let size = 0
+  let last = offset - 1
+  for (let i = offset - 1; i < Math.min(lines.length, offset - 1 + limit); i++) {
+    const line = `${i + 1}| ${lines[i]}`
+    if (size + line.length > READ_PAGE_CHARS && out.length) break
+    out.push(line)
+    size += line.length + 1
+    last = i + 1
+  }
+  const more = last < lines.length ? `\n…more: read on with offset ${last + 1}.` : ''
+  const range = offset > 1 || more ? ` (lines ${offset}-${last} of ${lines.length})` : ''
+  return `${path}${range}\n${out.join('\n')}${more}`
+}
+
+async function editFile(args: Record<string, unknown>, context: ToolContext): Promise<McpToolResult> {
+  const path = resolve(skillWorkspace(), str(args, 'path').trim())
+  if (!existsSync(path) || !statSync(path).isFile()) throw new Error(`${path} does not exist`)
+  let from = typeof args.old_string === 'string' ? args.old_string : ''
+  let to = typeof args.new_string === 'string' ? args.new_string : ''
+  if (!from) throw new Error('old_string is empty; use write_file for a new file')
+  const text = readFileSync(path, 'utf8')
+  // Models write \n; Windows files often have \r\n.
+  if (!text.includes(from) && text.includes('\r\n') && text.includes(from.replace(/\r?\n/g, '\r\n'))) {
+    from = from.replace(/\r?\n/g, '\r\n')
+    to = to.replace(/\r?\n/g, '\r\n')
+  }
+  const count = text.split(from).length - 1
+  if (!count) throw new Error(`old_string is not in ${path}. Read the file again and copy the text exactly.`)
+  if (count > 1 && args.replace_all !== true) throw new Error(`old_string appears ${count} times in ${path}. Add surrounding text to make it unique, or set replace_all.`)
+  await approveFile(path, true, context.chatId)
+  const at = text.indexOf(from)
+  const edited = args.replace_all === true ? text.split(from).join(to) : text.slice(0, at) + to + text.slice(at + from.length)
+  recordChange(context.chatId, context.messageId, path)
+  writeFileSync(path, edited, 'utf8')
+  // The first change with a few lines either side, so the model sees it landed without reading the file again.
+  const first = edited.slice(0, at).split('\n').length
+  const changed = to.split('\n').length
+  return result(`Edited ${path} (${count > 1 ? `${count} replacements` : '1 replacement'}).\n${numbered(path, edited.replace(/\r\n/g, '\n'), Math.max(1, first - 3), changed + 6).split('\n').slice(1).join('\n')}`)
 }
 
 /** An image for the model, scaled down to IMAGE_EDGE, after a line saying what it is. */
@@ -255,7 +443,8 @@ function imageResult(label: string, image: NativeImage, jpeg = false): McpToolRe
   return { content: [{ type: 'text', text: `${label}, ${width}×${height} px${size}` }, { type: 'image', data, mimeType: jpeg ? 'image/jpeg' : 'image/png' }], isError: false }
 }
 
-async function render(args: Record<string, unknown>, chatId?: string): Promise<McpToolResult> {
+async function render(args: Record<string, unknown>, context: ToolContext): Promise<McpToolResult> {
+  const chatId = context.chatId
   const output = resolve(skillWorkspace(), str(args, 'output').trim())
   const kind = extname(output).toLowerCase() === '.png' ? 'png' : extname(output).toLowerCase() === '.pdf' ? 'pdf' : null
   if (!kind) throw new Error('output must end in .pdf or .png')
@@ -271,6 +460,7 @@ async function render(args: Record<string, unknown>, chatId?: string): Promise<M
   const width = typeof args.width === 'number' && args.width >= 200 && args.width <= 4000 ? Math.round(args.width) : undefined
   const out = await renderHtml({ html, file, base: skillWorkspace(), folders: [skillWorkspace(), userDataPath('Attachments')] }, kind, width)
   mkdirSync(dirname(output), { recursive: true })
+  recordChange(context.chatId, context.messageId, output)
   if (out.kind === 'pdf') {
     writeFileSync(output, out.bytes)
     return result(`Saved a ${out.pages}-page PDF to ${output}`)
@@ -279,12 +469,33 @@ async function render(args: Record<string, unknown>, chatId?: string): Promise<M
   return imageResult(`Saved ${output}${out.cut ? ' (cut at 10000 px tall)' : ''}`, out.image)
 }
 
-async function writeFile(pathArg: string, content: string, chatId?: string): Promise<McpToolResult> {
+async function writeFile(pathArg: string, content: string, context: ToolContext): Promise<McpToolResult> {
   const path = resolve(skillWorkspace(), pathArg.trim())
-  await approveFile(path, true, chatId)
+  await approveFile(path, true, context.chatId)
   mkdirSync(dirname(path), { recursive: true })
+  recordChange(context.chatId, context.messageId, path)
   writeFileSync(path, content, 'utf8')
   return result(`Wrote ${Buffer.byteLength(content, 'utf8')} bytes to ${path}`)
+}
+
+/** Command patterns allowed for the rest of a chat ("Allow for this chat"). */
+const chatRules = new Map<string, string[]>()
+
+/** The user's command rules, with the old exact-command list moved in on first use. */
+export function commandRules(): CommandRule[] {
+  const rules = settings.get('commandRules') ?? []
+  const legacy = settings.get('allowedCommands') ?? []
+  if (!legacy.length) return rules
+  const moved = [...rules, ...legacy.filter((c) => !rules.some((r) => r.pattern === c)).map((pattern) => ({ pattern, effect: 'allow' as const }))]
+  settings.set({ commandRules: moved, allowedCommands: [] })
+  return moved
+}
+
+/** The environment commands and scripts run in: "python" and "pip" are the bundled Python, output is UTF-8. */
+export function commandEnv(): NodeJS.ProcessEnv {
+  const python = dirname(pythonExecutable())
+  const path = [python, join(python, 'Scripts'), process.env.PATH ?? process.env.Path ?? ''].join(delimiter)
+  return { ...process.env, PATH: path, Path: path, PYTHONIOENCODING: 'utf-8', GIT_TERMINAL_PROMPT: '0' }
 }
 
 async function runCommand(command: string, cwdArg?: string, chatId?: string): Promise<string> {
@@ -292,29 +503,30 @@ async function runCommand(command: string, cwdArg?: string, chatId?: string): Pr
   mkdirSync(skillsDir(), { recursive: true })
   mkdirSync(skillWorkspace(), { recursive: true })
   if (!existsSync(cwd)) throw new Error(`${cwd} does not exist`)
-  const allowed = settings.get('allowedCommands') ?? []
-  if (!allowed.includes(command)) {
+  const rules = commandRules()
+  const decision = decide(command, rules, chatId ? (chatRules.get(chatId) ?? []) : [])
+  if (decision.effect === 'deny') throw new Error(`Not run: the user's rule "${decision.rule}" blocks it. Ask them how to continue.`)
+  if (decision.effect === 'ask') {
+    // What "always" and "this chat" would allow from now on: the program (and subcommand), like "python *".
+    const proposed = proposeRules(command, rules)
+    const scope = proposed.length ? proposed.join(', ') : command
     const answer = await askApproval(chatId, {
       title: 'Run this command on your computer?',
       command,
-      detail: `In ${cwd}`,
-      alwaysLabel: 'Always allow this command'
+      detail: decision.hardline ? `In ${cwd}. It ${decision.hardline}, so it always asks.` : `In ${cwd}`,
+      alwaysLabel: decision.hardline || !proposed.length ? '' : `Always allow ${scope}`,
+      ...(decision.hardline ? {} : { chatLabel: 'Allow for this chat' })
     })
     if (answer === 'deny') throw new Error('The user denied this command. Ask them how to continue.')
-    if (answer === 'always') settings.set({ allowedCommands: [...allowed, command] })
+    if (answer === 'always' && proposed.length) settings.set({ commandRules: [...rules, ...proposed.map((pattern) => ({ pattern, effect: 'allow' as const }))] })
+    if (answer === 'chat' && chatId) chatRules.set(chatId, [...(chatRules.get(chatId) ?? []), ...(proposed.length ? proposed : [command])])
   }
-  const python = dirname(pythonExecutable())
-  const path = [python, join(python, 'Scripts'), process.env.PATH ?? process.env.Path ?? ''].join(delimiter)
   const [shell, args] =
     process.platform === 'win32'
       ? ['powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command]]
       : ['/bin/sh', ['-c', command]]
   return new Promise((done, fail) => {
-    const proc = spawn(shell, args, {
-      cwd,
-      windowsHide: true,
-      env: { ...process.env, PATH: path, Path: path, PYTHONIOENCODING: 'utf-8', GIT_TERMINAL_PROMPT: '0' }
-    })
+    const proc = spawn(shell, args, { cwd, windowsHide: true, env: commandEnv() })
     let out = ''
     let timedOut = false
     const timer = setTimeout(() => {
@@ -339,6 +551,8 @@ async function runCommand(command: string, cwdArg?: string, chatId?: string): Pr
 /** The chat a tool call comes from, so questions to the user appear in it. */
 export interface ToolContext {
   chatId?: string
+  /** The reply the call belongs to. */
+  messageId?: string
 }
 
 export async function callBuiltinTool(name: string, args: Record<string, unknown>, context: ToolContext = {}): Promise<McpToolResult> {
@@ -347,7 +561,8 @@ export async function callBuiltinTool(name: string, args: Record<string, unknown
   try {
     switch (name) {
       case 'memory_save': {
-        const item = memoryStore.add(str(args, 'text'), 'model')
+        const kind = args.kind === 'user' || args.kind === 'note' ? args.kind : undefined
+        const item = memoryStore.add(str(args, 'text'), 'model', kind)
         return result(`Saved memory ${item.id}: ${item.text}`)
       }
       case 'memory_update': {
@@ -365,14 +580,55 @@ export async function callBuiltinTool(name: string, args: Record<string, unknown
         const stdin = typeof args.stdin === 'string' ? args.stdin : undefined
         return result(await skillStore.runScript(str(args, 'skill'), str(args, 'script'), list, stdin, context.chatId))
       }
+      case 'routine_create': {
+        const routine = routineStore.add(str(args, 'prompt'), str(args, 'when'))
+        return result(`Scheduled ${describeRoutine(routine)}.`)
+      }
+      case 'routine_list': {
+        const list = routineStore.list()
+        return result(list.length ? list.map(describeRoutine).join('\n') : 'No routines yet.')
+      }
+      case 'routine_update': {
+        const action = String(args.action)
+        if (!['pause', 'resume', 'remove', 'run'].includes(action)) throw new Error('action is pause, resume, remove or run')
+        return result(routineStore.act(str(args, 'id'), action as 'pause' | 'resume' | 'remove' | 'run'))
+      }
+      case 'todo_update': {
+        // The list itself is drawn from this call's arguments in the chat; the model just needs to know it landed.
+        const items = Array.isArray(args.items) ? (args.items as { status?: string }[]) : []
+        return result(`To-do list updated: ${items.filter((i) => i.status === 'done').length} of ${items.length} done.`)
+      }
+      case 'ask_user': {
+        if (!context.chatId) throw new Error('There is no chat to ask in')
+        const options = (Array.isArray(args.options) ? args.options.map(String) : []).filter((o) => o.trim()).slice(0, 6)
+        const answer = await approvals.question(context.chatId, str(args, 'question'), options, args.other !== false)
+        return result(answer === null ? 'The user dismissed the question without answering.' : `The user answered: ${answer}`)
+      }
+      case 'chat_search': {
+        const query = str(args, 'query')
+        const limit = Math.max(1, Math.min(20, Math.floor(Number(args.limit) || 8)))
+        return result(formatHits(query, searchChats(query, { exclude: context.chatId, limit })))
+      }
+      case 'chat_read':
+        return result(readChat(str(args, 'chat'), typeof args.around === 'number' ? args.around : undefined))
+      case 'skill_create': {
+        const skill = skillStore.create(str(args, 'name'), str(args, 'description'), str(args, 'body'))
+        return result(`Saved the skill ${skill.name} in ${skill.folder}. Later chats see it in their skill list.`)
+      }
+      case 'skill_edit':
+        return result(skillStore.edit(str(args, 'skill'), str(args, 'old_string'), typeof args.new_string === 'string' ? args.new_string : '', args.replace_all === true))
+      case 'skill_write_file':
+        return result(skillStore.writeSkillFile(str(args, 'skill'), str(args, 'path'), typeof args.content === 'string' ? args.content : ''))
       case 'web_fetch':
         return result(await webFetch(str(args, 'url')))
       case 'read_file':
-        return await readFile(str(args, 'path'), context.chatId)
+        return await readFile(str(args, 'path'), context, args.offset, args.limit)
       case 'write_file':
-        return await writeFile(str(args, 'path'), typeof args.content === 'string' ? args.content : '', context.chatId)
+        return await writeFile(str(args, 'path'), typeof args.content === 'string' ? args.content : '', context)
+      case 'edit_file':
+        return await editFile(args, context)
       case 'render_html':
-        return await render(args, context.chatId)
+        return await render(args, context)
       case 'run_command':
         return result(await runCommand(str(args, 'command'), typeof args.cwd === 'string' ? args.cwd : undefined, context.chatId))
       case 'skills_refresh': {
@@ -409,14 +665,17 @@ export function builtinInstructions(options: BuiltinOptions = {}): string {
   ]
   if (memoryOn()) {
     const items = memoryStore.list()
+    // Each kind with how full it is, so the model knows when to merge before saving more.
+    const group = (kind: MemoryKind, title: string): string => {
+      const of = items.filter((m) => kindOf(m) === kind)
+      return of.length ? `${title} (${memoryStore.used(kind)} of ${MEMORY_BUDGET[kind]} characters; id: entry):\n${of.map((m) => `- ${m.id}: ${m.text}`).join('\n')}` : ''
+    }
     parts.push(
       [
         '## Memory',
-        'You remember things about the user between chats. Use them when they help, without announcing it.',
+        'You remember things between chats. Use them when they help, without announcing it.',
         'When the user tells you something lasting about themselves, or asks you to remember something, save it with memory_save. Fix outdated memories with memory_update and delete them with memory_forget when asked. Never save passwords, keys or other secrets.',
-        items.length
-          ? `What you remember (id: fact):\n${items.map((m) => `- ${m.id}: ${m.text}`).join('\n')}`
-          : 'You do not remember anything about the user yet.'
+        items.length ? [group('user', 'About the user'), group('note', 'Your notes')].filter(Boolean).join('\n') : 'You do not remember anything yet.'
       ].join('\n')
     )
   }
@@ -432,14 +691,15 @@ export function builtinInstructions(options: BuiltinOptions = {}): string {
         ...skills.filter((s) => s.modelInvocable).map((s) => `- ${s.name}: ${shorten(s.description) || '(no description)'}`)
       )
     }
-    if (options.install) {
-      lines.push(
-        `To install a skill the user links to: read its README with web_fetch and follow the install steps with run_command, so each skill ends up as its own folder with a SKILL.md inside ${skillsDir()}. Then call skills_refresh and tell the user what was installed.`
-      )
-    }
     if (lines.length > 1) parts.push(lines.join('\n'))
   }
+  if (options.install) parts.push(installNote())
   return parts.join('\n\n')
+}
+
+/** For turns that install a skill: where skills go. Kept apart so the rest of the instructions stay the same across turns. */
+export function installNote(): string {
+  return `To install a skill the user links to: read its README with web_fetch and follow the install steps with run_command, so each skill ends up as its own folder with a SKILL.md inside ${skillsDir()}. Then call skills_refresh and tell the user what was installed.`
 }
 
 /** The first message of an "Install with AI" chat. */

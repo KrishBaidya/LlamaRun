@@ -1,7 +1,7 @@
 import { useEffect, useState, type DragEvent } from 'react'
 import { AlertTriangle, Bot, Download, FileArchive, FolderOpen, Loader2, ShieldCheck, Sparkles, Trash2, Wand2 } from 'lucide-react'
 import { toast } from 'sonner'
-import type { SkillInfo } from '@shared/types'
+import type { CommandRule, SkillInfo } from '@shared/types'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -15,6 +15,48 @@ const EXAMPLES: [string, string][] = [
   ['anthropics/skills', "Anthropic's example skills"],
   ['https://github.com/anthropics/skills/tree/main/skills/pdf', 'Just the PDF skill']
 ]
+
+/** The user's command rules: what runs without asking and what never runs. "Always allow" on a command card adds to it. */
+function CommandRules({ rules, onChange }: { rules: CommandRule[]; onChange: (rules: CommandRule[]) => void }) {
+  const [pattern, setPattern] = useState('')
+  const add = (effect: CommandRule['effect']): void => {
+    const p = pattern.trim()
+    if (!p) return
+    onChange([...rules.filter((r) => r.pattern !== p), { pattern: p, effect }])
+    setPattern('')
+  }
+  return (
+    <Card className="gap-3">
+      <CardHeader>
+        <CardTitle className="text-sm">Commands</CardTitle>
+        <CardDescription className="text-xs">
+          Commands matching an Allow rule run without asking; Block rules never run. <code>*</code> matches anything, and <code>python *</code> covers every python
+          command. Formatting drives, shutting down and deleting whole drives always ask.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-2">
+        {rules.map((r) => (
+          <div key={r.pattern} className="flex items-center gap-2 text-sm">
+            <Badge variant={r.effect === 'allow' ? 'secondary' : 'destructive'}>{r.effect === 'allow' ? 'Allow' : 'Block'}</Badge>
+            <code className="min-w-0 flex-1 truncate">{r.pattern}</code>
+            <Button variant="ghost" size="icon-sm" title="Remove" onClick={() => onChange(rules.filter((x) => x.pattern !== r.pattern))}>
+              <Trash2 className="size-3.5" />
+            </Button>
+          </div>
+        ))}
+        <div className="flex gap-2">
+          <Input value={pattern} placeholder="e.g. python * or git push *" onChange={(e) => setPattern(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add('allow')} />
+          <Button variant="outline" size="sm" onClick={() => add('allow')}>
+            Allow
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => add('deny')}>
+            Block
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
 
 function SkillCard({ skill }: { skill: SkillInfo }) {
   return (
@@ -211,18 +253,17 @@ export function SkillsPage() {
           <SettingRow title="Use skills" description="Offer installed skills to your models. When one fits your request, the model loads it and can run its scripts (you're asked first).">
             <Switch checked={on} onCheckedChange={(v) => void update({ skillsEnabled: v })} />
           </SettingRow>
-          {(settings?.allowedCommands?.length ?? 0) > 0 && (
-            <SettingRow
-              title="Always-allowed commands"
-              description={settings!.allowedCommands.slice(0, 3).join(' · ') + (settings!.allowedCommands.length > 3 ? ' …' : '')}
-            >
-              <Button variant="outline" size="sm" onClick={() => void update({ allowedCommands: [] })}>
-                Ask again for all
-              </Button>
-            </SettingRow>
-          )}
+          <SettingRow
+            title="Suggest what to keep after long tasks"
+            description={`After a reply with ${settings?.reviewMinToolCalls ?? 6} or more tool calls, a quick model proposes a skill or memories under it. Nothing is saved unless you click.`}
+          >
+            <Switch checked={settings?.reviewAfterTasks !== false} onCheckedChange={(v) => void update({ reviewAfterTasks: v })} />
+          </SettingRow>
         </CardContent>
       </Card>
+
+      <CommandRules rules={settings?.commandRules ?? []} onChange={(commandRules) => void update({ commandRules })} />
+
 
       {skills && !skills.length ? (
         <EmptyState icon={<Bot />} title="No skills yet">

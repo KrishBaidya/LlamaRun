@@ -1,6 +1,6 @@
 import { Fragment, memo, useEffect, useRef, useState } from 'react'
-import { AlertCircle, Blocks, Bot, Brain, Check, ChevronDown, Copy, FoldVertical, Loader2, Mic, Play, RotateCcw, ShieldQuestion, Sparkles, Wand2, Wrench } from 'lucide-react'
-import type { ApprovalRequest, ChatCompaction, ChatMessage, ToolPart } from '@shared/types'
+import { AlertCircle, Blocks, Bot, Brain, Check, ChevronDown, Copy, FoldVertical, Loader2, MessageCircleQuestion, Mic, Play, RotateCcw, ShieldQuestion, Sparkles, Wand2, Wrench } from 'lucide-react'
+import type { ApprovalAnswer, ApprovalRequest, ChatCompaction, ChatMessage, ToolPart } from '@shared/types'
 import { Markdown } from '@/components/markdown'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -219,12 +219,14 @@ function ToolCard({ part }: { part: ToolPart }) {
 }
 
 const AssistantMessage = memo(function AssistantMessage({
+  chatId,
   message,
   isLast,
   busy,
   onRetry,
   onContinue
 }: {
+  chatId?: string
   message: ChatMessage
   isLast: boolean
   busy?: boolean
@@ -235,6 +237,7 @@ const AssistantMessage = memo(function AssistantMessage({
   const streaming = message.status === 'streaming'
   // Replies with parts show text and tool calls in the order they happened; older ones keep the chip row.
   const parts = message.parts?.length ? message.parts : null
+  const lastTodo = parts?.filter((p): p is ToolPart => p.type === 'tool' && p.name === 'todo_update').at(-1)?.id
   return (
     <div className="group flex flex-col gap-2">
       {!parts && message.tools?.length ? (
@@ -261,7 +264,18 @@ const AssistantMessage = memo(function AssistantMessage({
       {parts ? (
         <>
           {parts.map((p, i) =>
-            p.type === 'tool' ? <ToolCard key={p.id} part={p} /> : p.type === 'thinking' ? <ThinkingNote key={i} text={p.text} /> : p.text.trim() ? <Markdown key={i} text={p.text} /> : null
+            p.type === 'tool' ? (
+              p.name === 'todo_update' ? (
+                // Only the latest list is drawn; earlier updates are replaced by it.
+                p.id === lastTodo ? <TodoList key={p.id} part={p} /> : null
+              ) : (
+                <ToolCard key={p.id} part={p} />
+              )
+            ) : p.type === 'thinking' ? (
+              <ThinkingNote key={i} text={p.text} />
+            ) : p.text.trim() ? (
+              <Markdown key={i} text={p.text} />
+            ) : null
           )}
           {streaming && parts[parts.length - 1]?.type === 'tool' && (parts[parts.length - 1] as ToolPart).status !== 'running' && (
             <span className="shimmer-text w-fit text-sm">Thinking…</span>
@@ -280,6 +294,14 @@ const AssistantMessage = memo(function AssistantMessage({
           ))}
         </div>
       ) : null}
+
+      {chatId && message.changedFiles?.length && !streaming ? <ChangedFiles chatId={chatId} message={message} /> : null}
+      {message.undoneFiles ? (
+        <p className="text-xs text-muted-foreground italic">
+          Undid the changes to {message.undoneFiles} file{message.undoneFiles === 1 ? '' : 's'}.
+        </p>
+      ) : null}
+      {chatId && message.suggestions && !streaming && <SuggestionsCard chatId={chatId} message={message} />}
 
       {message.status === 'error' && <ErrorCallout message={message} onRetry={isLast ? onRetry : undefined} />}
       {message.toolLimit && isLast && <ToolLimitCallout message={message} onContinue={busy ? undefined : onContinue} />}
@@ -313,8 +335,142 @@ const AssistantMessage = memo(function AssistantMessage({
 })
 
 /** The model wants to run something on this PC: allow it once, always, or not at all (like Claude Code). */
+/** The user's files a reply changed with its file tools, and the way back. */
+function ChangedFiles({ chatId, message }: { chatId: string; message: ChatMessage }) {
+  const [error, setError] = useState<string | null>(null)
+  const files = message.changedFiles!
+  const name = (p: string): string => p.split(/[\\/]/).pop() ?? p
+  return (
+    <div className="flex flex-col gap-1 text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span title={files.join('\n')}>
+          Changed {files.length === 1 ? name(files[0]) : `${files.length} files`}
+        </span>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-6 px-2 text-xs"
+          title="Put the originals back and remove files this reply created. Changes made by commands or scripts aren't included."
+          onClick={() => api.chats.undoFiles(chatId, message.id).catch((e: unknown) => setError(String(e instanceof Error ? e.message : e)))}
+        >
+          <RotateCcw className="size-3" /> Undo file changes
+        </Button>
+      </div>
+      {error && <p className="text-destructive">{error}</p>}
+    </div>
+  )
+}
+
+/** What the review after a long task proposes keeping. Nothing is kept until the user clicks. */
+function SuggestionsCard({ chatId, message }: { chatId: string; message: ChatMessage }) {
+  const [error, setError] = useState<string | null>(null)
+  const s = message.suggestions!
+  const keep = (what: 'skill' | number | 'dismiss'): void => {
+    setError(null)
+    api.chats.keepSuggestion(chatId, message.id, what).catch((e: unknown) => setError(e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(e)))
+  }
+  return (
+    <div className="flex flex-col gap-2 rounded-xl border border-border/70 bg-card px-3.5 py-3 text-sm">
+      <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+        <Sparkles className="size-3.5" /> Keep for next time?
+      </div>
+      {s.skill && (
+        <div className="flex items-start gap-2">
+          <div className="min-w-0 flex-1">
+            <p className="font-medium">Skill: {s.skill.name}</p>
+            <p className="text-xs text-muted-foreground">{s.skill.description}</p>
+          </div>
+          <Button size="sm" variant="outline" onClick={() => keep('skill')}>
+            Save skill
+          </Button>
+        </div>
+      )}
+      {s.memories?.map((m, i) => (
+        <div key={m.text} className="flex items-start gap-2">
+          <p className="min-w-0 flex-1 text-xs">
+            <span className="text-muted-foreground">{m.kind === 'user' ? 'About you: ' : 'Note: '}</span>
+            {m.text}
+          </p>
+          <Button size="sm" variant="outline" onClick={() => keep(i)}>
+            Remember
+          </Button>
+        </div>
+      ))}
+      {error && <p className="text-xs text-destructive">{error}</p>}
+      <Button size="sm" variant="ghost" className="w-fit" onClick={() => keep('dismiss')}>
+        Dismiss
+      </Button>
+    </div>
+  )
+}
+
+/** The model's to-do list (todo_update): only its latest version is drawn, where it was last updated. */
+function TodoList({ part }: { part: ToolPart }) {
+  const items = (Array.isArray(part.args?.items) ? part.args.items : []) as { text?: string; status?: string }[]
+  if (!items.length) return null
+  return (
+    <div className="flex w-full max-w-full flex-col gap-1 rounded-lg border border-border/70 bg-card px-3 py-2 text-xs">
+      {items.map((item, i) => (
+        <div key={i} className={cn('flex items-start gap-2', item.status === 'done' && 'text-muted-foreground line-through')}>
+          {item.status === 'done' ? (
+            <Check className="mt-0.5 size-3 shrink-0" />
+          ) : item.status === 'in_progress' ? (
+            <Loader2 className="mt-0.5 size-3 shrink-0 animate-spin" />
+          ) : (
+            <span className="mt-0.5 size-3 shrink-0 rounded-full border border-muted-foreground/60" />
+          )}
+          <span className="min-w-0">{item.text}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** The model asks the user to choose (ask_user): an option, an answer of their own, or no answer. */
+function QuestionCard({ request }: { request: ApprovalRequest }) {
+  const [text, setText] = useState('')
+  const reply = (answer: string): void => void api.chats.answerQuestion(request.id, answer)
+  return (
+    <div className="flex flex-col gap-2.5 rounded-xl border border-primary/40 bg-primary/5 px-3.5 py-3 text-sm">
+      <div className="flex items-center gap-2 font-medium">
+        <MessageCircleQuestion className="size-4 text-primary" /> {request.title}
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {(request.options ?? []).map((option) => (
+          <Button key={option} size="sm" variant="outline" onClick={() => reply(option)}>
+            {option}
+          </Button>
+        ))}
+      </div>
+      {request.other && (
+        <form
+          className="flex gap-1.5"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (text.trim()) reply(text.trim())
+          }}
+        >
+          <input
+            className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 text-sm"
+            placeholder="Or type your answer"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+          />
+          <Button size="sm" type="submit" disabled={!text.trim()}>
+            Send
+          </Button>
+        </form>
+      )}
+      <Button size="sm" variant="ghost" className="w-fit" onClick={() => void api.chats.answerApproval(request.id, 'deny')}>
+        Skip
+      </Button>
+    </div>
+  )
+}
+
 function ApprovalCard({ request }: { request: ApprovalRequest }) {
-  const answer = (a: 'once' | 'always' | 'deny'): void => void api.chats.answerApproval(request.id, a)
+  const answer = (a: ApprovalAnswer): void => void api.chats.answerApproval(request.id, a)
+  if (request.kind === 'question') return <QuestionCard request={request} />
   return (
     <div className="flex flex-col gap-2.5 rounded-xl border border-primary/40 bg-primary/5 px-3.5 py-3 text-sm">
       <div className="flex items-center gap-2 font-medium">
@@ -328,9 +484,16 @@ function ApprovalCard({ request }: { request: ApprovalRequest }) {
         <Button size="sm" onClick={() => answer('once')}>
           Allow once
         </Button>
-        <Button size="sm" variant="outline" onClick={() => answer('always')}>
-          {request.alwaysLabel}
-        </Button>
+        {request.chatLabel && (
+          <Button size="sm" variant="outline" onClick={() => answer('chat')}>
+            {request.chatLabel}
+          </Button>
+        )}
+        {request.alwaysLabel && (
+          <Button size="sm" variant="outline" onClick={() => answer('always')}>
+            {request.alwaysLabel}
+          </Button>
+        )}
         <Button size="sm" variant="ghost" onClick={() => answer('deny')}>
           Deny
         </Button>
@@ -372,6 +535,7 @@ function CompactionDivider({ compaction }: { compaction: ChatCompaction }) {
  * right-aligned bubbles, assistant turns as plain full-width markdown.
  */
 export function MessageList({
+  chatId,
   messages,
   busy,
   onRetry,
@@ -382,6 +546,7 @@ export function MessageList({
   compacting,
   approval
 }: {
+  chatId?: string
   messages: ChatMessage[]
   busy: boolean
   onRetry?: () => void
@@ -422,7 +587,7 @@ export function MessageList({
             {m.role === 'user' ? (
               <UserMessage message={m} />
             ) : (
-              <AssistantMessage message={m} isLast={i === messages.length - 1} busy={busy} onRetry={onRetry} onContinue={onContinue} />
+              <AssistantMessage chatId={chatId} message={m} isLast={i === messages.length - 1} busy={busy} onRetry={onRetry} onContinue={onContinue} />
             )}
             {compaction?.throughMessageId === m.id && <CompactionDivider compaction={compaction} />}
           </Fragment>

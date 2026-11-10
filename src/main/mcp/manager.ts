@@ -57,8 +57,14 @@ class McpManager extends EventEmitter<{ changed: [McpServerStatus[]] }> {
     return [...this.connections.values()].map((c) => c.status)
   }
 
+  /**
+   * Every connected server's tools, each name once: when two servers offer the
+   * same name (two copies of one server, say), the first keeps it. Models reject
+   * repeated names, and a call by name could only reach the first anyway.
+   */
   tools(): McpToolInfo[] {
-    return [...this.connections.values()].flatMap((c) => c.tools)
+    const seen = new Set<string>()
+    return [...this.connections.values()].flatMap((c) => c.tools.filter((t) => !seen.has(t.name) && seen.add(t.name)))
   }
 
   /** Connect to every configured server, replacing existing connections. */

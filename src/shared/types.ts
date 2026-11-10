@@ -29,8 +29,14 @@ export interface Settings {
   skillsDisabled: Record<string, boolean>
   /** Skill folder name -> its scripts run without asking. */
   skillsTrusted: Record<string, boolean>
-  /** Shell commands the user chose "Always allow" for (exact text). */
+  /** Old form of commandRules: exact commands the user chose "Always allow" for. Moved into commandRules on first use. */
   allowedCommands: string[]
+  /** Which shell commands run without asking (allow) or never run (deny), like OpenCode's permission rules. */
+  commandRules: CommandRule[]
+  /** After a reply with many tool calls, a cheap model proposes a skill or memories to keep (shown under the reply). */
+  reviewAfterTasks: boolean
+  /** Tool calls a reply needs before it's reviewed. */
+  reviewMinToolCalls: number
   /** Summarise older messages when a chat gets close to the model's context window. */
   autoCompact: boolean
   /** Compact when the conversation fills this share (percent) of the model's window. */
@@ -58,7 +64,18 @@ export interface ModelContextOverride {
   contextTokens?: number
   /** Compact at this percent for this model instead of the default. */
   compactAtPercent?: number
+  /** How hard this model thinks by default (a chat can choose its own). Absent: the model's own default. */
+  thinking?: ThinkingChoice
 }
+
+/** How hard a cloud thinking model thinks, least to most. Each model takes some of these (its card's `thinking.levels`). */
+export type ThinkingLevel = 'minimal' | 'low' | 'medium' | 'high'
+
+/** A thinking setting: a cloud level, or `off`/`on` for local models (Ollama's `think`). */
+export type ThinkingChoice = ThinkingLevel | 'off' | 'on'
+
+/** What a model reads and writes (its model card). */
+export type ModelModality = 'text' | 'image' | 'video' | 'audio' | 'pdf'
 
 /** The context window a model gets, and where the number came from. */
 export interface ModelContextInfo {
@@ -70,10 +87,20 @@ export interface ModelContextInfo {
   compactAtPercent: number
 }
 
+/** Estimated tokens of the next request, by part. */
+export interface ContextBreakdown {
+  conversation: number
+  instructions: number
+  /** Every tool definition sent with each request (built-in, MCP and plugin tools). */
+  tools: number
+  toolCount: number
+}
+
 export interface ContextUsage extends ModelContextInfo {
   /** Estimated tokens the next request would use. */
   used: number
   percent: number
+  breakdown?: ContextBreakdown
 }
 
 /** Older messages of a chat replaced, for the model, by a summary. */
@@ -163,6 +190,12 @@ export interface ChatMessage {
    * Older chats don't have it.
    */
   parts?: MessagePart[]
+  /** After a long task: a skill and memories the review proposes keeping, until the user keeps or dismisses them. */
+  suggestions?: TaskSuggestions
+  /** The user's files this reply changed or created with its file tools (undo can put them back). */
+  changedFiles?: string[]
+  /** How many files "Undo file changes" put back. */
+  undoneFiles?: number
   /** User messages sent by a plugin (e.g. a voice assistant) rather than typed. */
   via?: { plugin: string; voice?: boolean }
   /** Assistant messages: stopped at the tool-round cap and can be continued. */
@@ -189,6 +222,8 @@ export interface Chat {
   compaction?: ChatCompaction
   /** Started by "Install with AI": the model may read web pages and run approved commands. */
   installer?: boolean
+  /** How hard the model thinks in this chat, chosen in the chat box. Absent: the model's default from Model settings. */
+  thinking?: ThinkingChoice
 }
 
 export interface ChatSummary {
@@ -218,7 +253,13 @@ export type ChatEvent =
   /** The model is waiting for the user to allow a command or script (null: answered). */
   | { type: 'approval'; chatId: string; request: ApprovalRequest | null }
 
-export type ApprovalAnswer = 'once' | 'always' | 'deny'
+/** A shell command rule: `pattern` matches a whole command, `*` matching anything; a pattern ending in " *" also matches the command alone. */
+export interface CommandRule {
+  pattern: string
+  effect: 'allow' | 'deny'
+}
+
+export type ApprovalAnswer = 'once' | 'chat' | 'always' | 'deny'
 
 /** "May the model run this?", shown as a card in the chat, like Claude Code's permission prompt. */
 export interface ApprovalRequest {
@@ -228,8 +269,14 @@ export interface ApprovalRequest {
   command: string
   /** Where it runs, and anything else worth knowing. */
   detail: string
-  /** Label of the "always" button, e.g. "Always allow this skill". */
+  /** Label of the "always" button, e.g. "Always allow this skill". Empty: no such button (the request always asks). */
   alwaysLabel: string
+  /** Label of an "allow for the rest of this chat" button, when there is one. */
+  chatLabel?: string
+  /** "question": the model asks the user (title) to pick one of `options`, or to type an answer when `other`. */
+  kind?: 'question'
+  options?: string[]
+  other?: boolean
 }
 
 export interface AppearanceInfo {
@@ -272,6 +319,20 @@ export interface ModelInfo {
   family?: string
   /** Local models: when it was downloaded or last updated (ms). */
   modifiedAt?: number
+  /** Cloud models, from the provider's model card. */
+  maxOutputTokens?: number
+  inputs?: ModelModality[]
+  outputs?: ModelModality[]
+  /** Levels the model takes, least to most, and its own default (absent: the provider decides). */
+  thinking?: { levels: ThinkingLevel[]; default?: ThinkingLevel }
+  /** The provider's supported features, e.g. "search-grounding", "code-execution". */
+  features?: string[]
+  /** Last model update, "YYYY-MM". */
+  updated?: string
+  /** "YYYY-MM". */
+  knowledgeCutoff?: string
+  /** The provider retires or reroutes the model on `on` ("YYYY-MM-DD"), to `replacement` when given. */
+  deprecated?: { on: string; replacement?: string }
 }
 
 export interface ModelGroup {
@@ -315,11 +376,39 @@ export interface UserProfile {
 }
 
 /** Something the model remembers about the user, shown to it on every turn. */
+/** A prompt Llama Run runs on a schedule (Hermes' cron, OpenCode's /schedule), each run a turn in its own chat. */
+export interface Routine {
+  id: string
+  prompt: string
+  /** As the user wrote it: "daily 9:00", "every 2h", "in 30m", a cron expression… */
+  when: string
+  /** Next run (ms); null once a one-time routine has run. */
+  next: number | null
+  paused?: boolean
+  createdAt: number
+  lastRun?: number
+  lastStatus?: 'done' | 'error' | 'stopped'
+  /** The chat its runs go into, made by the first run. */
+  chatId?: string
+  model?: string
+}
+
+/** What the review after a long task proposes keeping. */
+export interface TaskSuggestions {
+  skill?: { name: string; description: string; body: string }
+  memories?: { text: string; kind: MemoryKind }[]
+}
+
+/** user: a lasting fact about the user; note: something the model learned that helps later. */
+export type MemoryKind = 'user' | 'note'
+
 export interface MemoryItem {
   id: string
   text: string
   /** Who wrote it: 'user', 'model', or a plugin's name. */
   source: string
+  /** Missing on older memories: those starting with "User" are about the user. */
+  kind?: MemoryKind
   createdAt: number
   updatedAt: number
 }

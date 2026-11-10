@@ -1,9 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
-import type { Chat, ChatAttachment, ChatEvent, ChatMessage, ChatSummary, ContextUsage, ModelContextInfo, ModelInfo, SlashCommand } from '@shared/types'
+import { resolveThinking } from '@shared/thinking'
+import type { Chat, ChatAttachment, ChatEvent, ChatMessage, ChatSummary, ContextUsage, ModelContextInfo, ModelInfo, SlashCommand, ThinkingChoice } from '@shared/types'
 import { analytics } from '../analytics'
 import { approvals } from '../assistant/approval'
-import { builtinInstructions, builtinTools, callBuiltinTool, isBuiltinTool } from '../assistant/builtins'
+import { builtinInstructions, builtinTools, callBuiltinTool, installNote, isBuiltinTool } from '../assistant/builtins'
+import { RUN_CODE, RUN_CODE_TOOL, runCode } from '../assistant/codeMode'
+import { changedFiles, forgetChanges, undoChanges } from '../assistant/fileChanges'
 import { documentBlock } from '../attachments/read'
 import { indicator } from '../computer/indicator'
 import { computer, computerInstructions, isComputerTool } from '../computer/tools'
@@ -21,10 +24,12 @@ import { isCloudModel } from '../llm/models'
 import { mcp } from '../mcp/manager'
 import { pluginHost } from '../plugins/host'
 import { settings } from '../settings'
+import { memoryStore } from '../memory/store'
 import { skillStore } from '../skills/store'
+import { reviewTask } from './review'
 import { joinRound } from '../llm/toolRun'
 import { COMPACT_SYSTEM, compactionRequest, splitForCompaction, SUMMARY_INTRO, transcriptOf, visibleMessages } from './compact'
-import { contextWindowFor, estimateTokens, usageOf } from './context'
+import { contextWindowFor, estimateParts, estimateTokens, usageOf } from './context'
 import { appendText, appendThinking, finishTool, recalledReplies, replaceText, replyForModel, textOf, toolPart } from './parts'
 import { chatStore, titleFrom } from './store'
 
@@ -36,6 +41,8 @@ export interface TurnOptions {
   system?: string
   /** Offer the MCP tools. Defaults to true. */
   tools?: boolean
+  /** A scheduled run nobody is watching: no computer use, and it can't schedule more routines. */
+  routine?: boolean
 }
 
 export interface SendOptions {
@@ -48,6 +55,8 @@ export interface SendOptions {
   attachments?: ChatAttachment[]
   /** The user ran a skill as a /command. */
   skill?: ChatMessage['skill']
+  /** A new chat created for this message thinks this hard (chosen in the chat box before it existed). */
+  thinking?: ThinkingChoice
 }
 
 /** Most images one message may carry. */
@@ -56,13 +65,30 @@ export const MAX_IMAGES = 6
 /** Commands Llama Run handles itself, ahead of any plugin's. */
 export const BUILTIN_COMMANDS: SlashCommand[] = [
   { name: 'compact', description: 'Summarise older messages to free up context', kind: 'builtin', plugin: 'Llama Run', args: '[what to focus on]' },
-  { name: 'new', description: 'Start a new chat', kind: 'builtin', plugin: 'Llama Run' }
+  { name: 'new', description: 'Start a new chat', kind: 'builtin', plugin: 'Llama Run' },
+  { name: 'learn', description: 'Save what worked in this chat as a skill', kind: 'builtin', plugin: 'Llama Run', args: '[what to focus on]' }
 ]
+
+/** What /learn asks the model (Hermes' /learn): turn this chat's working procedure into a skill. */
+export function learnRequest(focus?: string): string {
+  return [
+    'Save what worked in this conversation as a skill with skill_create, so a later chat can do the same task without working it out again:',
+    'the steps that worked, the dead ends to avoid, and how to check the result. Put reusable code in the skill with skill_write_file.',
+    'If a skill Llama Run made already covers this, improve it with skill_edit instead.',
+    focus?.trim() ? `Focus on: ${focus.trim()}` : ''
+  ]
+    .filter(Boolean)
+    .join(' ')
+}
 
 export interface ChatToolOptions {
   /** Offer run_command and web_fetch (see wantsShell). */
   shell?: boolean
   chatId?: string
+  /** The reply being made. */
+  messageId?: string
+  /** A routine's run (see TurnOptions.routine). */
+  routine?: boolean
   /** Offer the computer_* tools (computer use is on and the user typed this turn). */
   computer?: { screenshots: boolean }
 }
@@ -73,31 +99,56 @@ export interface ChatToolOptions {
  * the MCP servers' and the plugins'.
  */
 export function chatTools(options: ChatToolOptions = {}): ToolBridge | undefined {
-  const own = [...builtinTools(options), ...(options.computer ? computer.tools() : [])]
+  const own = [...builtinTools(options), ...(options.computer ? computer.tools() : []), ...(options.shell ? [RUN_CODE_TOOL] : [])]
   const ownNames = new Set(own.map((t) => t.name))
   const mcpTools = mcp.tools().filter((t) => !isBuiltinTool(t.name) && !ownNames.has(t.name))
   const pluginTools = pluginHost.modelTools(new Set([...own, ...mcpTools].map((t) => t.name)))
   if (!own.length && !mcpTools.length && !pluginTools.length) return undefined
   const fromPlugins = new Set(pluginTools.map((t) => t.name))
-  return {
-    tools: [...own, ...mcpTools, ...pluginTools],
-    // One desktop, one action at a time; other tools in the same step run together.
-    sequential: (name) => isComputerTool(name),
-    call: (name, args) =>
-      isBuiltinTool(name)
-        ? callBuiltinTool(name, args, { chatId: options.chatId })
-        : options.computer && isComputerTool(name)
-          ? computer.call(name, args, { chatId: options.chatId, screenshots: options.computer.screenshots })
-          : fromPlugins.has(name)
-            ? pluginHost.callModelTool(name, args)
+  const tools = [...own, ...mcpTools, ...pluginTools]
+  const call: ToolBridge['call'] = (name, args) =>
+    isBuiltinTool(name)
+      ? callBuiltinTool(name, args, { chatId: options.chatId, messageId: options.messageId })
+      : options.computer && isComputerTool(name)
+        ? computer.call(name, args, { chatId: options.chatId, screenshots: options.computer.screenshots })
+        : fromPlugins.has(name)
+          ? pluginHost.callModelTool(name, args)
+          : name === RUN_CODE
+            ? runCode(args, { tools: tools.filter((t) => t.name !== RUN_CODE), call }, { chatId: options.chatId })
             : mcp.callTool(name, args)
+  return {
+    tools,
+    // One desktop, one action at a time; other tools in the same step run together. A script may drive the desktop too.
+    sequential: (name) => isComputerTool(name) || name === RUN_CODE,
+    call
   }
 }
 
-/** Instructions for a turn: memories and skills, computer use, what plugins added, then the turn's own. */
-export function systemFor(turn?: string, shell = false, computerOn = false, install = false): string | undefined {
-  const parts = [builtinInstructions({ shell, install }), computerOn ? computerInstructions() : '', pluginHost.contextText(), turn?.trim()].filter(Boolean)
+/**
+ * Each chat's memories-and-skills block as it was at its first turn. Kept as is,
+ * the prompt starts the same on every turn and the provider's prompt cache keeps
+ * working; a memory saved mid-chat shows in its tool result and joins the prompt
+ * at the next chat or compaction (which starts the cache over anyway).
+ */
+const promptSnapshots = new Map<string, string>()
+
+/**
+ * Instructions for a turn, most stable first so a cached prefix lasts: memories
+ * and skills, what plugins added, computer use, an install note, then the turn's own.
+ */
+export function systemFor(turn?: string, shell = false, computerOn = false, install = false, chatId?: string): string | undefined {
+  let base = chatId ? promptSnapshots.get(chatId) : undefined
+  if (base === undefined) {
+    base = builtinInstructions({ shell })
+    if (chatId) promptSnapshots.set(chatId, base)
+  }
+  const parts = [base, pluginHost.contextText(), computerOn ? computerInstructions() : '', install ? installNote() : '', turn?.trim()].filter(Boolean)
   return parts.length ? parts.join('\n\n') : undefined
+}
+
+/** Takes a fresh memories-and-skills block on the chat's next turn. */
+export function refreshPrompt(chatId: string): void {
+  promptSnapshots.delete(chatId)
 }
 
 function imageOf(a: ChatAttachment): HistoryImage | null {
@@ -165,7 +216,7 @@ export async function contextFor(model: string): Promise<ModelContextInfo> {
  * or cloud (the server takes them inside tool results).
  */
 export function computerFor(typed: boolean, info: ModelInfo | undefined, turn?: TurnOptions): ChatToolOptions['computer'] {
-  if (!typed || turn?.tools === false || !settings.get('computerUse')) return undefined
+  if (!typed || turn?.tools === false || turn?.routine || !settings.get('computerUse')) return undefined
   const vision = Boolean(info?.capabilities?.includes('vision'))
   return { screenshots: settings.get('computerScreenshots') !== false && vision }
 }
@@ -214,10 +265,22 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     this.emit('event', { type: 'chat', chat })
   }
 
+  /** How hard the model thinks in this chat; undefined goes back to the model's default. */
+  setThinking(id: string, thinking: ThinkingChoice | undefined): void {
+    const chat = chatStore.get(id)
+    if (!chat) return
+    if (thinking) chat.thinking = thinking
+    else delete chat.thinking
+    chatStore.save(chat, false)
+    this.emit('event', { type: 'chat', chat })
+  }
+
   delete(id: string): void {
     this.cancel(id)
     this.paused.delete(id)
     chatStore.delete(id)
+    refreshPrompt(id)
+    forgetChanges(id)
   }
 
   cancel(id: string): void {
@@ -227,16 +290,66 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     void computer.cancel(id)
   }
 
+  /** The review after a long task; its suggestions appear under the reply. A failed review just shows nothing. */
+  private async review(chat: Chat, assistant: ChatMessage, model: string): Promise<void> {
+    try {
+      const suggestions = await reviewTask(chat, assistant, model)
+      if (!suggestions) return
+      assistant.suggestions = suggestions
+      chatStore.save(chat, false)
+      this.emit('event', { type: 'update', chatId: chat.id, message: { ...assistant } })
+    } catch {
+      // A nicety, not part of the reply.
+    }
+  }
+
+  /** Puts back the files a reply changed and removes the ones it created. */
+  undoFiles(chatId: string, messageId: string): void {
+    const chat = chatStore.get(chatId)
+    const message = chat?.messages.find((m) => m.id === messageId)
+    if (!chat || !message?.changedFiles?.length) return
+    if (this.running.has(chatId)) throw new Error('Wait for the current response to finish first.')
+    message.undoneFiles = undoChanges(chatId, messageId).length
+    delete message.changedFiles
+    chatStore.save(chat, false)
+    this.emit('event', { type: 'update', chatId, message: { ...message } })
+  }
+
+  /** Keeps the review's skill or one of its memories (the user accepted it), or dismisses them all. */
+  keepSuggestion(chatId: string, messageId: string, what: 'skill' | number | 'dismiss'): void {
+    const chat = chatStore.get(chatId)
+    const message = chat?.messages.find((m) => m.id === messageId)
+    const s = message?.suggestions
+    if (!chat || !message || !s) return
+    if (what === 'skill' && s.skill) {
+      skillStore.create(s.skill.name, s.skill.description, s.skill.body)
+      delete s.skill
+    } else if (typeof what === 'number' && s.memories?.[what]) {
+      // The user chose to keep it, so it goes in like one they added.
+      memoryStore.add(s.memories[what].text, 'user', s.memories[what].kind)
+      s.memories.splice(what, 1)
+      if (!s.memories.length) delete s.memories
+    }
+    if (what === 'dismiss' || (!s.skill && !s.memories)) delete message.suggestions
+    chatStore.save(chat, false)
+    this.emit('event', { type: 'update', chatId, message: { ...message } })
+  }
+
   isRunning(id: string): boolean {
     return this.running.has(id)
   }
 
-  async send(chatId: string | null, text: string, model?: string, attachments?: ChatAttachment[]): Promise<string> {
+  async send(chatId: string | null, text: string, model?: string, attachments?: ChatAttachment[], thinking?: ThinkingChoice): Promise<string> {
     const compact = !attachments?.length ? /^\/compact(?:\s+([\s\S]*))?$/i.exec(text.trim()) : null
     if (compact) {
       if (!chatId || !chatStore.get(chatId)?.messages.length) throw new Error('Nothing to compact yet')
       await this.compact(chatId, compact[1], true)
       return chatId
+    }
+    const learn = !attachments?.length ? /^\/learn(?:\s+([\s\S]*))?$/i.exec(text.trim()) : null
+    if (learn) {
+      if (!chatId || !chatStore.get(chatId)?.messages.length) throw new Error('Nothing to learn from yet: /learn saves what worked in a chat.')
+      return this.start(chatId, text.trim(), { model, skill: { name: 'learn', instructions: learnRequest(learn[1]) } }).chatId
     }
     const command = !attachments?.length ? pluginHost.matchCommand(text) : null
     if (command) {
@@ -247,9 +360,9 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     if (invoked) {
       analytics.track('skill_invoked', { via: 'slash' })
       const instructions = skillStore.invoke(invoked.skill, invoked.args)
-      return this.start(chatId, text.trim(), { model, attachments, skill: { name: invoked.skill.name, instructions } }).chatId
+      return this.start(chatId, text.trim(), { model, attachments, thinking, skill: { name: invoked.skill.name, instructions } }).chatId
     }
-    return this.start(chatId, text, { model, attachments }).chatId
+    return this.start(chatId, text, { model, attachments, thinking }).chatId
   }
 
   /** Opens an "Install with AI" chat: the model reads the README and installs it, asking before each command. */
@@ -308,8 +421,11 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     const chat = chatId ? chatStore.get(chatId) : undefined
     const id = model || chat?.model || settings.get('selectedModel')
     const info = await contextFor(id)
-    const tools = chatTools()?.tools ?? []
-    return usageOf(info, estimateTokens(historyFor(chat?.messages ?? [], chat?.compaction), systemFor(), tools))
+    // Measured with the tools a typed turn sends, so the ring matches what the next message costs.
+    const computerOn = settings.get('computerUse') ? { screenshots: false } : undefined
+    const tools = chatTools({ shell: true, computer: computerOn })?.tools ?? []
+    const parts = estimateParts(historyFor(chat?.messages ?? [], chat?.compaction), systemFor(undefined, true, Boolean(computerOn), false, chat?.id), tools)
+    return usageOf(info, parts.conversation + parts.instructions + parts.tools, parts)
   }
 
   /** Summarises the chat's older messages now (the /compact command and the menu item). */
@@ -332,7 +448,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     const split = splitForCompaction(chat.messages, settings.get('compactKeepTurns') ?? 4, chat.compaction)
     if (!split) throw new Error('Nothing to compact yet: the conversation is still short.')
     const info = await contextFor(model)
-    const system = systemFor()
+    const system = systemFor(undefined, false, false, false, chat.id)
     const tokensBefore = estimateTokens(historyFor(chat.messages, chat.compaction), system)
     this.emit('event', { type: 'status', chatId: chat.id, status: 'compacting' })
     try {
@@ -346,6 +462,8 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
       const compaction = { summary, throughMessageId: through.id, createdAt: Date.now(), tokensBefore, tokensAfter: 0, ...(manual ? { manual } : {}) }
       compaction.tokensAfter = estimateTokens(historyFor(chat.messages, compaction), system)
       chat.compaction = compaction
+      // The cache starts over after a compaction: memories and skills saved since join the prompt now.
+      refreshPrompt(chat.id)
       chatStore.save(chat, false)
       analytics.track('chat_compacted', { trigger: manual ? 'manual' : 'auto', tokens_before: tokensBefore, tokens_after: compaction.tokensAfter })
       this.emit('event', { type: 'chat', chat })
@@ -366,7 +484,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     if (settings.get('autoCompact') === false) return
     const used = estimateTokens(
       historyFor(chat.messages, chat.compaction),
-      systemFor(undefined, shell, Boolean(computerOn)),
+      systemFor(undefined, shell, Boolean(computerOn), false, chat.id),
       chatTools({ shell, computer: computerOn })?.tools
     )
     if (used < (info.tokens * info.compactAtPercent) / 100) return
@@ -396,6 +514,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     if (chatId && !existing && options.via) throw new Error(`No chat with id ${chatId}`)
     const chat = existing || this.create(options.model, options.ephemeral)
     if (this.running.has(chat.id)) throw new Error('Wait for the current response to finish, or stop it first.')
+    if (!existing && options.thinking) chat.thinking = options.thinking
     if (!chat.model) chat.model = settings.get('selectedModel')
     // A plugin may pick the model per message; typed messages use the chat's model.
     if (existing && options.via && options.model) chat.model = options.model
@@ -546,12 +665,12 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
       const text = await generate(historyFor(chat.messages.slice(0, -1), chat.compaction), {
         model,
         signal: controller.signal,
-        tools: turn?.tools === false ? undefined : chatTools({ shell, chatId: chat.id, computer: computerOn }),
-        system: systemFor(turn?.system, shell, Boolean(computerOn), install),
+        tools: turn?.tools === false ? undefined : chatTools({ shell, chatId: chat.id, messageId: assistant.id, computer: computerOn, routine: turn?.routine }),
+        system: systemFor(turn?.system, shell, Boolean(computerOn), install, chat.id),
         maxToolRounds: maxRounds,
         vision: Boolean(info?.capabilities?.includes('vision')),
-        // Each computer-use step is a small decision: low thinking keeps it fast and cheap.
-        ...(computerOn && info?.capabilities?.includes('thinking') ? { thinking: 'low' as const } : {}),
+        // The chat's choice, else the model's default from Model settings, else low for computer-use steps.
+        thinking: resolveThinking(info, { chat: chat.thinking, modelDefault: settings.get('modelContext')?.[model]?.thinking, computerOn: Boolean(computerOn) }),
         // Compaction keeps the history inside the window; this cut is the safety net.
         historyChars: Math.floor(context.tokens * 4 * 0.9),
         contextTokens: context.tokens,
@@ -637,9 +756,14 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
       if (timer) clearTimeout(timer)
       computer.endTurn(chat.id)
       this.running.delete(chat.id)
+      const changed = changedFiles(chat.id, assistant.id)
+      if (changed.length) assistant.changedFiles = changed
       emitUpdate()
       chatStore.save(chat)
       trackGeneration(assistant, { startedAt, firstTokenAt, toolCalls, usage, paused: !!pause, via: user.via ? 'plugin' : typed ? 'typed' : 'app', resumed: !!resume })
+      // A long task that finished: propose what's worth keeping, without holding up the reply.
+      const reviewing = settings.get('reviewAfterTasks') !== false && (settings.get('skillsEnabled') !== false || settings.get('memoryEnabled') !== false)
+      if (reviewing && typed && !pause && assistant.status === 'done' && toolCalls >= (settings.get('reviewMinToolCalls') || 6)) void this.review(chat, assistant, assistant.model || chat.model)
     }
     return { ...assistant }
   }

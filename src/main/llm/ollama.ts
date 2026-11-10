@@ -162,6 +162,8 @@ export async function generateOllama(input: GenerateInput, opts: GenerateOptions
 
   // Without num_ctx Ollama uses its own small default and silently drops the start of the conversation.
   const options = opts.contextTokens ? { num_ctx: opts.contextTokens } : undefined
+  // Thinking models think only when asked (gemma4) or always (qwen3): Off and On set it; no choice leaves Ollama's default.
+  const think = opts.thinking ? { think: opts.thinking !== 'off' } : {}
   let output = ''
   try {
     if (resumed) await runTools(resumed.pending)
@@ -170,12 +172,12 @@ export async function generateOllama(input: GenerateInput, opts: GenerateOptions
       const roundTools = opts.onPause || round < maxRounds ? tools : undefined
       let stream
       try {
-        stream = await client.chat({ model: opts.model, messages, tools: roundTools, stream: true, options })
+        stream = await client.chat({ model: opts.model, messages, tools: roundTools, stream: true, options, ...think })
       } catch (err) {
         // Models without tool support reject the request; retry as plain chat.
         if (roundTools && /does not support tools/i.test(String((err as Error)?.message))) {
           tools = undefined
-          stream = await client.chat({ model: opts.model, messages, stream: true, options })
+          stream = await client.chat({ model: opts.model, messages, stream: true, options, ...think })
         } else throw err
       }
 

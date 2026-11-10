@@ -125,6 +125,14 @@ describe('generateCloud tool calls', () => {
     expect(bodies[1].messages[2]).toEqual({ role: 'tool', toolCallId: 'a', toolName: 'look', content: 'state\n[image image/png]', images: [{ data: 'iVBOR', mediaType: 'image/png' }] })
   })
 
+  it("never sends Ollama's off/on to the server, which takes levels only", async () => {
+    const bodies: Record<string, unknown>[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: RequestInit) => (bodies.push(JSON.parse(String(init.body))), streamResponse([{ text: { type: 'text-delta', text: 'ok' } }, { done: 'True' }]))))
+    await generateCloud('hi', { model: 'm', token: 't', thinking: 'on' })
+    await generateCloud('hi', { model: 'm', token: 't', thinking: 'high' })
+    expect(bodies.map((b) => b.thinking)).toEqual([undefined, 'high'])
+  })
+
   it('falls back to the JSON-encoded prompt on a server from before structured messages', async () => {
     const bodies: Record<string, unknown>[] = []
     vi.stubGlobal(

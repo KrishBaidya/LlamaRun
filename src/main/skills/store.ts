@@ -1,8 +1,8 @@
 import { spawn } from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { delimiter, extname, join, relative, resolve, sep } from 'node:path'
+import { delimiter, dirname, extname, join, relative, resolve, sep } from 'node:path'
 import type { SkillInfo, SkillLocation, SlashCommand } from '@shared/types'
 import { askApproval } from '../assistant/approval'
 import { readJson } from '../jsonFile'
@@ -46,6 +46,8 @@ export interface SkillMeta {
   source?: string
   installedAt?: number
   requirementsError?: string
+  /** "model": Llama Run's model wrote it, so it may improve it (skill_edit). */
+  createdBy?: 'model'
 }
 
 function listFiles(root: string): string[] {
@@ -366,6 +368,60 @@ class SkillStore extends EventEmitter<{ changed: [SkillInfo[]] }> {
 
   changed(): void {
     this.emit('changed', this.list())
+  }
+
+  /**
+   * Saves a new skill the model wrote, in the shared skills folder, marked as
+   * made by Llama Run so it may improve it later (Hermes' skill_manage).
+   */
+  create(name: string, description: string, body: string): SkillInfo {
+    const id = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64)
+    if (!id) throw new Error('Give the skill a name made of letters or digits')
+    if (this.list().some((s) => s.id === id)) throw new Error(`A skill called ${id} already exists. Improve it with skill_edit, or pick another name.`)
+    const oneLine = description.replace(/\s+/g, ' ').trim()
+    if (!oneLine) throw new Error('Give the skill a description: it decides when the skill is loaded')
+    const folder = join(skillsDir(), id)
+    mkdirSync(folder, { recursive: true })
+    writeFileSync(join(folder, 'SKILL.md'), `---\nname: ${id}\ndescription: ${oneLine}\n---\n\n${body.trim()}\n`, 'utf8')
+    writeFileSync(join(folder, SKILL_META), JSON.stringify({ source: 'Llama Run', createdBy: 'model', installedAt: Date.now() } satisfies SkillMeta, null, 2))
+    this.changed()
+    return this.list().find((s) => s.id === id)!
+  }
+
+  /** A skill the model may change: only ones Llama Run's model made, never installed or Claude Code skills. */
+  private own(name: string): SkillInfo {
+    const key = name.trim().toLowerCase()
+    const skill = this.list().find((s) => s.id.toLowerCase() === key || s.name.toLowerCase() === key)
+    if (!skill) throw new Error(`No skill called "${name}"`)
+    if (readJson<SkillMeta>(join(skill.folder, SKILL_META), {}).createdBy !== 'model') {
+      throw new Error(`${skill.name} wasn't made by Llama Run, so it isn't changed here. Make a new skill with skill_create instead.`)
+    }
+    return skill
+  }
+
+  /** Replaces one exact passage of a Llama Run skill's SKILL.md (or every one, with all). */
+  edit(name: string, from: string, to: string, all = false): string {
+    const skill = this.own(name)
+    const file = join(skill.folder, 'SKILL.md')
+    const text = readFileSync(file, 'utf8')
+    if (!from) throw new Error('old_string is empty')
+    const count = text.split(from).length - 1
+    if (!count) throw new Error(`old_string is not in ${skill.name}'s SKILL.md. Load the skill again and copy the text exactly.`)
+    if (count > 1 && !all) throw new Error(`old_string appears ${count} times; add surrounding text to make it unique.`)
+    writeFileSync(file, all ? text.split(from).join(to) : text.replace(from, () => to), 'utf8')
+    this.changed()
+    return `Updated ${skill.name} (${file}).`
+  }
+
+  /** Adds or replaces a file in a Llama Run skill: a script, a template, a reference. */
+  writeSkillFile(name: string, path: string, content: string): string {
+    const skill = this.own(name)
+    const full = this.inside(skill, path)
+    if (full === join(skill.folder, SKILL_META)) throw new Error(`${SKILL_META} is Llama Run's own file`)
+    mkdirSync(dirname(full), { recursive: true })
+    writeFileSync(full, content, 'utf8')
+    this.changed()
+    return `Wrote ${full}.`
   }
 }
 

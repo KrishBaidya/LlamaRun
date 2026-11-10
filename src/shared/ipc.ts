@@ -15,6 +15,7 @@ import type {
   McpToolInfo,
   HudSnapshot,
   MemoryItem,
+  Routine,
   ModelContextInfo,
   ModelCatalog,
   MenuAnchor,
@@ -30,6 +31,7 @@ import type {
   Settings,
   SkillInfo,
   SlashCommand,
+  ThinkingChoice,
   UserProfile
 } from './types'
 
@@ -59,8 +61,10 @@ export interface InvokeChannels {
   'chats:rename': (id: string, title: string) => void
   'chats:delete': (id: string) => void
   'chats:setModel': (id: string, model: string) => void
+  /** How hard the model thinks in this chat; null goes back to the model's default. */
+  'chats:setThinking': (id: string, thinking: ThinkingChoice | null) => void
   /** Sends a user message; creates the chat when chatId is null. Returns the chat id. */
-  'chats:send': (chatId: string | null, text: string, model?: string, attachments?: ChatAttachment[]) => string
+  'chats:send': (chatId: string | null, text: string, model?: string, attachments?: ChatAttachment[], thinking?: ThinkingChoice) => string
   'chats:cancel': (chatId: string) => void
   /** Re-runs the last user message (after an error or to get a new answer). */
   'chats:retry': (chatId: string) => void
@@ -70,6 +74,12 @@ export interface InvokeChannels {
   'chats:answerApproval': (id: string, answer: ApprovalAnswer) => void
   /** The open run request for a chat, if any. */
   'chats:pendingApproval': (chatId: string) => ApprovalRequest | null
+  /** Puts back the files a reply changed with its file tools. */
+  'chats:undoFiles': (chatId: string, messageId: string) => void
+  /** Answers the model's question card with the option picked or the text typed. */
+  'chats:answerQuestion': (id: string, text: string) => void
+  /** Keeps a suggestion from the review after a task (the skill, or memory number n), or dismisses them all. */
+  'chats:keepSuggestion': (chatId: string, messageId: string, what: 'skill' | number | 'dismiss') => void
   /** Summarises the older messages now (like /compact). */
   'chats:compact': (chatId: string, instructions?: string) => void
   /** How full the model's context window is for this chat (or a new one) with this model. */
@@ -81,6 +91,10 @@ export interface InvokeChannels {
   'attachments:read': (name: string, mimeType: string, bytes: Uint8Array) => ChatAttachment
 
   'memory:list': () => MemoryItem[]
+  /** Scheduled prompts. */
+  'routines:list': () => Routine[]
+  'routines:add': (prompt: string, when: string) => Routine[]
+  'routines:act': (id: string, action: 'pause' | 'resume' | 'remove' | 'run') => Routine[]
   'memory:add': (text: string) => MemoryItem[]
   'memory:update': (id: string, text: string) => MemoryItem[]
   'memory:remove': (id: string) => MemoryItem[]
@@ -181,6 +195,7 @@ export interface EventChannels {
   'hud:state': HudSnapshot
   'settings:navigate': string
   'memory:changed': MemoryItem[]
+  'routines:changed': Routine[]
   'skills:changed': SkillInfo[]
   'commands:changed': SlashCommand[]
 }
@@ -223,6 +238,7 @@ export const INVOKE_CHANNELS = [
   'chats:rename',
   'chats:delete',
   'chats:setModel',
+  'chats:setThinking',
   'chats:send',
   'chats:cancel',
   'chats:retry',
@@ -230,10 +246,16 @@ export const INVOKE_CHANNELS = [
   'chats:compact',
   'chats:answerApproval',
   'chats:pendingApproval',
+  'chats:keepSuggestion',
+  'chats:answerQuestion',
+  'chats:undoFiles',
   'chats:contextUsage',
   'models:context',
   'attachments:read',
   'memory:list',
+  'routines:list',
+  'routines:add',
+  'routines:act',
   'memory:add',
   'memory:update',
   'memory:remove',
@@ -311,5 +333,6 @@ export const EVENT_CHANNELS = [
   'settings:navigate',
   'memory:changed',
   'skills:changed',
-  'commands:changed'
+  'commands:changed',
+  'routines:changed'
 ] as const satisfies readonly EventChannel[]

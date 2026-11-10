@@ -210,7 +210,8 @@ export async function generateCloud(
     let structured = structuredSupported
     const bodyFor = (): Record<string, unknown> => {
       const body: Record<string, unknown> = { ...cloudBody(turns, system, structured), model: opts.model }
-      if (opts.thinking) body.thinking = opts.thinking
+      // A level only: off/on are Ollama's, and the server takes levels.
+      if (opts.thinking && opts.thinking !== 'off' && opts.thinking !== 'on') body.thinking = opts.thinking
       // Without a way to pause, the last round goes without tools so the model has to answer.
       if (tools?.length && (opts.onPause || round < maxRounds)) body.Tools = tools
       return body

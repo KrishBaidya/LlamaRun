@@ -56,6 +56,7 @@ vi.mock('electron', async () => {
 
 const { builtinTools, callBuiltinTool } = await import('../src/main/assistant/builtins')
 const { allowedRequest } = await import('../src/main/assistant/render')
+const { changedFiles, undoChanges } = await import('../src/main/assistant/fileChanges')
 const { approvals } = await import('../src/main/assistant/approval')
 
 const { toolResultToText } = await import('../src/main/llm/toolPayload')
@@ -166,6 +167,85 @@ describe('file tools', () => {
     expect(allowedRequest('https://fonts.googleapis.com/css2?family=Inter', 'GET', folders)).toBe(true)
     expect(allowedRequest('https://example.com/collect', 'POST', folders)).toBe(false)
     expect(allowedRequest('data:image/png;base64,AAAA', 'GET', folders)).toBe(true)
+  })
+
+  // OpenCode's edit and Hermes' patch: change part of a file without sending all of it again.
+  it('edit part of a file: one exact match, or every one with replace_all', async () => {
+    answerWith('deny')
+    const file = join(userData, 'SkillWorkspace', 'page.html')
+    writeFileSync(file, '<h1>Old</h1>\n<p>a</p>\n<p>a</p>\n')
+    const r = await callBuiltinTool('edit_file', { path: 'page.html', old_string: '<h1>Old</h1>', new_string: '<h1>New</h1>' }, { chatId: 'c1' })
+    expect(readFileSync(file, 'utf8')).toBe('<h1>New</h1>\n<p>a</p>\n<p>a</p>\n')
+    expect(text(r)).toContain('1| <h1>New</h1>')
+    expect(text(await callBuiltinTool('edit_file', { path: 'page.html', old_string: '<p>a</p>', new_string: '<p>b</p>' }, { chatId: 'c1' }))).toContain('appears 2 times')
+    await callBuiltinTool('edit_file', { path: 'page.html', old_string: '<p>a</p>', new_string: '<p>b</p>', replace_all: true }, { chatId: 'c1' })
+    expect(readFileSync(file, 'utf8')).toBe('<h1>New</h1>\n<p>b</p>\n<p>b</p>\n')
+    expect(text(await callBuiltinTool('edit_file', { path: 'page.html', old_string: 'nope', new_string: 'x' }, { chatId: 'c1' }))).toContain('is not in')
+  })
+
+  it('edit Windows files whose lines end in CRLF', async () => {
+    const file = join(userData, 'SkillWorkspace', 'win.txt')
+    writeFileSync(file, 'one\r\ntwo\r\nthree\r\n')
+    await callBuiltinTool('edit_file', { path: 'win.txt', old_string: 'one\ntwo', new_string: 'uno\ndos' }, { chatId: 'c1' })
+    expect(readFileSync(file, 'utf8')).toBe('uno\r\ndos\r\nthree\r\n')
+  })
+
+  it('read long files a page at a time, and answer a repeat in the same reply with one line', async () => {
+    const file = join(userData, 'SkillWorkspace', 'long.txt')
+    writeFileSync(file, Array.from({ length: 2500 }, (_, i) => `line ${i + 1}`).join('\n'))
+    const first = text(await callBuiltinTool('read_file', { path: 'long.txt' }, { chatId: 'c1', messageId: 'm1' }))
+    // A page fits in what the model is shown of a result, and says where to go on.
+    expect(first.length).toBeLessThan(16_000)
+    expect(first).toMatch(/\(lines 1-\d+ of 2500\)/)
+    let page = first
+    let offset = 0
+    for (let n = 0; n < 10 && /read on with offset (\d+)/.test(page); n++) {
+      offset = Number(/read on with offset (\d+)/.exec(page)![1])
+      page = text(await callBuiltinTool('read_file', { path: 'long.txt', offset }, { chatId: 'c1', messageId: 'm1' }))
+    }
+    expect(offset).toBeGreaterThan(1)
+    expect(page).toContain('2500| line 2500')
+    expect(text(await callBuiltinTool('read_file', { path: 'long.txt' }, { chatId: 'c1', messageId: 'm1' }))).toContain('unchanged since you read it earlier in this reply')
+    // Another reply reads it in full again.
+    expect(text(await callBuiltinTool('read_file', { path: 'long.txt' }, { chatId: 'c1', messageId: 'm2' }))).toContain('1| line 1')
+  })
+
+  // Seen in chats: a card for every python command. "Always allow python *" now covers the next ones.
+  it('run commands under a saved rule without asking, and offer "Allow for this chat"', async () => {
+    let asked = answerWith('always')
+    expect(text(await callBuiltinTool('run_command', { command: 'echo first' }, { chatId: 'r1' }))).toContain('first')
+    expect(asked[0]).toMatchObject({ alwaysLabel: 'Always allow echo *', chatLabel: 'Allow for this chat' })
+    asked = answerWith('deny')
+    expect(text(await callBuiltinTool('run_command', { command: 'echo second' }, { chatId: 'r2' }))).toContain('second')
+    expect(asked).toEqual([])
+
+    asked = answerWith('chat')
+    await callBuiltinTool('run_command', { command: 'Write-Output one' }, { chatId: 'r3' })
+    await callBuiltinTool('run_command', { command: 'Write-Output two' }, { chatId: 'r3' })
+    expect(asked).toHaveLength(1)
+    // Only for that chat.
+    asked = answerWith('once')
+    await callBuiltinTool('run_command', { command: 'Write-Output three' }, { chatId: 'r4' })
+    expect(asked).toHaveLength(1)
+  }, 30_000)
+
+  // OpenCode's snapshots and Hermes' /undo: the user's files go back to how they were before the reply.
+  it("keep the user's original before a reply changes it, so undo puts it back and removes new files", async () => {
+    answerWith('always')
+    const report = join(elsewhere, 'undo-report.txt')
+    writeFileSync(report, 'original text\n')
+    const ctx = { chatId: 'u1', messageId: 'reply-1' }
+    await callBuiltinTool('edit_file', { path: report, old_string: 'original', new_string: 'edited' }, ctx)
+    await callBuiltinTool('write_file', { path: report, content: 'rewritten\n' }, ctx)
+    const created = join(elsewhere, 'undo-new.txt')
+    await callBuiltinTool('write_file', { path: created, content: 'new' }, ctx)
+    // The model's own workspace isn't tracked.
+    await callBuiltinTool('write_file', { path: 'scratch.py', content: 'print(1)' }, ctx)
+    expect(changedFiles('u1', 'reply-1')).toEqual([report, created])
+    expect(undoChanges('u1', 'reply-1')).toEqual([report, created])
+    expect(readFileSync(report, 'utf8')).toBe('original text\n')
+    expect(existsSync(created)).toBe(false)
+    expect(changedFiles('u1', 'reply-1')).toEqual([])
   })
 
   it('say plainly when a file is missing', async () => {
