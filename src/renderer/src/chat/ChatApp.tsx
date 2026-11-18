@@ -6,6 +6,7 @@ import { Composer, type ComposerHandle } from '@/components/chat/Composer'
 import { ContextRing } from '@/components/chat/ContextRing'
 import { MessageList } from '@/components/chat/MessageList'
 import { ModelPicker } from '@/components/chat/ModelPicker'
+import { QueuedMessages } from '@/components/chat/QueuedMessages'
 import { ThinkingPicker } from '@/components/chat/ThinkingPicker'
 import { TitleBar } from '@/components/TitleBar'
 import { Button } from '@/components/ui/button'
@@ -35,7 +36,7 @@ export function ChatApp() {
     requestAnimationFrame(() => composer.current?.focus())
   }, [])
 
-  const { chat, busy, compacting, approval, send, compact, stop, retry, resume, error } = useChat(chatId, select)
+  const { chat, busy, compacting, approval, send, compact, stop, retry, resume, error, queued, queue, steer, unqueue } = useChat(chatId, select)
 
   useEffect(() => {
     if (settings) setDraftModel((m) => m || settings.selectedModel)
@@ -95,6 +96,8 @@ export function ChatApp() {
       placeholder={hasThread ? 'Reply…' : 'Ask anything…'}
       onSend={onSend}
       onStop={stop}
+      onQueue={chat ? queue : undefined}
+      above={<QueuedMessages items={queued} busy={busy} onSteer={steer} onRemove={unqueue} />}
       toolbar={
         <>
           <ModelPicker value={model} onChange={setModel} />

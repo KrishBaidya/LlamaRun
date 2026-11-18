@@ -107,6 +107,11 @@ export interface GenerateOptions {
    * models, `off`/`on` for Ollama's `think`. Absent: the model's own default.
    */
   thinking?: ThinkingChoice
+  /**
+   * Between tool rounds: what the user sent to this reply while it worked,
+   * added to the conversation as their message before the next request.
+   */
+  steer?: () => string | undefined
 }
 
 /** Maximum model -> tool -> model round trips before pausing (or forcing an answer). */

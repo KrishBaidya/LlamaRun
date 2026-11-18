@@ -371,6 +371,10 @@ const AssistantMessage = memo(function AssistantMessage({
               )
             ) : p.type === 'thinking' ? (
               <ThinkingNote key={i} text={p.text} />
+            ) : p.type === 'steer' ? (
+              <div key={i} className="ms-auto max-w-[80%] rounded-2xl bg-message/70 px-3 py-1.5 text-xs whitespace-pre-wrap" title="Sent while the reply was working">
+                {p.text}
+              </div>
             ) : p.text.trim() ? (
               <Markdown key={i} text={p.text} />
             ) : null

@@ -77,6 +77,7 @@ export function replyForModel(message: ChatMessage, recallTools: boolean): strin
     .map((p) => {
       if (p.type === 'text') return p.text.trim()
       if (p.type === 'thinking') return ''
+      if (p.type === 'steer') return `[the user added while you worked: ${p.text}]`
       const args = p.args && Object.keys(p.args).length ? ` ${JSON.stringify(p.args)}` : ''
       const outcome = p.result ? `: ${cut(p.result.replace(/\s+/g, ' ').trim(), MAX_RECALLED_RESULT)}` : ''
       return `[earlier tool call ${p.name}${args}${p.status === 'error' ? ' failed' : ''}${outcome}]`

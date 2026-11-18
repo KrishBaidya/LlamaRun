@@ -297,6 +297,8 @@ export async function generateCloud(
     }
     await runTools(calls)
     if (opts.signal?.aborted) return output
+    const note = opts.steer?.()
+    if (note) turns.push({ role: 'user', content: note })
   }
 }
 

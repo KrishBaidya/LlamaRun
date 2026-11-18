@@ -3,6 +3,7 @@ import type {
   AgentInput,
   AppearanceInfo,
   ChatSetup,
+  QueuedMessage,
   Chat,
   ChatAttachment,
   ApprovalAnswer,
@@ -75,6 +76,12 @@ export interface InvokeChannels {
   'chats:cancel': (chatId: string) => void
   /** Re-runs the last user message (after an error or to get a new answer). */
   'chats:retry': (chatId: string) => void
+  /** A message typed while the reply runs: sent when it ends. */
+  'chats:queue': (chatId: string, text: string) => void
+  /** Send a queued message into the running reply now. */
+  'chats:steer': (chatId: string, id: string) => void
+  'chats:unqueue': (chatId: string, id: string) => void
+  'chats:queued': (chatId: string) => QueuedMessage[]
   /** Edit one of the user's messages: the chat forks there and replies again; the old branch is kept. */
   'chats:edit': (chatId: string, messageId: string, text: string, undoFiles?: boolean) => void
   /** Show another version of an edited message, with its replies. */
@@ -258,6 +265,10 @@ export const INVOKE_CHANNELS = [
   'chats:setPlan',
   'chats:cancel',
   'chats:retry',
+  'chats:queue',
+  'chats:steer',
+  'chats:unqueue',
+  'chats:queued',
   'chats:edit',
   'chats:switchVersion',
   'chats:continue',

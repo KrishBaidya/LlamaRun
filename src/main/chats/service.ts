@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { resolveThinking } from '@shared/thinking'
-import type { Chat, ChatAttachment, ChatEvent, ChatSetup, ChatMessage, ChatSummary, ContextUsage, ModelContextInfo, ModelInfo, SlashCommand, ThinkingChoice } from '@shared/types'
+import type { Chat, ChatAttachment, ChatEvent, ChatSetup, QueuedMessage, ChatMessage, ChatSummary, ContextUsage, ModelContextInfo, ModelInfo, SlashCommand, ThinkingChoice } from '@shared/types'
 import { analytics } from '../analytics'
 import { approvals } from '../assistant/approval'
 import { builtinInstructions, builtinTools, callBuiltinTool, installNote, isBuiltinTool } from '../assistant/builtins'
@@ -264,6 +264,8 @@ export function computerFor(typed: boolean, info: ModelInfo | undefined, turn?: 
  */
 class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSummary[]] }> {
   private running = new Map<string, AbortController>()
+  /** Messages typed while a reply ran, per chat (see queue). */
+  private queued = new Map<string, QueuedMessage[]>()
   /** Replies stopped at the tool-round cap, per chat: the message and where it stopped. */
   private paused = new Map<string, { messageId: string; pause: ToolPause; turn?: TurnOptions }>()
 
@@ -608,6 +610,63 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
   }
 
   /**
+   * A message typed while the chat's reply is running, like Claude Code's
+   * queued messages: it waits and is sent when the reply ends. When nothing is
+   * running it is simply sent.
+   */
+  queue(chatId: string, text: string): void {
+    const value = text.trim()
+    if (!value) return
+    if (!this.running.has(chatId)) {
+      void this.send(chatId, value)
+      return
+    }
+    this.setQueue(chatId, [...(this.queued.get(chatId) ?? []), { id: randomUUID(), text: value }])
+  }
+
+  /** "Send now": the queued message goes into the running reply's next tool round (Codex's steer). */
+  steer(chatId: string, id: string): void {
+    const items = this.queued.get(chatId) ?? []
+    if (!this.running.has(chatId)) {
+      const item = items.find((i) => i.id === id)
+      this.setQueue(chatId, items.filter((i) => i.id !== id))
+      if (item) void this.send(chatId, item.text)
+      return
+    }
+    this.setQueue(chatId, items.map((i) => (i.id === id ? { ...i, steer: true } : i)))
+  }
+
+  unqueue(chatId: string, id: string): void {
+    this.setQueue(chatId, (this.queued.get(chatId) ?? []).filter((i) => i.id !== id))
+  }
+
+  queuedFor(chatId: string): QueuedMessage[] {
+    return this.queued.get(chatId) ?? []
+  }
+
+  private setQueue(chatId: string, items: QueuedMessage[]): void {
+    if (items.length) this.queued.set(chatId, items)
+    else this.queued.delete(chatId)
+    this.emit('event', { type: 'queue', chatId, items })
+  }
+
+  /** The steered messages, taken for the next tool round. */
+  private takeSteer(chatId: string): string[] {
+    const items = this.queued.get(chatId) ?? []
+    const steer = items.filter((i) => i.steer)
+    if (steer.length) this.setQueue(chatId, items.filter((i) => !i.steer))
+    return steer.map((i) => i.text)
+  }
+
+  /** After a reply: what was queued goes as the next message (all of it at once). A stopped reply keeps the queue. */
+  private sendQueued(chatId: string): void {
+    const items = this.queued.get(chatId)
+    if (!items?.length || this.running.has(chatId)) return
+    this.setQueue(chatId, [])
+    void this.send(chatId, items.map((i) => i.text).join('\n\n')).catch(() => {})
+  }
+
+  /**
    * Edits one of the user's messages and replies again from there; the old
    * text and its replies stay as a version to switch back to. With undoFiles,
    * the files the dropped replies changed are put back first.
@@ -785,6 +844,16 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
         onPause: (p) => {
           pause = p
         },
+        steer: () => {
+          const notes = this.takeSteer(chat.id)
+          if (!notes.length) return undefined
+          flush()
+          for (const text of notes) {
+            parts.push({ type: 'steer', text })
+            this.emit('event', { type: 'steer', chatId: chat.id, messageId: assistant.id, text })
+          }
+          return notes.join('\n\n')
+        },
         onUsage: (u) => {
           usage.inputTokens += u.inputTokens
           usage.outputTokens += u.outputTokens
@@ -873,6 +942,9 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
       // A long task that finished: propose what's worth keeping, without holding up the reply.
       const reviewing = settings.get('reviewAfterTasks') !== false && (settings.get('skillsEnabled') !== false || settings.get('memoryEnabled') !== false)
       if (reviewing && typed && !pause && assistant.status === 'done' && toolCalls >= (settings.get('reviewMinToolCalls') || 6)) void this.review(chat, assistant, assistant.model || chat.model)
+      // Steers the reply never got to (it answered without another tool round) go as the next message, with the rest.
+      if (this.queued.get(chat.id)?.length) this.setQueue(chat.id, (this.queued.get(chat.id) ?? []).map((i) => ({ id: i.id, text: i.text })))
+      if (assistant.status !== 'cancelled' && !pause) setImmediate(() => this.sendQueued(chat.id))
     }
     return { ...assistant }
   }

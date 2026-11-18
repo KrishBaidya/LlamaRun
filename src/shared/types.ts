@@ -179,8 +179,22 @@ export interface ThinkingPart {
   text: string
 }
 
+/** Something the user sent to a reply while it was working (a steer), shown where the model got it. */
+export interface SteerPart {
+  type: 'steer'
+  text: string
+}
+
 /** An assistant reply in the order it happened: text, tool, text, tool, ... */
-export type MessagePart = TextPart | ToolPart | ThinkingPart
+export type MessagePart = TextPart | ToolPart | ThinkingPart | SteerPart
+
+/** A message typed while a reply was running: sent when it ends, or (steer) into its next tool round. */
+export interface QueuedMessage {
+  id: string
+  text: string
+  /** Waiting to go into the running reply's next tool round. */
+  steer?: boolean
+}
 
 /** A file sent with a message. Images go to vision models; documents are read as text. */
 export interface ChatAttachment {
@@ -303,6 +317,8 @@ export interface ChatSummary {
 
 /** Streaming updates for one chat, broadcast to every window showing it. */
 export type ChatEvent =
+  | { type: 'queue'; chatId: string; items: QueuedMessage[] }
+  | { type: 'steer'; chatId: string; messageId: string; text: string }
   | { type: 'message'; chatId: string; message: ChatMessage }
   | { type: 'delta'; chatId: string; messageId: string; text: string }
   /** More of the model's thinking, streamed like `delta`. */

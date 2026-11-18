@@ -24,11 +24,15 @@ interface Props {
   className?: string
   /** Larger text for the "hero" empty state. */
   size?: 'default' | 'hero'
+  /** While busy: Enter queues the text (sent when the reply ends) instead of being ignored. */
+  onQueue?: (text: string) => void
+  /** Shown above the prompt (the queued messages). */
+  above?: ReactNode
 }
 
 /** T3 Code-style glass composer: rounded card, auto-growing prompt, attachments, / commands, round send button. */
 export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
-  { busy, onSend, onStop, placeholder = 'Ask anything…', toolbar, status, onEscape, autoFocus, className, size = 'default' },
+  { busy, onSend, onStop, placeholder = 'Ask anything…', toolbar, status, onEscape, autoFocus, className, size = 'default', onQueue, above },
   ref
 ) {
   const [text, setText] = useState('')
@@ -45,7 +49,14 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
   const canSend = (!!text.trim() || files.items.length > 0) && !files.pending
 
   const submit = (): void => {
-    if (!canSend || busy) return
+    if (!canSend) return
+    if (busy) {
+      // Files can't go into a running reply; they wait in the box.
+      if (!onQueue || files.items.length || !text.trim()) return
+      onQueue(text.trim())
+      setText('')
+      return
+    }
     send(text.trim(), files.items)
   }
 
@@ -59,6 +70,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
       )}
     >
       <SlashMenu menu={slash} className="absolute inset-x-2 bottom-full z-10 mb-2" />
+      {above}
       <AttachmentStrip state={files} className="px-3 pt-3" />
       <textarea
         ref={input}
@@ -66,7 +78,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
         autoFocus={autoFocus}
         rows={1}
         spellCheck
-        placeholder={files.dragging ? 'Drop to attach' : placeholder}
+        placeholder={files.dragging ? 'Drop to attach' : busy && onQueue ? 'Add a follow-up: it is sent when the reply finishes' : placeholder}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
           if (slash.onKeyDown(e)) return
@@ -88,6 +100,11 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
         <AttachButton onFiles={files.add} />
         <div className="flex min-w-0 flex-1 items-center gap-1">{toolbar}</div>
         {status}
+        {busy && onQueue && text.trim() && !files.items.length && (
+          <Button size="icon-sm" variant="secondary" className="rounded-full" title="Queue (Enter): sent when the reply finishes" onClick={submit}>
+            <ArrowUp className="size-4" />
+          </Button>
+        )}
         {busy ? (
           <Button size="icon-sm" className="rounded-full" title="Stop (Esc)" onClick={onStop}>
             <Square className="size-3 fill-current" />

@@ -203,6 +203,8 @@ export async function generateOllama(input: GenerateInput, opts: GenerateOptions
         return output
       }
       await runTools(toolCalls)
+      const note = opts.steer?.()
+      if (note) messages.push({ role: 'user', content: note })
     }
     return output
   } catch (err) {
