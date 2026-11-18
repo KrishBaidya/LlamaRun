@@ -90,6 +90,12 @@ export function ContextRing({
             {formatTokens(usage.breakdown.tools)} ({usage.breakdown.toolCount})
           </p>
         )}
+        {usage.spent && usage.spent.requests > 0 && (
+          <p className="text-muted-foreground">
+            Used so far: {formatTokens(usage.spent.inputTokens)} in{usage.spent.cachedInputTokens ? ` (${formatTokens(usage.spent.cachedInputTokens)} cached)` : ''} ·{' '}
+            {formatTokens(usage.spent.outputTokens)} out over {usage.spent.requests} request{usage.spent.requests === 1 ? '' : 's'}
+          </p>
+        )}
         <p className="text-muted-foreground">Window: {SOURCE[usage.source]}. Auto-compacts at {usage.compactAtPercent}%.</p>
         {chatId && <p className="text-muted-foreground">Click to compact now.</p>}
       </TooltipContent>

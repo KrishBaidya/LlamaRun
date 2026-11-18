@@ -21,6 +21,7 @@ import { openOnboarding } from './windows/onboarding'
 import { attachContextMenu } from './windows/contextMenu'
 import { createOverlay, markQuitting, showOverlay } from './windows/overlay'
 import { stopAll as stopProcesses } from './assistant/processes'
+import { usageStore } from './usage'
 import { startApprovalNotices } from './notify'
 import { chatService } from './chats/service'
 
@@ -130,6 +131,7 @@ if (!app.requestSingleInstanceLock()) {
     shuttingDown = true
     e.preventDefault()
     stopProcesses()
+    usageStore.flush()
     // Give plugins their on_unload, close MCP servers, stop the computer-use driver and flush analytics before exiting.
     void Promise.allSettled([pluginHost.stop(), mcp.stop(), closeDriver(), analytics.shutdown()]).finally(() => app.quit())
   })

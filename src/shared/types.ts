@@ -103,6 +103,26 @@ export interface ContextUsage extends ModelContextInfo {
   used: number
   percent: number
   breakdown?: ContextBreakdown
+  /** What the chat has used so far, as providers counted it. */
+  spent?: TokenUsage
+}
+
+/** Tokens counted by the provider, summed over requests. */
+export interface TokenUsage {
+  inputTokens: number
+  outputTokens: number
+  /** Input tokens read from the provider's prompt cache (cheaper). */
+  cachedInputTokens: number
+  /** Output tokens a thinking model spent thinking. */
+  reasoningTokens: number
+  requests: number
+}
+
+/** One day's usage per model. */
+export interface UsageDay {
+  /** YYYY-MM-DD, local time. */
+  day: string
+  models: Record<string, TokenUsage>
 }
 
 /** Older messages of a chat replaced, for the model, by a summary. */

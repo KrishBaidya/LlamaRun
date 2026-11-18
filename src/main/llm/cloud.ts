@@ -123,6 +123,14 @@ export function textOf(part: CloudStreamPart): string {
   return typeof value === 'string' ? value : ''
 }
 
+/** A step's token counts, in the server's usage event. */
+export function usageOf(part: CloudStreamPart): { inputTokens: number; outputTokens: number; cachedInputTokens: number; reasoningTokens: number } | null {
+  const e = eventOf(part) as Record<string, unknown>
+  if (e.type !== 'usage') return null
+  const n = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
+  return { inputTokens: n(e.inputTokens), outputTokens: n(e.outputTokens), cachedInputTokens: n(e.cachedInputTokens), reasoningTokens: n(e.reasoningTokens) }
+}
+
 /** A thinking model's summary of its reasoning, in a reasoning-delta event. */
 export function thinkingOf(part: CloudStreamPart): string {
   const e = eventOf(part)
@@ -272,6 +280,11 @@ export async function generateCloud(
           const thought = thinkingOf(part)
           if (thought) {
             opts.onThinking?.(thought)
+            continue
+          }
+          const usage = usageOf(part)
+          if (usage) {
+            opts.onUsage?.(usage)
             continue
           }
           const call = toolCallOf(part)

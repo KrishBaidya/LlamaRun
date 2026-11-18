@@ -28,6 +28,7 @@ import { memoryStore } from '../memory/store'
 import { skillStore } from '../skills/store'
 import { reviewTask } from './review'
 import { joinRound } from '../llm/toolRun'
+import { describeDays, describeUsage, usageStore } from '../usage'
 import { editMessage, switchVersion } from './branches'
 import { agentStore, allowedTools } from '../assistant/agents'
 import { AGENT_RUN, agentRunTool, runSubagent } from './subagent'
@@ -73,7 +74,8 @@ export const MAX_IMAGES = 6
 export const BUILTIN_COMMANDS: SlashCommand[] = [
   { name: 'compact', description: 'Summarise older messages to free up context', kind: 'builtin', plugin: 'Llama Run', args: '[what to focus on]' },
   { name: 'new', description: 'Start a new chat', kind: 'builtin', plugin: 'Llama Run' },
-  { name: 'learn', description: 'Save what worked in this chat as a skill', kind: 'builtin', plugin: 'Llama Run', args: '[what to focus on]' }
+  { name: 'learn', description: 'Save what worked in this chat as a skill', kind: 'builtin', plugin: 'Llama Run', args: '[what to focus on]' },
+  { name: 'usage', description: 'Tokens this chat has used, and the last 30 days by model', kind: 'builtin', plugin: 'Llama Run' }
 ]
 
 /** What /learn asks the model (Hermes' /learn): turn this chat's working procedure into a skill. */
@@ -342,6 +344,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     refreshPrompt(id)
     forgetChanges(id)
     stopChatProcesses(id)
+    usageStore.forgetChat(id)
   }
 
   cancel(id: string): void {
@@ -406,6 +409,11 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
       if (!chatId || !chatStore.get(chatId)?.messages.length) throw new Error('Nothing to compact yet')
       await this.compact(chatId, compact[1], true)
       return chatId
+    }
+    if (!attachments?.length && /^\/usage\s*$/i.test(text.trim())) {
+      const chat = chatId ? chatStore.get(chatId) : undefined
+      const report = [describeUsage(chat ? usageStore.forChat(chat.id) : undefined), describeDays(usageStore.days(30))].filter(Boolean).join('\n\n')
+      return this.post(chatId, report, 'Llama Run').chatId
     }
     const learn = !attachments?.length ? /^\/learn(?:\s+([\s\S]*))?$/i.exec(text.trim()) : null
     if (learn) {
@@ -486,7 +494,8 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     const computerOn = settings.get('computerUse') ? { screenshots: false } : undefined
     const tools = chatTools({ shell: true, computer: computerOn })?.tools ?? []
     const parts = estimateParts(historyFor(chat?.messages ?? [], chat?.compaction), systemFor(undefined, true, Boolean(computerOn), false, chat?.id), tools)
-    return usageOf(info, parts.conversation + parts.instructions + parts.tools, parts)
+    const spent = chat ? usageStore.forChat(chat.id) : undefined
+    return { ...usageOf(info, parts.conversation + parts.instructions + parts.tools, parts), ...(spent ? { spent } : {}) }
   }
 
   /** Summarises the chat's older messages now (the /compact command and the menu item). */
@@ -857,6 +866,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
         onUsage: (u) => {
           usage.inputTokens += u.inputTokens
           usage.outputTokens += u.outputTokens
+          usageStore.record(chat.ephemeral ? undefined : chat.id, model, u)
         },
         onThinking: (t) => {
           // Sent in the order it happened: text waiting to go out goes first.
