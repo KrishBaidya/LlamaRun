@@ -237,7 +237,20 @@ export interface ChatMessage {
   from?: { plugin: string }
   /** User messages that ran a skill as a /command: the model gets its instructions instead of the typed text. */
   skill?: { name: string; instructions: string }
+  /** User messages that were edited: every version, each with the replies that followed it (‹ 1/2 ›). */
+  versions?: MessageVersion[]
+  /** Which of `versions` is showing. */
+  version?: number
   createdAt: number
+}
+
+/** One version of an edited user message and the messages that followed it then. */
+export interface MessageVersion {
+  content: string
+  attachments?: ChatAttachment[]
+  skill?: { name: string; instructions: string }
+  createdAt: number
+  tail: ChatMessage[]
 }
 
 export interface Chat {

@@ -75,6 +75,10 @@ export interface InvokeChannels {
   'chats:cancel': (chatId: string) => void
   /** Re-runs the last user message (after an error or to get a new answer). */
   'chats:retry': (chatId: string) => void
+  /** Edit one of the user's messages: the chat forks there and replies again; the old branch is kept. */
+  'chats:edit': (chatId: string, messageId: string, text: string, undoFiles?: boolean) => void
+  /** Show another version of an edited message, with its replies. */
+  'chats:switchVersion': (chatId: string, messageId: string, index: number) => void
   /** Resumes a reply that stopped at the tool-round cap, from where it stopped. */
   'chats:continue': (chatId: string) => void
   /** Answers the model's request to run a command or script in this chat. */
@@ -254,6 +258,8 @@ export const INVOKE_CHANNELS = [
   'chats:setPlan',
   'chats:cancel',
   'chats:retry',
+  'chats:edit',
+  'chats:switchVersion',
   'chats:continue',
   'chats:compact',
   'chats:answerApproval',

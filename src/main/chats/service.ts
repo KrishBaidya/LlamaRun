@@ -28,6 +28,7 @@ import { memoryStore } from '../memory/store'
 import { skillStore } from '../skills/store'
 import { reviewTask } from './review'
 import { joinRound } from '../llm/toolRun'
+import { editMessage, switchVersion } from './branches'
 import { agentStore, allowedTools } from '../assistant/agents'
 import { AGENT_RUN, agentRunTool, runSubagent } from './subagent'
 import * as notify from '../notify'
@@ -604,6 +605,46 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     chatStore.save(chat)
     this.emit('event', { type: 'chat', chat })
     void this.run(chat, user, undefined, undefined, !user.via)
+  }
+
+  /**
+   * Edits one of the user's messages and replies again from there; the old
+   * text and its replies stay as a version to switch back to. With undoFiles,
+   * the files the dropped replies changed are put back first.
+   */
+  edit(chatId: string, messageId: string, text: string, undoFiles = false): void {
+    const chat = chatStore.get(chatId)
+    if (!chat) return
+    if (this.running.has(chatId)) throw new Error('Wait for the reply to finish, or stop it, before editing')
+    if (!text.trim()) throw new Error('The message is empty')
+    const { messages, dropped } = editMessage(chat.messages, messageId, text.trim())
+    if (undoFiles) for (const m of dropped) if (m.changedFiles?.length && !m.undoneFiles) this.undoFiles(chatId, m.id)
+    this.dropPause(chat)
+    this.forgetCompactionPast(chat, messages)
+    chat.messages = messages
+    const user = messages[messages.length - 1]
+    chatStore.save(chat)
+    this.emit('event', { type: 'chat', chat })
+    void this.run(chat, user, undefined, undefined, !user.via)
+  }
+
+  /** Shows another version of an edited message with the replies it had. */
+  switchVersion(chatId: string, messageId: string, index: number): void {
+    const chat = chatStore.get(chatId)
+    if (!chat) return
+    if (this.running.has(chatId)) throw new Error('Wait for the reply to finish, or stop it, first')
+    const messages = switchVersion(chat.messages, messageId, index)
+    if (messages === chat.messages) return
+    this.dropPause(chat)
+    this.forgetCompactionPast(chat, messages)
+    chat.messages = messages
+    chatStore.save(chat)
+    this.emit('event', { type: 'chat', chat })
+  }
+
+  /** A summary that covers messages no longer in the chat no longer applies. */
+  private forgetCompactionPast(chat: Chat, messages: ChatMessage[]): void {
+    if (chat.compaction && !messages.some((m) => m.id === chat.compaction!.throughMessageId)) delete chat.compaction
   }
 
   /**

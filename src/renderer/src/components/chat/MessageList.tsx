@@ -1,8 +1,10 @@
 import { Fragment, memo, useEffect, useRef, useState } from 'react'
-import { AlertCircle, Blocks, Bot, Brain, Check, ChevronDown, Copy, FoldVertical, Loader2, MessageCircleQuestion, Mic, Play, RotateCcw, ShieldQuestion, Sparkles, Wand2, Wrench } from 'lucide-react'
+import { AlertCircle, Blocks, Bot, Brain, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, FoldVertical, Loader2, MessageCircleQuestion, Mic, Pencil, Play, RotateCcw, ShieldQuestion, Sparkles, Wand2, Wrench } from 'lucide-react'
 import type { ApprovalAnswer, ApprovalRequest, ChatCompaction, ChatMessage, ToolPart } from '@shared/types'
 import { Markdown } from '@/components/markdown'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { api, useProfile } from '@/hooks/use-llamarun'
 import { cn } from '@/lib/utils'
@@ -27,8 +29,77 @@ function CopyButton({ text }: { text: string }) {
   )
 }
 
-function UserMessage({ message }: { message: ChatMessage }) {
+/** Editing a sent message: the chat forks there and the model replies again; the old branch stays (‹ 1/2 ›). */
+function EditBox({ message, changesAfter, onSave, onCancel }: { message: ChatMessage; changesAfter: boolean; onSave: (text: string, undo: boolean) => void; onCancel: () => void }) {
+  const [text, setText] = useState(message.content)
+  const [undo, setUndo] = useState(false)
+  return (
+    <div className="flex w-full max-w-[80%] flex-col gap-2 rounded-2xl border bg-card p-2">
+      <Textarea
+        autoFocus
+        value={text}
+        rows={Math.min(10, Math.max(2, text.split('\n').length))}
+        className="resize-none border-0 bg-transparent shadow-none focus-visible:ring-0"
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') onCancel()
+          if (e.key === 'Enter' && !e.shiftKey && text.trim()) {
+            e.preventDefault()
+            onSave(text, undo)
+          }
+        }}
+      />
+      <div className="flex items-center gap-2">
+        {changesAfter && (
+          <label className="flex items-center gap-1.5 text-2xs text-muted-foreground">
+            <Checkbox checked={undo} onCheckedChange={(v) => setUndo(v === true)} />
+            Also undo the file changes made after this message
+          </label>
+        )}
+        <span className="ms-auto flex gap-1.5">
+          <Button size="sm" variant="ghost" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button size="sm" disabled={!text.trim() || text === message.content} onClick={() => onSave(text, undo)}>
+            Send
+          </Button>
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function UserMessage({
+  message,
+  chatId,
+  busy,
+  changesAfter
+}: {
+  message: ChatMessage
+  chatId?: string
+  busy?: boolean
+  /** A later reply changed files the edit could undo. */
+  changesAfter?: boolean
+}) {
   const attachments = message.attachments ?? []
+  const [editing, setEditing] = useState(false)
+  const versions = message.versions?.length ?? 0
+  const shown = message.version ?? versions - 1
+  const switchTo = (i: number): void => void (chatId && api.chats.switchVersion(chatId, message.id, i))
+  if (editing && chatId)
+    return (
+      <div className="flex flex-col items-end">
+        <EditBox
+          message={message}
+          changesAfter={!!changesAfter}
+          onCancel={() => setEditing(false)}
+          onSave={(text, undo) => {
+            setEditing(false)
+            void api.chats.edit(chatId, message.id, text, undo)
+          }}
+        />
+      </div>
+    )
   return (
     <div className="group flex flex-col items-end gap-1">
       {attachments.length > 0 && (
@@ -40,7 +111,12 @@ function UserMessage({ message }: { message: ChatMessage }) {
       )}
       {message.content && (
         <div className="relative flex max-w-[80%] items-start">
-          <span className="absolute top-1 -left-9 opacity-0 transition-opacity group-hover:opacity-100">
+          <span className={cn('absolute top-1 flex opacity-0 transition-opacity group-hover:opacity-100', chatId && !message.via ? '-left-16' : '-left-9')}>
+            {chatId && !message.via && (
+              <Button variant="ghost" size="icon-sm" title="Edit and send again" disabled={busy} onClick={() => setEditing(true)}>
+                <Pencil className="size-3.5" />
+              </Button>
+            )}
             <CopyButton text={message.content} />
           </span>
           <div className="rounded-2xl bg-message px-3.5 py-2 whitespace-pre-wrap" data-selectable>
@@ -51,6 +127,17 @@ function UserMessage({ message }: { message: ChatMessage }) {
       {message.skill && (
         <span className="inline-flex items-center gap-1 pe-1 text-2xs text-muted-foreground">
           <Sparkles className="size-3" /> Ran the {message.skill.name} skill
+        </span>
+      )}
+      {versions > 1 && (
+        <span className="inline-flex items-center gap-0.5 text-2xs text-muted-foreground">
+          <Button variant="ghost" size="icon-sm" className="size-5" title="Previous version" disabled={busy || shown <= 0} onClick={() => switchTo(shown - 1)}>
+            <ChevronLeft className="size-3" />
+          </Button>
+          {shown + 1}/{versions}
+          <Button variant="ghost" size="icon-sm" className="size-5" title="Next version" disabled={busy || shown >= versions - 1} onClick={() => switchTo(shown + 1)}>
+            <ChevronRight className="size-3" />
+          </Button>
         </span>
       )}
       {message.via && (
@@ -596,7 +683,7 @@ export function MessageList({
         {messages.map((m, i) => (
           <Fragment key={m.id}>
             {m.role === 'user' ? (
-              <UserMessage message={m} />
+              <UserMessage message={m} chatId={chatId} busy={busy} changesAfter={messages.slice(i + 1).some((n) => n.changedFiles?.length && !n.undoneFiles)} />
             ) : (
               <AssistantMessage chatId={chatId} message={m} isLast={i === messages.length - 1} busy={busy} onRetry={onRetry} onContinue={onContinue} />
             )}

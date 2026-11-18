@@ -188,6 +188,8 @@ export function registerIpc(): void {
   handle('models:context', (_e, models) => Promise.all(models.map((m) => contextFor(m))))
   handle('chats:cancel', (_e, id) => chatService.cancel(id))
   handle('chats:retry', (_e, id) => chatService.retry(id))
+  handle('chats:edit', (_e, chatId, messageId, text, undo) => chatService.edit(String(chatId), String(messageId), String(text ?? ''), undo === true))
+  handle('chats:switchVersion', (_e, chatId, messageId, index) => chatService.switchVersion(String(chatId), String(messageId), Number(index)))
   handle('chats:continue', (_e, id) => void chatService.continue(id))
 
   handle('attachments:read', (_e, name, mimeType, bytes) => readDocument(String(name), String(mimeType ?? ''), bytes))
