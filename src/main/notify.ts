@@ -12,10 +12,10 @@ import { openChatWindow } from './windows/chat'
  */
 
 const enabled = (): boolean => settings.get('notifyWhenDone') !== false
-const away = (): boolean => !BrowserWindow.getFocusedWindow()
+const away = (): boolean => typeof BrowserWindow?.getFocusedWindow === 'function' && !BrowserWindow.getFocusedWindow()
 
 export function show(chatId: string, title: string, body: string): void {
-  if (!Notification.isSupported()) return
+  if (typeof Notification?.isSupported !== 'function' || !Notification.isSupported()) return
   const note = new Notification({ title, body: body.slice(0, 200), icon: iconPath() })
   note.on('click', () => openChatWindow(chatId))
   note.show()
