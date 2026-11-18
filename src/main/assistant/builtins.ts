@@ -4,6 +4,7 @@ import { basename, delimiter, dirname, extname, isAbsolute, join, relative, reso
 import { nativeImage, type NativeImage } from 'electron'
 import type { CommandRule, McpToolInfo, MemoryKind } from '@shared/types'
 import { analytics } from '../analytics'
+import { auth } from '../auth'
 import { documentText } from '../attachments/read'
 import { formatHits, readChat, searchChats } from '../chats/search'
 import { describeRoutine, routineStore } from '../routines/store'
@@ -11,6 +12,7 @@ import { MAX_TOOL_RESULT_CHARS } from '../llm/toolPayload'
 import { renderHtml } from './render'
 import * as processes from './processes'
 import { formatPage, globFiles, grepFiles, listDir } from './search'
+import { webSearch } from './webSearch'
 import type { McpToolResult } from '../mcp/manager'
 import { kindOf, MEMORY_BUDGET, memoryStore } from '../memory/store'
 import { pythonExecutable, userDataPath } from '../paths'
@@ -130,6 +132,16 @@ const SKILL_TOOLS: McpToolInfo[] = [
       stdin: { type: 'string', description: 'Text piped to the script, if it reads stdin.' }
     },
     ['skill', 'script']
+  )
+]
+
+/** Needs the user signed in: searches go through the Llama Run server. */
+const SEARCH_TOOLS: McpToolInfo[] = [
+  tool(
+    'web_search',
+    'Search the web (Google) for current information: news, prices, versions, facts you are unsure of. Returns an answer drawn from the results with numbered sources; read a source in full with web_fetch.',
+    { query: { type: 'string', description: 'What to search for, as you would type it into a search engine.' } },
+    ['query']
   )
 ]
 
@@ -316,12 +328,13 @@ export function builtinTools(options: BuiltinOptions = {}): McpToolInfo[] {
     ...(skillsOn() && skillStore.active().length ? SKILL_TOOLS : []),
     ...(skillsOn() && options.shell ? SKILL_WRITE_TOOLS : []),
     ...(options.shell ? [...SHELL_TOOLS, ...FILE_TOOLS, ...CHAT_TOOLS, ...TASK_TOOLS] : []),
+    ...(options.shell && auth.profile().signedIn ? SEARCH_TOOLS : []),
     ...(options.shell && !options.routine ? ROUTINE_TOOLS : []),
     ...(skillsOn() && options.shell ? INSTALL_TOOLS : [])
   ]
 }
 
-const NAMES = new Set([...MEMORY_TOOLS, ...SKILL_TOOLS, ...SKILL_WRITE_TOOLS, ...SHELL_TOOLS, ...FILE_TOOLS, ...CHAT_TOOLS, ...TASK_TOOLS, ...ROUTINE_TOOLS, ...INSTALL_TOOLS].map((t) => t.name))
+const NAMES = new Set([...SEARCH_TOOLS, ...MEMORY_TOOLS, ...SKILL_TOOLS, ...SKILL_WRITE_TOOLS, ...SHELL_TOOLS, ...FILE_TOOLS, ...CHAT_TOOLS, ...TASK_TOOLS, ...ROUTINE_TOOLS, ...INSTALL_TOOLS].map((t) => t.name))
 
 export function isBuiltinTool(name: string): boolean {
   return NAMES.has(name)
@@ -724,6 +737,8 @@ export async function callBuiltinTool(name: string, args: Record<string, unknown
         return result(skillStore.edit(str(args, 'skill'), str(args, 'old_string'), typeof args.new_string === 'string' ? args.new_string : '', args.replace_all === true))
       case 'skill_write_file':
         return result(skillStore.writeSkillFile(str(args, 'skill'), str(args, 'path'), typeof args.content === 'string' ? args.content : ''))
+      case 'web_search':
+        return result(await webSearch(str(args, 'query'), auth.token))
       case 'web_fetch':
         return result(await webFetch(str(args, 'url')))
       case 'read_file':
