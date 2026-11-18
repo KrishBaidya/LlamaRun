@@ -215,7 +215,8 @@ export function registerIpc(): void {
 
   handle('memory:list', () => memoryStore.list())
   handle('routines:list', () => routineStore.list())
-  handle('routines:add', (_e, prompt, when) => (routineStore.add(String(prompt), String(when)), routineStore.list()))
+  handle('routines:add', (_e, prompt, when, quiet) => (routineStore.add(String(prompt), String(when), undefined, quiet === true), routineStore.list()))
+  handle('routines:setQuiet', (_e, id, quiet) => (routineStore.update(String(id), { quiet: quiet === true }), routineStore.list()))
   handle('routines:act', (_e, id, action) => (routineStore.act(String(id), action), routineStore.list()))
   handle('memory:add', (_e, text) => (analytics.track('memory_changed', { action: 'add', source: 'user' }), memoryStore.add(String(text), 'user'), memoryStore.list()))
   handle('memory:update', (_e, id, text) => (analytics.track('memory_changed', { action: 'update', source: 'user' }), memoryStore.update(id, String(text), 'user'), memoryStore.list()))

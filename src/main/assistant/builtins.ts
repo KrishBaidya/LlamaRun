@@ -275,11 +275,25 @@ const TASK_TOOLS: McpToolInfo[] = [
 ]
 
 /** Scheduled prompts, like Hermes' cron and OpenCode's /schedule. */
+/** In a routine's run: the way it reaches the user, who isn't watching. */
+const NOTIFY_TOOLS: McpToolInfo[] = [
+  tool(
+    'notify_user',
+    "Show the user a notification about this routine run (it opens the routine's chat). In a quiet routine this is the only way the user hears about the run.",
+    { text: { type: 'string', description: 'One or two short sentences.' } },
+    ['text']
+  )
+]
+
 const ROUTINE_TOOLS: McpToolInfo[] = [
   tool(
     'routine_create',
     "Schedule a prompt to run by itself, in its own chat, while Llama Run is open (it stays in the tray); the result shows as a notification. when: \"in 30m\", \"every 2h\", \"daily 9:00\", \"weekdays at 9am\", \"every monday 18:30\", \"2026-11-20 08:00\" or a cron expression. Runs can't ask for approval: commands the user hasn't allowed with a rule are skipped, and computer use is off.",
-    { prompt: { type: 'string', description: 'What to do each time, written as the user would ask it.' }, when: { type: 'string' } },
+    {
+      prompt: { type: 'string', description: 'What to do each time, written as the user would ask it.' },
+      when: { type: 'string' },
+      quiet: { type: 'boolean', description: 'Notify only when a run calls notify_user (for checks that usually find nothing). Default false: every run notifies.' }
+    },
     ['prompt', 'when']
   ),
   tool('routine_list', "List the user's routines: what, when, and how the last run went.", {}, []),
@@ -331,11 +345,12 @@ export function builtinTools(options: BuiltinOptions = {}): McpToolInfo[] {
     ...(options.shell ? [...SHELL_TOOLS, ...FILE_TOOLS, ...CHAT_TOOLS, ...TASK_TOOLS] : []),
     ...(options.shell && auth.profile().signedIn ? SEARCH_TOOLS : []),
     ...(options.shell && !options.routine ? ROUTINE_TOOLS : []),
+    ...(options.routine ? NOTIFY_TOOLS : []),
     ...(skillsOn() && options.shell ? INSTALL_TOOLS : [])
   ]
 }
 
-const NAMES = new Set([...SEARCH_TOOLS, ...MEMORY_TOOLS, ...SKILL_TOOLS, ...SKILL_WRITE_TOOLS, ...SHELL_TOOLS, ...FILE_TOOLS, ...CHAT_TOOLS, ...TASK_TOOLS, ...ROUTINE_TOOLS, ...INSTALL_TOOLS].map((t) => t.name))
+const NAMES = new Set([...NOTIFY_TOOLS, ...SEARCH_TOOLS, ...MEMORY_TOOLS, ...SKILL_TOOLS, ...SKILL_WRITE_TOOLS, ...SHELL_TOOLS, ...FILE_TOOLS, ...CHAT_TOOLS, ...TASK_TOOLS, ...ROUTINE_TOOLS, ...INSTALL_TOOLS].map((t) => t.name))
 
 export function isBuiltinTool(name: string): boolean {
   return NAMES.has(name)
@@ -671,6 +686,16 @@ async function runCommand(command: string, cwdArg?: string, chatId?: string, bac
   })
 }
 
+/** What routine runs asked to tell the user (notify_user), per chat, until the run ends. */
+const notices = new Map<string, string[]>()
+
+/** The notifications a routine run asked for, taken once it ends. */
+export function takeNotices(chatId: string): string[] {
+  const list = notices.get(chatId) ?? []
+  notices.delete(chatId)
+  return list
+}
+
 /** The chat a tool call comes from, so questions to the user appear in it. */
 export interface ToolContext {
   chatId?: string
@@ -708,8 +733,15 @@ export async function callBuiltinTool(name: string, args: Record<string, unknown
         const stdin = typeof args.stdin === 'string' ? args.stdin : undefined
         return result(await skillStore.runScript(str(args, 'skill'), str(args, 'script'), list, stdin, context.chatId))
       }
+      case 'notify_user': {
+        if (!context.chatId) throw new Error('There is no routine run to notify about')
+        const list = notices.get(context.chatId) ?? []
+        list.push(str(args, 'text').trim().slice(0, 300))
+        notices.set(context.chatId, list)
+        return result('The user will get the notification when this run ends.')
+      }
       case 'routine_create': {
-        const routine = routineStore.add(str(args, 'prompt'), str(args, 'when'))
+        const routine = routineStore.add(str(args, 'prompt'), str(args, 'when'), undefined, args.quiet === true)
         return result(`Scheduled ${describeRoutine(routine)}.`)
       }
       case 'routine_list': {

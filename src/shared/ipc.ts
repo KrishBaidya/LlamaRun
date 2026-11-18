@@ -126,7 +126,8 @@ export interface InvokeChannels {
   'agents:save': (agent: AgentInput) => AgentInfo[]
   'agents:delete': (id: string) => AgentInfo[]
   'routines:list': () => Routine[]
-  'routines:add': (prompt: string, when: string) => Routine[]
+  'routines:add': (prompt: string, when: string, quiet?: boolean) => Routine[]
+  'routines:setQuiet': (id: string, quiet: boolean) => Routine[]
   'routines:act': (id: string, action: 'pause' | 'resume' | 'remove' | 'run') => Routine[]
   'memory:add': (text: string) => MemoryItem[]
   'memory:update': (id: string, text: string) => MemoryItem[]
@@ -305,6 +306,7 @@ export const INVOKE_CHANNELS = [
   'agents:delete',
   'routines:list',
   'routines:add',
+  'routines:setQuiet',
   'routines:act',
   'memory:add',
   'memory:update',

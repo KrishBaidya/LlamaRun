@@ -513,6 +513,8 @@ export interface Routine {
   /** The chat its runs go into, made by the first run. */
   chatId?: string
   model?: string
+  /** A run notifies only when it calls notify_user (OpenClaw's heartbeat): "tell me if X changes" stays silent otherwise. */
+  quiet?: boolean
 }
 
 /** What the review after a long task proposes keeping. */
