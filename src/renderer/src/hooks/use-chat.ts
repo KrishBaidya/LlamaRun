@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { ApprovalRequest, Chat, ChatAttachment, ChatEvent, ChatMessage, ChatSummary, MessagePart, ThinkingChoice, ToolPart } from '@shared/types'
+import type { ApprovalRequest, Chat, ChatAttachment, ChatEvent, ChatMessage, ChatSetup, ChatSummary, MessagePart, ThinkingChoice, ToolPart } from '@shared/types'
 import { api } from './use-llamarun'
 
 /** Streamed text goes onto the last text part, or starts a new one after a tool call (mirrors chats/parts.ts). */
@@ -75,7 +75,7 @@ export interface UseChat {
   /** The older messages are being summarised (auto-compact or /compact). */
   compacting: boolean
   /** `thinking` applies when this message starts a new chat (an existing chat keeps its own). */
-  send: (text: string, model?: string, attachments?: ChatAttachment[], thinking?: ThinkingChoice) => Promise<string | null>
+  send: (text: string, model?: string, attachments?: ChatAttachment[], thinking?: ThinkingChoice, setup?: ChatSetup) => Promise<string | null>
   /** Summarises older messages now. */
   compact: (instructions?: string) => Promise<void>
   /** The model is waiting for the user to allow a command or script. */
@@ -146,12 +146,12 @@ export function useChat(chatId: string | null, onCreated?: (id: string) => void)
   }, [awaitingReply, last?.role])
 
   const send = useCallback(
-    async (text: string, model?: string, attachments?: ChatAttachment[], thinking?: ThinkingChoice) => {
+    async (text: string, model?: string, attachments?: ChatAttachment[], thinking?: ThinkingChoice, setup?: ChatSetup) => {
       setError(null)
       try {
         // /compact runs before replying to anything, so there is no reply to wait for.
         setAwaitingReply(!/^\/compact\b/i.test(text))
-        const id = await api.chats.send(idRef.current, text, model, attachments?.length ? attachments : undefined, thinking)
+        const id = await api.chats.send(idRef.current, text, model, attachments?.length ? attachments : undefined, thinking, setup)
         if (id !== idRef.current) {
           idRef.current = id
           createdRef.current = id

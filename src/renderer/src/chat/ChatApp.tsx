@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { FoldVertical, MessageSquare } from 'lucide-react'
-import type { ChatAttachment, ThinkingChoice } from '@shared/types'
+import type { ChatAttachment, ChatSetup, ThinkingChoice } from '@shared/types'
+import { AgentPicker, PlanToggle } from '@/components/chat/AgentPicker'
 import { Composer, type ComposerHandle } from '@/components/chat/Composer'
 import { ContextRing } from '@/components/chat/ContextRing'
 import { MessageList } from '@/components/chat/MessageList'
@@ -25,6 +26,7 @@ export function ChatApp() {
   const [chatId, setChatId] = useState<string | null>(initialChatId)
   const [draftModel, setDraftModel] = useState('')
   const [draftThinking, setDraftThinking] = useState<ThinkingChoice | undefined>()
+  const [draftSetup, setDraftSetup] = useState<ChatSetup>({})
   const composer = useRef<ComposerHandle>(null)
 
   const select = useCallback((id: string | null) => {
@@ -66,10 +68,20 @@ export function ChatApp() {
     if (chat) void api.chats.setThinking(chat.id, t ?? null)
     else setDraftThinking(t)
   }
+  const agent = chat ? chat.agent : draftSetup.agent
+  const setAgent = (a: string | undefined): void => {
+    if (chat) void api.chats.setAgent(chat.id, a ?? null)
+    else setDraftSetup((s) => ({ ...s, agent: a }))
+  }
+  const plan = chat ? !!chat.plan : !!draftSetup.plan
+  const setPlan = (p: boolean): void => {
+    if (chat) void api.chats.setPlan(chat.id, p)
+    else setDraftSetup((s) => ({ ...s, plan: p }))
+  }
   const hasThread = !!chat?.messages.length
   const onSend = (text: string, attachments: ChatAttachment[]): Promise<unknown> | void => {
     if (/^\/new\s*$/i.test(text)) return select(null)
-    return send(text, model, attachments, chat ? undefined : draftThinking)
+    return send(text, model, attachments, chat ? undefined : draftThinking, chat ? undefined : draftSetup)
   }
   const last = chat?.messages[chat.messages.length - 1]
   const version = `${chat?.id}:${chat?.messages.length}:${last?.status}:${chat?.compaction?.createdAt ?? 0}`
@@ -87,6 +99,8 @@ export function ChatApp() {
         <>
           <ModelPicker value={model} onChange={setModel} />
           <ThinkingPicker model={model} value={thinking} onChange={setThinking} />
+          <AgentPicker value={agent} onChange={setAgent} />
+          <PlanToggle value={plan} onChange={setPlan} />
         </>
       }
       status={<ContextRing chatId={hasThread ? chat!.id : null} model={model} version={version} onCompact={() => void compact()} />}

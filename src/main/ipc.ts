@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, shell, systemPreferences } from 'electron'
 import type { EventChannel, EventChannels, InvokeChannel, InvokeChannels } from '@shared/ipc'
-import type { Settings, ThinkingChoice } from '@shared/types'
+import type { ChatSetup, Settings, ThinkingChoice } from '@shared/types'
 import { THINKING_CHOICES } from '@shared/thinking'
 import { DEFAULT_CLOUD_MODEL } from '@shared/constants'
 import { analytics } from './analytics'
@@ -20,6 +20,7 @@ import { clearDirectoryCache, getDirectoryServer, listDirectory, readmeUrl } fro
 import { mcp } from './mcp/manager'
 import { memoryStore } from './memory/store'
 import { routineStore } from './routines/store'
+import { agentStore } from './assistant/agents'
 import { pluginDataDir, pluginsDir } from './paths'
 import { pluginHost } from './plugins/host'
 import { inspectPlugin, installPlugin } from './plugins/install'
@@ -155,7 +156,7 @@ export function registerIpc(): void {
   handle('chats:setThinking', (_e, id, thinking) =>
     chatService.setThinking(String(id), THINKING_CHOICES.includes(thinking as ThinkingChoice) ? (thinking as ThinkingChoice) : undefined)
   )
-  handle('chats:send', (e, chatId, text, model, attachments, thinking) => {
+  handle('chats:send', (e, chatId, text, model, attachments, thinking, setup) => {
     const used = model || (chatId ? chatService.get(chatId)?.model : undefined) || settings.get('selectedModel')
     const files = (attachments ?? []) as { kind: string }[]
     analytics.track('message_sent', {
@@ -166,8 +167,17 @@ export function registerIpc(): void {
       slash: /^\s*\//.test(String(text ?? '')),
       ...modelProps(String(used ?? ''))
     })
-    return chatService.send(chatId, text, model, attachments, THINKING_CHOICES.includes(thinking as ThinkingChoice) ? (thinking as ThinkingChoice) : undefined)
+    const choice = (setup ?? {}) as ChatSetup
+    return chatService.send(chatId, text, model, attachments, THINKING_CHOICES.includes(thinking as ThinkingChoice) ? (thinking as ThinkingChoice) : undefined, {
+      ...(typeof choice.agent === 'string' ? { agent: choice.agent } : {}),
+      ...(choice.plan === true ? { plan: true } : {})
+    })
   })
+  handle('chats:setAgent', (_e, id, agent) => chatService.setAgent(String(id), typeof agent === 'string' ? agent : null))
+  handle('chats:setPlan', (_e, id, plan) => chatService.setPlan(String(id), plan === true))
+  handle('agents:list', () => agentStore.list())
+  handle('agents:save', (_e, input) => (agentStore.save(input), agentStore.list()))
+  handle('agents:delete', (_e, id) => (agentStore.remove(String(id)), agentStore.list()))
   handle('chats:compact', (_e, id, instructions) => chatService.compact(id, instructions))
   handle('chats:answerApproval', (_e, id, answer) => approvals.answer(id, answer))
   handle('chats:undoFiles', (_e, chatId, messageId) => chatService.undoFiles(String(chatId), String(messageId)))

@@ -28,6 +28,24 @@ export const READ_ONLY_TOOLS = [
   'todo_update'
 ]
 
+/** What a chat in plan mode may still do: read, look up, plan out loud, ask, and hand read-only tasks to helpers. */
+export const PLAN_TOOLS = new Set([...READ_ONLY_TOOLS, 'ask_user', 'agent_run'])
+
+/**
+ * The tools a turn keeps after its chat's agent and plan mode have their say:
+ * an agent's own list (plus asking the user and the to-do list), and in plan
+ * mode only PLAN_TOOLS. Enforced on the tools offered and again on every call.
+ */
+export function allowedTools<T extends { name: string }>(tools: T[], options: { allow?: string[] | '*'; plan?: boolean }): T[] {
+  let out = tools
+  if (options.allow && options.allow !== '*') {
+    const allow = new Set([...options.allow, 'ask_user', 'todo_update'])
+    out = out.filter((t) => allow.has(t.name))
+  }
+  if (options.plan) out = out.filter((t) => PLAN_TOOLS.has(t.name))
+  return out
+}
+
 /** Names in an agent's tools list that stand for a group. */
 const GROUPS: Record<string, string[]> = {
   // Claude Code's tool names, so its agents keep the access they were written for.

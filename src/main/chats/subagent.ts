@@ -67,6 +67,8 @@ export interface SubagentDeps {
   signal?: AbortSignal
   generate: (input: GenerateInput, opts: GenerateOptions) => Promise<string>
   findAgent: (name: string) => AgentInfo | undefined
+  /** Plan mode: helpers only read, whatever their agent allows. */
+  readOnly?: boolean
 }
 
 const hintOf = (args: Record<string, unknown>): string | undefined => {
@@ -81,7 +83,7 @@ export async function runSubagent(args: Record<string, unknown>, deps: SubagentD
   const agent = name ? deps.findAgent(name) : undefined
   if (name && !agent) return { content: [{ type: 'text', text: `No agent called ${name}.` }], isError: true, steps: [] }
 
-  const tools = deps.bridge ? childTools(deps.bridge.tools, agent?.tools) : []
+  const tools = deps.bridge ? childTools(deps.bridge.tools, deps.readOnly ? undefined : agent?.tools) : []
   const allowed = new Set(tools.map((t) => t.name))
   const bridge: ToolBridge | undefined =
     deps.bridge && tools.length

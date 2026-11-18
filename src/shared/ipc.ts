@@ -1,5 +1,8 @@
 import type {
+  AgentInfo,
+  AgentInput,
   AppearanceInfo,
+  ChatSetup,
   Chat,
   ChatAttachment,
   ApprovalAnswer,
@@ -64,7 +67,11 @@ export interface InvokeChannels {
   /** How hard the model thinks in this chat; null goes back to the model's default. */
   'chats:setThinking': (id: string, thinking: ThinkingChoice | null) => void
   /** Sends a user message; creates the chat when chatId is null. Returns the chat id. */
-  'chats:send': (chatId: string | null, text: string, model?: string, attachments?: ChatAttachment[], thinking?: ThinkingChoice) => string
+  'chats:send': (chatId: string | null, text: string, model?: string, attachments?: ChatAttachment[], thinking?: ThinkingChoice, setup?: ChatSetup) => string
+  /** The agent a chat runs as; null for none. */
+  'chats:setAgent': (id: string, agent: string | null) => void
+  /** Plan mode on or off for a chat. */
+  'chats:setPlan': (id: string, plan: boolean) => void
   'chats:cancel': (chatId: string) => void
   /** Re-runs the last user message (after an error or to get a new answer). */
   'chats:retry': (chatId: string) => void
@@ -92,6 +99,9 @@ export interface InvokeChannels {
 
   'memory:list': () => MemoryItem[]
   /** Scheduled prompts. */
+  'agents:list': () => AgentInfo[]
+  'agents:save': (agent: AgentInput) => AgentInfo[]
+  'agents:delete': (id: string) => AgentInfo[]
   'routines:list': () => Routine[]
   'routines:add': (prompt: string, when: string) => Routine[]
   'routines:act': (id: string, action: 'pause' | 'resume' | 'remove' | 'run') => Routine[]
@@ -240,6 +250,8 @@ export const INVOKE_CHANNELS = [
   'chats:setModel',
   'chats:setThinking',
   'chats:send',
+  'chats:setAgent',
+  'chats:setPlan',
   'chats:cancel',
   'chats:retry',
   'chats:continue',
@@ -253,6 +265,9 @@ export const INVOKE_CHANNELS = [
   'models:context',
   'attachments:read',
   'memory:list',
+  'agents:list',
+  'agents:save',
+  'agents:delete',
   'routines:list',
   'routines:add',
   'routines:act',

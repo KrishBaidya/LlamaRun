@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { resolveThinking } from '@shared/thinking'
-import type { Chat, ChatAttachment, ChatEvent, ChatMessage, ChatSummary, ContextUsage, ModelContextInfo, ModelInfo, SlashCommand, ThinkingChoice } from '@shared/types'
+import type { Chat, ChatAttachment, ChatEvent, ChatSetup, ChatMessage, ChatSummary, ContextUsage, ModelContextInfo, ModelInfo, SlashCommand, ThinkingChoice } from '@shared/types'
 import { analytics } from '../analytics'
 import { approvals } from '../assistant/approval'
 import { builtinInstructions, builtinTools, callBuiltinTool, installNote, isBuiltinTool } from '../assistant/builtins'
@@ -28,7 +28,7 @@ import { memoryStore } from '../memory/store'
 import { skillStore } from '../skills/store'
 import { reviewTask } from './review'
 import { joinRound } from '../llm/toolRun'
-import { agentStore } from '../assistant/agents'
+import { agentStore, allowedTools } from '../assistant/agents'
 import { AGENT_RUN, agentRunTool, runSubagent } from './subagent'
 import * as notify from '../notify'
 import { stopChat as stopChatProcesses } from '../assistant/processes'
@@ -61,6 +61,8 @@ export interface SendOptions {
   skill?: ChatMessage['skill']
   /** A new chat created for this message thinks this hard (chosen in the chat box before it existed). */
   thinking?: ThinkingChoice
+  /** A new chat's agent and plan mode, chosen before it existed. */
+  setup?: ChatSetup
 }
 
 /** Most images one message may carry. */
@@ -99,7 +101,12 @@ export interface ChatToolOptions {
   model?: string
   thinking?: ThinkingChoice
   signal?: AbortSignal
+  /** The chat's agent's tools: only these (and ask_user, todo_update) are offered. */
+  allow?: string[] | '*'
+  /** Plan mode: read-only tools only, and agent_run's helpers stay read-only. */
+  plan?: boolean
 }
+
 
 /**
  * The tools a chat turn offers: Llama Run's own (memory, skills, for typed
@@ -119,9 +126,13 @@ export function chatTools(options: ChatToolOptions = {}): ToolBridge | undefined
   const pluginTools = pluginHost.modelTools(new Set([...own, ...mcpTools].map((t) => t.name)))
   if (!own.length && !mcpTools.length && !pluginTools.length) return undefined
   const fromPlugins = new Set(pluginTools.map((t) => t.name))
-  const tools = [...own, ...mcpTools, ...pluginTools]
+  const tools = allowedTools([...own, ...mcpTools, ...pluginTools], options)
+  if (!tools.length) return undefined
+  const offered = new Set(tools.map((t) => t.name))
   const call: ToolBridge['call'] = (name, args) =>
-    isBuiltinTool(name)
+    !offered.has(name)
+      ? Promise.resolve({ content: [{ type: 'text', text: `${name} is not available in this chat${options.plan ? ' while plan mode is on' : ''}.` }], isError: true })
+      : isBuiltinTool(name)
       ? callBuiltinTool(name, args, { chatId: options.chatId, messageId: options.messageId })
       : options.computer && isComputerTool(name)
         ? computer.call(name, args, { chatId: options.chatId, screenshots: options.computer.screenshots })
@@ -136,7 +147,8 @@ export function chatTools(options: ChatToolOptions = {}): ToolBridge | undefined
                   thinking: options.thinking,
                   signal: options.signal,
                   generate,
-                  findAgent: (n) => agentStore.find(n)
+                  findAgent: (n) => agentStore.find(n),
+                  readOnly: options.plan
                 })
               : mcp.callTool(name, args)
   return {
@@ -159,13 +171,13 @@ const promptSnapshots = new Map<string, string>()
  * Instructions for a turn, most stable first so a cached prefix lasts: memories
  * and skills, what plugins added, computer use, an install note, then the turn's own.
  */
-export function systemFor(turn?: string, shell = false, computerOn = false, install = false, chatId?: string): string | undefined {
+export function systemFor(turn?: string, shell = false, computerOn = false, install = false, chatId?: string, agentPrompt?: string): string | undefined {
   let base = chatId ? promptSnapshots.get(chatId) : undefined
   if (base === undefined) {
     base = builtinInstructions({ shell })
     if (chatId) promptSnapshots.set(chatId, base)
   }
-  const parts = [base, pluginHost.contextText(), computerOn ? computerInstructions() : '', install ? installNote() : '', turn?.trim()].filter(Boolean)
+  const parts = [base, agentPrompt?.trim(), pluginHost.contextText(), computerOn ? computerInstructions() : '', install ? installNote() : '', turn?.trim()].filter(Boolean)
   return parts.length ? parts.join('\n\n') : undefined
 }
 
@@ -298,6 +310,28 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     this.emit('event', { type: 'chat', chat })
   }
 
+  /** The custom agent the chat runs as; picking one with its own model switches the chat to it. */
+  setAgent(id: string, agentId: string | null): void {
+    const chat = chatStore.get(id)
+    if (!chat) return
+    const agent = agentId ? agentStore.find(agentId) : undefined
+    if (agent) {
+      chat.agent = agent.id
+      if (agent.model) chat.model = agent.model
+    } else delete chat.agent
+    chatStore.save(chat, false)
+    this.emit('event', { type: 'chat', chat })
+  }
+
+  setPlan(id: string, plan: boolean): void {
+    const chat = chatStore.get(id)
+    if (!chat) return
+    if (plan) chat.plan = true
+    else delete chat.plan
+    chatStore.save(chat, false)
+    this.emit('event', { type: 'chat', chat })
+  }
+
   delete(id: string): void {
     this.cancel(id)
     this.paused.delete(id)
@@ -363,7 +397,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     return this.running.has(id)
   }
 
-  async send(chatId: string | null, text: string, model?: string, attachments?: ChatAttachment[], thinking?: ThinkingChoice): Promise<string> {
+  async send(chatId: string | null, text: string, model?: string, attachments?: ChatAttachment[], thinking?: ThinkingChoice, setup?: ChatSetup): Promise<string> {
     const compact = !attachments?.length ? /^\/compact(?:\s+([\s\S]*))?$/i.exec(text.trim()) : null
     if (compact) {
       if (!chatId || !chatStore.get(chatId)?.messages.length) throw new Error('Nothing to compact yet')
@@ -384,9 +418,9 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     if (invoked) {
       analytics.track('skill_invoked', { via: 'slash' })
       const instructions = skillStore.invoke(invoked.skill, invoked.args)
-      return this.start(chatId, text.trim(), { model, attachments, thinking, skill: { name: invoked.skill.name, instructions } }).chatId
+      return this.start(chatId, text.trim(), { model, attachments, thinking, setup, skill: { name: invoked.skill.name, instructions } }).chatId
     }
-    return this.start(chatId, text, { model, attachments, thinking }).chatId
+    return this.start(chatId, text, { model, attachments, thinking, setup }).chatId
   }
 
   /** Opens an "Install with AI" chat: the model reads the README and installs it, asking before each command. */
@@ -539,6 +573,9 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     const chat = existing || this.create(options.model, options.ephemeral)
     if (this.running.has(chat.id)) throw new Error('Wait for the current response to finish, or stop it first.')
     if (!existing && options.thinking) chat.thinking = options.thinking
+    const chosen = !existing && options.setup?.agent ? agentStore.find(options.setup.agent) : undefined
+    if (chosen) chat.agent = chosen.id
+    if (!existing && options.setup?.plan) chat.plan = true
     if (!chat.model) chat.model = settings.get('selectedModel')
     // A plugin may pick the model per message; typed messages use the chat's model.
     if (existing && options.via && options.model) chat.model = options.model
@@ -687,15 +724,16 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
       }
 
       // The chat's choice, else the model's default from Model settings, else low for computer-use steps.
-      const turnThinking = resolveThinking(info, { chat: chat.thinking, modelDefault: settings.get('modelContext')?.[model]?.thinking, computerOn: Boolean(computerOn) })
+      const agent = chat.agent ? agentStore.find(chat.agent) : undefined
+      const turnThinking = resolveThinking(info, { chat: chat.thinking ?? agent?.thinking, modelDefault: settings.get('modelContext')?.[model]?.thinking, computerOn: Boolean(computerOn) })
       const text = await generate(historyFor(chat.messages.slice(0, -1), chat.compaction), {
         model,
         signal: controller.signal,
         tools:
           turn?.tools === false
             ? undefined
-            : chatTools({ shell, chatId: chat.id, messageId: assistant.id, computer: computerOn, routine: turn?.routine, model, thinking: turnThinking, signal: controller.signal }),
-        system: systemFor(turn?.system, shell, Boolean(computerOn), install, chat.id),
+            : chatTools({ shell, chatId: chat.id, messageId: assistant.id, computer: computerOn, routine: turn?.routine, model, thinking: turnThinking, signal: controller.signal, allow: agent?.tools, plan: chat.plan }),
+        system: systemFor(turn?.system, shell, Boolean(computerOn), install, chat.id, agent?.prompt),
         maxToolRounds: maxRounds,
         vision: Boolean(info?.capabilities?.includes('vision')),
         thinking: turnThinking,
