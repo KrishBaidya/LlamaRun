@@ -264,7 +264,7 @@ export interface ChatMessage {
   /** How many files "Undo file changes" put back. */
   undoneFiles?: number
   /** User messages sent by a plugin (e.g. a voice assistant) rather than typed. */
-  via?: { plugin: string; voice?: boolean }
+  via?: { plugin: string; voice?: boolean; remote?: boolean }
   /** Assistant messages: stopped at the tool-round cap and can be continued. */
   toolLimit?: boolean
   /** Images and documents sent with it (or posted by a plugin). */
@@ -280,6 +280,21 @@ export interface ChatMessage {
   /** Which of `versions` is showing. */
   version?: number
   createdAt: number
+}
+
+/** A messaging app's connection, as Settings > Channels shows it. */
+export interface ChannelStatus {
+  id: 'telegram' | 'discord'
+  label: string
+  /** A bot token is saved. */
+  configured: boolean
+  connected: boolean
+  botName?: string
+  /** Send this code to the bot to pair an account; absent once used. */
+  pairCode?: string
+  paired: { peer: string; name: string }[]
+  error?: string
+  deliverRoutines: boolean
 }
 
 export type HookEvent = 'SessionStart' | 'UserPromptSubmit' | 'PreToolUse' | 'PostToolUse' | 'Stop'

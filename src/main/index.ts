@@ -23,6 +23,7 @@ import { createOverlay, markQuitting, showOverlay } from './windows/overlay'
 import { stopAll as stopProcesses } from './assistant/processes'
 import { usageStore } from './usage'
 import { startApprovalNotices } from './notify'
+import { channelHub } from './channels'
 import { chatService } from './chats/service'
 
 // ---------------------------------------------------------------- crash log
@@ -131,6 +132,7 @@ if (!app.requestSingleInstanceLock()) {
     shuttingDown = true
     e.preventDefault()
     stopProcesses()
+    channelHub.stop()
     usageStore.flush()
     // Give plugins their on_unload, close MCP servers, stop the computer-use driver and flush analytics before exiting.
     void Promise.allSettled([pluginHost.stop(), mcp.stop(), closeDriver(), analytics.shutdown()]).finally(() => app.quit())
@@ -150,6 +152,11 @@ if (!app.requestSingleInstanceLock()) {
     void installBundledPlugins()
     startRoutines()
     startApprovalNotices((id) => chatService.get(id)?.title ?? '')
+    channelHub.start({
+      ask: (chatId, text, via) => chatService.ask(chatId && chatService.get(chatId) ? chatId : null, text, { via: { plugin: via, remote: true }, remote: true }),
+      busy: (chatId) => chatService.isRunning(chatId),
+      queue: (chatId, text) => chatService.queue(chatId, text)
+    })
     if (settings.get('computerUse')) warmDriver()
     settings.on('changed', (_all, patch) => {
       if (patch.computerUse) warmDriver()

@@ -2,6 +2,7 @@ import type {
   AgentInfo,
   AgentInput,
   AppearanceInfo,
+  ChannelStatus,
   ChatSetup,
   HookConfig,
   QueuedMessage,
@@ -117,6 +118,13 @@ export interface InvokeChannels {
 
   'memory:list': () => MemoryItem[]
   /** Scheduled prompts. */
+  'channels:status': () => ChannelStatus[]
+  /** Connects a bot with the token the user pasted; throws if it doesn't work. */
+  'channels:connect': (id: 'telegram' | 'discord', token: string) => ChannelStatus[]
+  'channels:disconnect': (id: 'telegram' | 'discord') => ChannelStatus[]
+  'channels:newCode': (id: 'telegram' | 'discord') => ChannelStatus[]
+  'channels:unpair': (id: 'telegram' | 'discord', peer: string) => ChannelStatus[]
+  'channels:setDeliver': (on: boolean) => ChannelStatus[]
   'hooks:get': () => HookConfig
   /** Saves the hooks (Claude Code's format); throws saying what's wrong. */
   'hooks:save': (config: HookConfig) => HookConfig
@@ -230,6 +238,7 @@ export interface EventChannels {
   'settings:navigate': string
   'memory:changed': MemoryItem[]
   'routines:changed': Routine[]
+  'channels:changed': ChannelStatus[]
   'skills:changed': SkillInfo[]
   'commands:changed': SlashCommand[]
 }
@@ -298,6 +307,12 @@ export const INVOKE_CHANNELS = [
   'models:context',
   'attachments:read',
   'memory:list',
+  'channels:status',
+  'channels:connect',
+  'channels:disconnect',
+  'channels:newCode',
+  'channels:unpair',
+  'channels:setDeliver',
   'hooks:get',
   'hooks:save',
   'hooks:claudeCode',
@@ -386,5 +401,6 @@ export const EVENT_CHANNELS = [
   'memory:changed',
   'skills:changed',
   'commands:changed',
-  'routines:changed'
+  'routines:changed',
+  'channels:changed'
 ] as const satisfies readonly EventChannel[]

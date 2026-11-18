@@ -22,6 +22,7 @@ import { memoryStore } from './memory/store'
 import { routineStore } from './routines/store'
 import { exportChat } from './chats/exportFile'
 import { agentStore } from './assistant/agents'
+import { channelHub } from './channels'
 import { claudeCodeHooks, loadHooks, saveHooks } from './assistant/hooks'
 import { pluginDataDir, pluginsDir } from './paths'
 import { pluginHost } from './plugins/host'
@@ -186,6 +187,13 @@ export function registerIpc(): void {
     const { canceled, filePaths } = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options)
     return canceled || !filePaths[0] ? null : filePaths[0]
   })
+  const channelId = (id: unknown): 'telegram' | 'discord' => (id === 'discord' ? 'discord' : 'telegram')
+  handle('channels:status', () => channelHub.status())
+  handle('channels:connect', (_e, id, token) => channelHub.connect(channelId(id), String(token ?? '')))
+  handle('channels:disconnect', (_e, id) => channelHub.disconnect(channelId(id)))
+  handle('channels:newCode', (_e, id) => channelHub.newCode(channelId(id)))
+  handle('channels:unpair', (_e, id, peer) => channelHub.unpair(channelId(id), String(peer)))
+  handle('channels:setDeliver', (_e, on) => channelHub.setDeliver(on === true))
   handle('hooks:get', () => loadHooks())
   handle('hooks:save', (_e, config) => saveHooks(config))
   handle('hooks:claudeCode', () => claudeCodeHooks())
@@ -374,6 +382,7 @@ export function registerIpc(): void {
   })
   memoryStore.on('changed', (list) => broadcast('memory:changed', list))
   routineStore.on('changed', (list) => broadcast('routines:changed', list))
+  channelHub.on('changed', (list) => broadcast('channels:changed', list))
   approvals.on('changed', (chatId, request) => {
     broadcast('chat:event', { type: 'approval', chatId, request })
     // Nobody can answer a question in a chat no window shows: open it.

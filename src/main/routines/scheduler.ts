@@ -2,6 +2,7 @@ import { Notification } from 'electron'
 import type { Routine } from '@shared/types'
 import { approvals } from '../assistant/approval'
 import { takeNotices } from '../assistant/builtins'
+import { channelHub } from '../channels'
 import { chatService } from '../chats/service'
 import { iconPath } from '../paths'
 import { openChatWindow } from '../windows/chat'
@@ -52,6 +53,7 @@ export async function runRoutine(routine: Routine): Promise<void> {
     const asked = takeNotices(chatId)
     const body = status === 'error' ? `Failed: ${reply.error ?? 'unknown error'}` : asked.length ? asked.join(' ') : routine.quiet ? '' : gist(reply.content)
     if (body) {
+      channelHub.deliver(`Routine "${gist(routine.prompt).slice(0, 60)}": ${body}`)
       const note = new Notification({ title: `Routine: ${gist(routine.prompt).slice(0, 60)}`, body: body.slice(0, 250), icon: iconPath() })
       const id = chatId
       note.on('click', () => openChatWindow(id))

@@ -52,6 +52,8 @@ export interface TurnOptions {
   tools?: boolean
   /** A scheduled run nobody is watching: no computer use, and it can't schedule more routines. */
   routine?: boolean
+  /** From a messaging app: the user isn't at the PC, so no computer use. */
+  remote?: boolean
 }
 
 export interface SendOptions {
@@ -70,7 +72,12 @@ export interface SendOptions {
   setup?: ChatSetup
   /** Sent by a hook (a Stop hook's feedback): shown as such, but runs like a typed message. */
   hook?: HookEvent
+  /** Typed by the user in a messaging app: their own message, so it runs like a typed one (without computer use). */
+  remote?: boolean
 }
+
+/** The user's own message: typed here, or in a messaging app (not sent by a plugin). */
+const typedBy = (m: ChatMessage): boolean => !m.via || m.via.remote === true
 
 /** Most images one message may carry. */
 export const MAX_IMAGES = 6
@@ -278,7 +285,7 @@ export async function contextFor(model: string): Promise<ModelContextInfo> {
  * or cloud (the server takes them inside tool results).
  */
 export function computerFor(typed: boolean, info: ModelInfo | undefined, turn?: TurnOptions): ChatToolOptions['computer'] {
-  if (!typed || turn?.tools === false || turn?.routine || !settings.get('computerUse')) return undefined
+  if (!typed || turn?.tools === false || turn?.routine || turn?.remote || !settings.get('computerUse')) return undefined
   const vision = Boolean(info?.capabilities?.includes('vision'))
   return { screenshots: settings.get('computerScreenshots') !== false && vision }
 }
@@ -647,7 +654,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     chat.messages.push(user)
     chatStore.save(chat)
     this.emit('event', { type: 'chat', chat })
-    return { chatId: chat.id, done: this.run(chat, user, undefined, options.turn, !options.via) }
+    return { chatId: chat.id, done: this.run(chat, user, undefined, options.remote ? { ...options.turn, remote: true } : options.turn, !options.via || options.remote === true) }
   }
 
   retry(chatId: string): void {
@@ -661,7 +668,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     user.prompt = undefined
     chatStore.save(chat)
     this.emit('event', { type: 'chat', chat })
-    void this.run(chat, user, undefined, undefined, !user.via)
+    void this.run(chat, user, undefined, undefined, typedBy(user))
   }
 
   /**
@@ -758,7 +765,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     const user = messages[messages.length - 1]
     chatStore.save(chat)
     this.emit('event', { type: 'chat', chat })
-    void this.run(chat, user, undefined, undefined, !user.via)
+    void this.run(chat, user, undefined, undefined, typedBy(user))
   }
 
   /** Shows another version of an edited message with the replies it had. */
@@ -799,7 +806,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     assistant.toolLimit = undefined
     assistant.note = undefined
     assistant.status = 'streaming'
-    return this.run(chat, user, { assistant, pause: paused.pause }, paused.turn, !user.via)
+    return this.run(chat, user, { assistant, pause: paused.pause }, paused.turn, typedBy(user))
   }
 
   /** A new message or retry makes a paused run stale. */
@@ -886,7 +893,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
       const context = contextWindowFor(model, info, settings.all)
       const shell = typed
       const install = typed && wantsShell(chat, user.prompt ?? user.content)
-      const computerOn = computerFor(typed, info, turn)
+      const computerOn = computerFor(typed && !user.via?.remote, info, turn)
       maxRounds = computerOn ? Math.min(500, Math.max(MAX_TOOL_ROUNDS, settings.get('computerMaxSteps') || 0)) : MAX_TOOL_ROUNDS
       if (!resume) await this.autoCompact(chat, model, context, controller.signal, shell, computerOn)
       if (controller.signal.aborted) throw new Error('Stopped')
