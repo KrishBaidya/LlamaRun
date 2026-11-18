@@ -209,6 +209,17 @@ function ToolCard({ part }: { part: ToolPart }) {
               {JSON.stringify(part.args, null, 2)}
             </pre>
           )}
+          {part.steps && part.steps.length > 0 && (
+            <ol className="flex flex-col gap-0.5 border-s border-border ps-2 text-muted-foreground">
+              {part.steps.map((step, i) => (
+                <li key={i} className="flex min-w-0 items-center gap-1.5">
+                  {step.status === 'error' ? <AlertCircle className="size-3 shrink-0 text-destructive" /> : <Wrench className="size-3 shrink-0" />}
+                  <span className="shrink-0 font-medium text-foreground">{step.name}</span>
+                  {step.hint && <span className="min-w-0 truncate opacity-80">{step.hint}</span>}
+                </li>
+              ))}
+            </ol>
+          )}
           <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono">
             {part.result ?? (part.status === 'running' ? 'Running…' : '')}
           </pre>

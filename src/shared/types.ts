@@ -142,6 +142,35 @@ export interface ToolPart {
   status: 'running' | 'done' | 'error'
   /** The result as text, cut to a few KB for storage; images are left out. */
   result?: string
+  /** agent_run: the tool calls the agent made, in order. */
+  steps?: ToolStep[]
+}
+
+export interface ToolStep {
+  name: string
+  status: 'done' | 'error'
+  /** A short hint of what the call was about. */
+  hint?: string
+}
+
+export type AgentLocation = 'llamarun' | 'claude' | 'opencode'
+
+/** A custom agent (OpenCode agents, Claude Code's .claude/agents): a prompt with its own model and tools. */
+export interface AgentInfo {
+  /** location:file-name, e.g. "llamarun:researcher". */
+  id: string
+  name: string
+  /** What it is for: decides when the model hands it work. */
+  description: string
+  /** A model id; absent: the chat's model. */
+  model?: string
+  /** Tool names it may call, or every tool. */
+  tools: string[] | '*'
+  thinking?: ThinkingChoice
+  /** Its instructions (the file's body). */
+  prompt: string
+  location: AgentLocation
+  file: string
 }
 
 /** What the model thought on the way (a thinking model's summary of its reasoning), shown in place; never sent back to it. */

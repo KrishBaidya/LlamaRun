@@ -39,6 +39,8 @@ export interface McpToolResult {
    * has one arrives (an old window state, say), so requests stay small.
    */
   superseded?: string
+  /** agent_run: the calls the agent made, shown in the tool card. */
+  steps?: import('@shared/types').ToolStep[]
 }
 
 /**

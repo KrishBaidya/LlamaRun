@@ -49,6 +49,7 @@ export function toolPart(id: string, name: string, server: string, args: Record<
 export function finishTool(part: ToolPart, result: McpToolResult | null, error?: string): void {
   part.status = !result || result.isError ? 'error' : 'done'
   part.result = cut(result ? toolResultToText(result, MAX_STORED_RESULT * 2) : `Tool error: ${error ?? 'failed'}`, MAX_STORED_RESULT)
+  if (result?.steps?.length) part.steps = result.steps.slice(0, 200)
 }
 
 /** The reply's text, rounds separated by a blank line: what `content` holds. */

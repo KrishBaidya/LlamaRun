@@ -28,6 +28,8 @@ import { memoryStore } from '../memory/store'
 import { skillStore } from '../skills/store'
 import { reviewTask } from './review'
 import { joinRound } from '../llm/toolRun'
+import { agentStore } from '../assistant/agents'
+import { AGENT_RUN, agentRunTool, runSubagent } from './subagent'
 import * as notify from '../notify'
 import { stopChat as stopChatProcesses } from '../assistant/processes'
 import { COMPACT_SYSTEM, compactionRequest, splitForCompaction, SUMMARY_INTRO, transcriptOf, visibleMessages } from './compact'
@@ -93,6 +95,10 @@ export interface ChatToolOptions {
   routine?: boolean
   /** Offer the computer_* tools (computer use is on and the user typed this turn). */
   computer?: { screenshots: boolean }
+  /** The turn's model and thinking, for agent_run's children. Without a model, agent_run isn't offered. */
+  model?: string
+  thinking?: ThinkingChoice
+  signal?: AbortSignal
 }
 
 /**
@@ -101,7 +107,13 @@ export interface ChatToolOptions {
  * the MCP servers' and the plugins'.
  */
 export function chatTools(options: ChatToolOptions = {}): ToolBridge | undefined {
-  const own = [...builtinTools(options), ...(options.computer ? computer.tools() : []), ...(options.shell ? [RUN_CODE_TOOL] : [])]
+  const agents = options.shell && options.model ? agentStore.list() : []
+  const own = [
+    ...builtinTools(options),
+    ...(options.computer ? computer.tools() : []),
+    ...(options.shell ? [RUN_CODE_TOOL] : []),
+    ...(options.shell && options.model ? [agentRunTool(agents)] : [])
+  ]
   const ownNames = new Set(own.map((t) => t.name))
   const mcpTools = mcp.tools().filter((t) => !isBuiltinTool(t.name) && !ownNames.has(t.name))
   const pluginTools = pluginHost.modelTools(new Set([...own, ...mcpTools].map((t) => t.name)))
@@ -117,7 +129,16 @@ export function chatTools(options: ChatToolOptions = {}): ToolBridge | undefined
           ? pluginHost.callModelTool(name, args)
           : name === RUN_CODE
             ? runCode(args, { tools: tools.filter((t) => t.name !== RUN_CODE), call }, { chatId: options.chatId })
-            : mcp.callTool(name, args)
+            : name === AGENT_RUN && options.model
+              ? runSubagent(args, {
+                  bridge: { tools: tools.filter((t) => t.name !== AGENT_RUN), call, sequential: (n) => isComputerTool(n) || n === RUN_CODE },
+                  model: options.model,
+                  thinking: options.thinking,
+                  signal: options.signal,
+                  generate,
+                  findAgent: (n) => agentStore.find(n)
+                })
+              : mcp.callTool(name, args)
   return {
     tools,
     // One desktop, one action at a time; other tools in the same step run together. A script may drive the desktop too.
@@ -665,15 +686,19 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
         this.emit('event', { type: 'message', chatId: chat.id, message: { ...assistant } })
       }
 
+      // The chat's choice, else the model's default from Model settings, else low for computer-use steps.
+      const turnThinking = resolveThinking(info, { chat: chat.thinking, modelDefault: settings.get('modelContext')?.[model]?.thinking, computerOn: Boolean(computerOn) })
       const text = await generate(historyFor(chat.messages.slice(0, -1), chat.compaction), {
         model,
         signal: controller.signal,
-        tools: turn?.tools === false ? undefined : chatTools({ shell, chatId: chat.id, messageId: assistant.id, computer: computerOn, routine: turn?.routine }),
+        tools:
+          turn?.tools === false
+            ? undefined
+            : chatTools({ shell, chatId: chat.id, messageId: assistant.id, computer: computerOn, routine: turn?.routine, model, thinking: turnThinking, signal: controller.signal }),
         system: systemFor(turn?.system, shell, Boolean(computerOn), install, chat.id),
         maxToolRounds: maxRounds,
         vision: Boolean(info?.capabilities?.includes('vision')),
-        // The chat's choice, else the model's default from Model settings, else low for computer-use steps.
-        thinking: resolveThinking(info, { chat: chat.thinking, modelDefault: settings.get('modelContext')?.[model]?.thinking, computerOn: Boolean(computerOn) }),
+        thinking: turnThinking,
         // Compaction keeps the history inside the window; this cut is the safety net.
         historyChars: Math.floor(context.tokens * 4 * 0.9),
         contextTokens: context.tokens,
