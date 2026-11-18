@@ -21,6 +21,8 @@ import { openOnboarding } from './windows/onboarding'
 import { attachContextMenu } from './windows/contextMenu'
 import { createOverlay, markQuitting, showOverlay } from './windows/overlay'
 import { stopAll as stopProcesses } from './assistant/processes'
+import { startApprovalNotices } from './notify'
+import { chatService } from './chats/service'
 
 // ---------------------------------------------------------------- crash log
 
@@ -145,6 +147,7 @@ if (!app.requestSingleInstanceLock()) {
     void pluginHost.start()
     void installBundledPlugins()
     startRoutines()
+    startApprovalNotices((id) => chatService.get(id)?.title ?? '')
     if (settings.get('computerUse')) warmDriver()
     settings.on('changed', (_all, patch) => {
       if (patch.computerUse) warmDriver()

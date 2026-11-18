@@ -122,6 +122,7 @@ export function registerIpc(): void {
       'allowedCommands',
       'commandRules',
       'reviewAfterTasks',
+      'notifyWhenDone',
       'reviewMinToolCalls',
       'autoCompact',
       'autoCompactPercent',

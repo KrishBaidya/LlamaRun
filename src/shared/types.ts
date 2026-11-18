@@ -35,6 +35,8 @@ export interface Settings {
   commandRules: CommandRule[]
   /** After a reply with many tool calls, a cheap model proposes a skill or memories to keep (shown under the reply). */
   reviewAfterTasks: boolean
+  /** A Windows notification when a reply that used tools finishes, or a chat needs an approval, while Llama Run isn't focused. */
+  notifyWhenDone: boolean
   /** Tool calls a reply needs before it's reviewed. */
   reviewMinToolCalls: number
   /** Summarise older messages when a chat gets close to the model's context window. */

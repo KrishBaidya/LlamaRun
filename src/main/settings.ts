@@ -23,6 +23,7 @@ export const DEFAULT_SETTINGS: Settings = {
   allowedCommands: [],
   commandRules: [],
   reviewAfterTasks: true,
+  notifyWhenDone: true,
   reviewMinToolCalls: 6,
   autoCompact: true,
   autoCompactPercent: 80,

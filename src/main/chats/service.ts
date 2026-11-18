@@ -28,6 +28,7 @@ import { memoryStore } from '../memory/store'
 import { skillStore } from '../skills/store'
 import { reviewTask } from './review'
 import { joinRound } from '../llm/toolRun'
+import * as notify from '../notify'
 import { stopChat as stopChatProcesses } from '../assistant/processes'
 import { COMPACT_SYSTEM, compactionRequest, splitForCompaction, SUMMARY_INTRO, transcriptOf, visibleMessages } from './compact'
 import { contextWindowFor, estimateParts, estimateTokens, usageOf } from './context'
@@ -762,6 +763,8 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
       if (changed.length) assistant.changedFiles = changed
       emitUpdate()
       chatStore.save(chat)
+      // Told only when they're elsewhere; routines notify on their own.
+      if (typed && !turn?.routine && toolCalls > 0 && !pause && !controller.signal.aborted) notify.replyFinished(chat.id, chat.title, assistant.status, assistant.content, assistant.error)
       trackGeneration(assistant, { startedAt, firstTokenAt, toolCalls, usage, paused: !!pause, via: user.via ? 'plugin' : typed ? 'typed' : 'app', resumed: !!resume })
       // A long task that finished: propose what's worth keeping, without holding up the reply.
       const reviewing = settings.get('reviewAfterTasks') !== false && (settings.get('skillsEnabled') !== false || settings.get('memoryEnabled') !== false)

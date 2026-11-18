@@ -32,6 +32,7 @@ type Draft = Pick<
   | 'autoCompactPercent'
   | 'compactKeepTurns'
   | 'telemetryEnabled'
+  | 'notifyWhenDone'
 >
 
 const OVERLAY_TIMEOUTS: [number, string][] = [
@@ -54,7 +55,8 @@ function pick(s: Settings): Draft {
     autoCompact: s.autoCompact !== false,
     autoCompactPercent: s.autoCompactPercent ?? 80,
     compactKeepTurns: s.compactKeepTurns ?? 4,
-    telemetryEnabled: s.telemetryEnabled !== false
+    telemetryEnabled: s.telemetryEnabled !== false,
+    notifyWhenDone: s.notifyWhenDone !== false
   }
 }
 
@@ -335,6 +337,13 @@ export function HomePage() {
                 </div>
               ))}
             </div>
+          </SettingRow>
+          <Separator />
+          <SettingRow
+            title="Notify me when a task finishes"
+            description="While you're in another app: a notification when a reply that used tools finishes, or when a chat needs your OK."
+          >
+            <Switch checked={draft.notifyWhenDone} onCheckedChange={(v) => set('notifyWhenDone', v)} />
           </SettingRow>
           <Separator />
           <div className="flex items-center gap-3 py-4">
