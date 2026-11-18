@@ -123,6 +123,8 @@ export function clip(text: string): string {
 
 export interface CodeContext {
   chatId?: string
+  /** The chat's project folder: the script runs there. */
+  project?: string
 }
 
 /** Runs the model's script; `tools` are the chat's tools it may call (run_code itself excluded). */
@@ -134,7 +136,7 @@ export async function runCode(args: Record<string, unknown>, tools: ToolBridge, 
     const answer = await askApproval(context.chatId, {
       title: 'Run this Python code?',
       command: code,
-      detail: `In ${skillWorkspace()}. It can call Llama Run's tools; any that ask before acting still ask.`,
+      detail: `In ${context.project ?? skillWorkspace()}. It can call Llama Run's tools; any that ask before acting still ask.`,
       alwaysLabel: 'Allow code for this chat'
     })
     if (answer === 'deny') throw new Error('The user denied this code. Ask them how to continue.')
@@ -188,7 +190,7 @@ export async function runCode(args: Record<string, unknown>, tools: ToolBridge, 
   try {
     const { stdout, stderr, exitCode, timedOut } = await new Promise<{ stdout: string; stderr: string; exitCode: number | null; timedOut: boolean }>((done, fail) => {
       const proc = spawn(pythonExecutable(), ['-X', 'utf8', script], {
-        cwd: skillWorkspace(),
+        cwd: context.project ?? skillWorkspace(),
         windowsHide: true,
         env: { ...commandEnv(), PYTHONPATH: dir, LLAMARUN_TOOLS_PORT: String(port), LLAMARUN_TOOLS_TOKEN: token, PYTHONUNBUFFERED: '1' }
       })

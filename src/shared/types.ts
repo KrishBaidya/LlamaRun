@@ -306,12 +306,15 @@ export interface Chat {
   agent?: string
   /** Plan mode: the model only reads and looks things up; nothing on the PC changes until it's turned off. */
   plan?: boolean
+  /** The folder this chat works in (see Project). */
+  project?: string
 }
 
 /** Chosen in the chat box before a chat exists; goes with its first message. */
 export interface ChatSetup {
   agent?: string
   plan?: boolean
+  project?: string
 }
 
 /** A Llama Run agent as Settings > Agents saves it. */
@@ -328,6 +331,8 @@ export interface AgentInput {
 export interface ChatSummary {
   id: string
   title: string
+  /** Its project folder, for grouping in the sidebar. */
+  project?: string
   model: string
   updatedAt: number
   messageCount: number

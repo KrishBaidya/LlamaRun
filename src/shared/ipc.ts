@@ -73,6 +73,10 @@ export interface InvokeChannels {
   'chats:setAgent': (id: string, agent: string | null) => void
   /** Plan mode on or off for a chat. */
   'chats:setPlan': (id: string, plan: boolean) => void
+  /** The folder a chat works in; null for none. */
+  'chats:setProject': (id: string, folder: string | null) => void
+  /** Asks for a folder; its path, or null if cancelled. */
+  'chats:pickFolder': () => string | null
   'chats:cancel': (chatId: string) => void
   /** Re-runs the last user message (after an error or to get a new answer). */
   'chats:retry': (chatId: string) => void
@@ -265,6 +269,8 @@ export const INVOKE_CHANNELS = [
   'chats:send',
   'chats:setAgent',
   'chats:setPlan',
+  'chats:setProject',
+  'chats:pickFolder',
   'chats:cancel',
   'chats:retry',
   'chats:export',

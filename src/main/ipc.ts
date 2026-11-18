@@ -171,11 +171,19 @@ export function registerIpc(): void {
     const choice = (setup ?? {}) as ChatSetup
     return chatService.send(chatId, text, model, attachments, THINKING_CHOICES.includes(thinking as ThinkingChoice) ? (thinking as ThinkingChoice) : undefined, {
       ...(typeof choice.agent === 'string' ? { agent: choice.agent } : {}),
-      ...(choice.plan === true ? { plan: true } : {})
+      ...(choice.plan === true ? { plan: true } : {}),
+      ...(typeof choice.project === 'string' ? { project: choice.project } : {})
     })
   })
   handle('chats:setAgent', (_e, id, agent) => chatService.setAgent(String(id), typeof agent === 'string' ? agent : null))
   handle('chats:setPlan', (_e, id, plan) => chatService.setPlan(String(id), plan === true))
+  handle('chats:setProject', (_e, id, folder) => chatService.setProject(String(id), typeof folder === 'string' ? folder : null))
+  handle('chats:pickFolder', async (e) => {
+    const parent = BrowserWindow.fromWebContents(e.sender)
+    const options = { title: 'Choose the folder this chat works in', properties: ['openDirectory' as const] }
+    const { canceled, filePaths } = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options)
+    return canceled || !filePaths[0] ? null : filePaths[0]
+  })
   handle('agents:list', () => agentStore.list())
   handle('agents:save', (_e, input) => (agentStore.save(input), agentStore.list()))
   handle('agents:delete', (_e, id) => (agentStore.remove(String(id)), agentStore.list()))

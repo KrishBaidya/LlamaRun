@@ -396,8 +396,8 @@ const inside = (path: string, folder: string): boolean => {
  * reading, the chat's attachments are the model's own; anything else is the
  * user's, and they approve it once per folder for the chat.
  */
-async function approveFile(path: string, write: boolean, chatId: string | undefined, folder = false): Promise<void> {
-  const own = write ? [skillWorkspace()] : [skillWorkspace(), userDataPath('Attachments')]
+async function approveFile(path: string, write: boolean, chatId: string | undefined, folder = false, project?: string): Promise<void> {
+  const own = [...(write ? [skillWorkspace()] : [skillWorkspace(), userDataPath('Attachments')]), ...(project ? [project] : [])]
   if (own.some((folder) => inside(path, folder))) return
   const allowed = chatId ? allowedFolders.get(chatId) : undefined
   if (allowed && [...allowed].some((folder) => inside(path, folder))) return
@@ -415,11 +415,11 @@ async function approveFile(path: string, write: boolean, chatId: string | undefi
 const recentReads = new Map<string, Map<string, string>>()
 
 async function readFile(pathArg: string, context: ToolContext, offsetArg?: unknown, limitArg?: unknown): Promise<McpToolResult> {
-  const path = resolve(skillWorkspace(), pathArg.trim())
+  const path = resolve(baseOf(context), pathArg.trim())
   if (!existsSync(path) || !statSync(path).isFile()) throw new Error(`${path} does not exist`)
   const stat = statSync(path)
   if (stat.size > MAX_FILE_BYTES) throw new Error(`${path} is larger than ${MAX_FILE_BYTES / 1024 / 1024} MB`)
-  await approveFile(path, false, context.chatId)
+  await approveFile(path, false, context.chatId, false, context.project)
   const offset = Math.max(1, Math.floor(Number(offsetArg) || 1))
   const limit = Math.max(1, Math.min(READ_LINES, Math.floor(Number(limitArg) || READ_LINES)))
   const key = `${path}\u0000${offset}\u0000${limit}`
@@ -471,12 +471,12 @@ const GREP_PAGE = 100
 
 /** The folder a search tool looks in, approved like a read (once per folder for the chat). */
 async function searchRoot(args: Record<string, unknown>, context: ToolContext, fileOk = false): Promise<string> {
-  const path = resolve(skillWorkspace(), typeof args.path === 'string' && args.path.trim() ? args.path.trim() : '.')
+  const path = resolve(baseOf(context), typeof args.path === 'string' && args.path.trim() ? args.path.trim() : '.')
   mkdirSync(skillWorkspace(), { recursive: true })
   if (!existsSync(path)) throw new Error(`${path} does not exist`)
   const isDir = statSync(path).isDirectory()
   if (!isDir && !fileOk) throw new Error(`${path} is a file, not a folder`)
-  await approveFile(path, false, context.chatId, isDir)
+  await approveFile(path, false, context.chatId, isDir, context.project)
   return path
 }
 
@@ -507,7 +507,7 @@ async function searchTool(name: string, args: Record<string, unknown>, context: 
 }
 
 async function editFile(args: Record<string, unknown>, context: ToolContext): Promise<McpToolResult> {
-  const path = resolve(skillWorkspace(), str(args, 'path').trim())
+  const path = resolve(baseOf(context), str(args, 'path').trim())
   if (!existsSync(path) || !statSync(path).isFile()) throw new Error(`${path} does not exist`)
   let from = typeof args.old_string === 'string' ? args.old_string : ''
   let to = typeof args.new_string === 'string' ? args.new_string : ''
@@ -521,7 +521,7 @@ async function editFile(args: Record<string, unknown>, context: ToolContext): Pr
   const count = text.split(from).length - 1
   if (!count) throw new Error(`old_string is not in ${path}. Read the file again and copy the text exactly.`)
   if (count > 1 && args.replace_all !== true) throw new Error(`old_string appears ${count} times in ${path}. Add surrounding text to make it unique, or set replace_all.`)
-  await approveFile(path, true, context.chatId)
+  await approveFile(path, true, context.chatId, false, context.project)
   const at = text.indexOf(from)
   const edited = args.replace_all === true ? text.split(from).join(to) : text.slice(0, at) + to + text.slice(at + from.length)
   recordChange(context.chatId, context.messageId, path)
@@ -544,20 +544,20 @@ function imageResult(label: string, image: NativeImage, jpeg = false): McpToolRe
 
 async function render(args: Record<string, unknown>, context: ToolContext): Promise<McpToolResult> {
   const chatId = context.chatId
-  const output = resolve(skillWorkspace(), str(args, 'output').trim())
+  const output = resolve(baseOf(context), str(args, 'output').trim())
   const kind = extname(output).toLowerCase() === '.png' ? 'png' : extname(output).toLowerCase() === '.pdf' ? 'pdf' : null
   if (!kind) throw new Error('output must end in .pdf or .png')
   const html = typeof args.html === 'string' && args.html.trim() ? args.html : undefined
-  const file = !html && typeof args.file === 'string' && args.file.trim() ? resolve(skillWorkspace(), args.file.trim()) : undefined
+  const file = !html && typeof args.file === 'string' && args.file.trim() ? resolve(baseOf(context), args.file.trim()) : undefined
   if (!html && !file) throw new Error('Give html or file')
   if (file) {
     if (!existsSync(file)) throw new Error(`${file} does not exist`)
-    await approveFile(file, false, chatId)
+    await approveFile(file, false, chatId, false, context.project)
   }
-  await approveFile(output, true, chatId)
+  await approveFile(output, true, chatId, false, context.project)
   mkdirSync(skillWorkspace(), { recursive: true })
   const width = typeof args.width === 'number' && args.width >= 200 && args.width <= 4000 ? Math.round(args.width) : undefined
-  const out = await renderHtml({ html, file, base: skillWorkspace(), folders: [skillWorkspace(), userDataPath('Attachments')] }, kind, width)
+  const out = await renderHtml({ html, file, base: baseOf(context), folders: [skillWorkspace(), userDataPath('Attachments'), ...(context.project ? [context.project] : [])] }, kind, width)
   mkdirSync(dirname(output), { recursive: true })
   recordChange(context.chatId, context.messageId, output)
   if (out.kind === 'pdf') {
@@ -569,8 +569,8 @@ async function render(args: Record<string, unknown>, context: ToolContext): Prom
 }
 
 async function writeFile(pathArg: string, content: string, context: ToolContext): Promise<McpToolResult> {
-  const path = resolve(skillWorkspace(), pathArg.trim())
-  await approveFile(path, true, context.chatId)
+  const path = resolve(baseOf(context), pathArg.trim())
+  await approveFile(path, true, context.chatId, false, context.project)
   mkdirSync(dirname(path), { recursive: true })
   recordChange(context.chatId, context.messageId, path)
   writeFileSync(path, content, 'utf8')
@@ -626,8 +626,8 @@ async function approveCommand(command: string, cwd: string, chatId: string | und
   }
 }
 
-async function runCommand(command: string, cwdArg?: string, chatId?: string, background = false): Promise<string> {
-  const cwd = resolve(cwdArg?.trim() || skillWorkspace())
+async function runCommand(command: string, cwdArg?: string, chatId?: string, background = false, base = skillWorkspace()): Promise<string> {
+  const cwd = resolve(base, cwdArg?.trim() || '.')
   mkdirSync(skillsDir(), { recursive: true })
   mkdirSync(skillWorkspace(), { recursive: true })
   if (!existsSync(cwd)) throw new Error(`${cwd} does not exist`)
@@ -671,7 +671,12 @@ export interface ToolContext {
   chatId?: string
   /** The reply the call belongs to. */
   messageId?: string
+  /** The chat's project folder: where relative paths and commands start, and the model's to read and write. */
+  project?: string
 }
+
+/** Where relative paths and commands start: the chat's project folder, else the skill workspace. */
+export const baseOf = (context: ToolContext): string => context.project ?? skillWorkspace()
 
 export async function callBuiltinTool(name: string, args: Record<string, unknown>, context: ToolContext = {}): Promise<McpToolResult> {
   // The tool's fixed name only (memory_save, skill_load, web_fetch...), never its arguments.
@@ -754,7 +759,7 @@ export async function callBuiltinTool(name: string, args: Record<string, unknown
       case 'file_grep':
         return await searchTool(name, args, context)
       case 'run_command':
-        return result(await runCommand(str(args, 'command'), typeof args.cwd === 'string' ? args.cwd : undefined, context.chatId, args.background === true))
+        return result(await runCommand(str(args, 'command'), typeof args.cwd === 'string' ? args.cwd : undefined, context.chatId, args.background === true, baseOf(context)))
       case 'process_output':
         return result(
           typeof args.id === 'string' && args.id.trim() ? cutTail(processes.output(context.chatId, args.id.trim(), args.all === true)) : processes.list(context.chatId)

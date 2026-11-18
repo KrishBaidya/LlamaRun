@@ -30,6 +30,7 @@ import { reviewTask } from './review'
 import { joinRound } from '../llm/toolRun'
 import { describeDays, describeUsage, usageStore } from '../usage'
 import { editMessage, switchVersion } from './branches'
+import { projectInstructions, validProject } from '../assistant/project'
 import { agentStore, allowedTools } from '../assistant/agents'
 import { AGENT_RUN, agentRunTool, runSubagent } from './subagent'
 import * as notify from '../notify'
@@ -109,6 +110,8 @@ export interface ChatToolOptions {
   allow?: string[] | '*'
   /** Plan mode: read-only tools only, and agent_run's helpers stay read-only. */
   plan?: boolean
+  /** The chat's project folder. */
+  project?: string
 }
 
 
@@ -137,13 +140,13 @@ export function chatTools(options: ChatToolOptions = {}): ToolBridge | undefined
     !offered.has(name)
       ? Promise.resolve({ content: [{ type: 'text', text: `${name} is not available in this chat${options.plan ? ' while plan mode is on' : ''}.` }], isError: true })
       : isBuiltinTool(name)
-      ? callBuiltinTool(name, args, { chatId: options.chatId, messageId: options.messageId })
+      ? callBuiltinTool(name, args, { chatId: options.chatId, messageId: options.messageId, project: options.project })
       : options.computer && isComputerTool(name)
         ? computer.call(name, args, { chatId: options.chatId, screenshots: options.computer.screenshots })
         : fromPlugins.has(name)
           ? pluginHost.callModelTool(name, args)
           : name === RUN_CODE
-            ? runCode(args, { tools: tools.filter((t) => t.name !== RUN_CODE), call }, { chatId: options.chatId })
+            ? runCode(args, { tools: tools.filter((t) => t.name !== RUN_CODE), call }, { chatId: options.chatId, project: options.project })
             : name === AGENT_RUN && options.model
               ? runSubagent(args, {
                   bridge: { tools: tools.filter((t) => t.name !== AGENT_RUN), call, sequential: (n) => isComputerTool(n) || n === RUN_CODE },
@@ -178,7 +181,8 @@ const promptSnapshots = new Map<string, string>()
 export function systemFor(turn?: string, shell = false, computerOn = false, install = false, chatId?: string, agentPrompt?: string): string | undefined {
   let base = chatId ? promptSnapshots.get(chatId) : undefined
   if (base === undefined) {
-    base = builtinInstructions({ shell })
+    const project = chatId ? chatStore.get(chatId)?.project : undefined
+    base = [builtinInstructions({ shell }), projectInstructions(validProject(project))].filter(Boolean).join('\n\n')
     if (chatId) promptSnapshots.set(chatId, base)
   }
   const parts = [base, agentPrompt?.trim(), pluginHost.contextText(), computerOn ? computerInstructions() : '', install ? installNote() : '', turn?.trim()].filter(Boolean)
@@ -327,6 +331,19 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     } else delete chat.agent
     chatStore.save(chat, false)
     this.emit('event', { type: 'chat', chat })
+  }
+
+  /** The folder the chat works in; its instruction file joins the prompt from the next turn. */
+  setProject(id: string, folder: string | null): void {
+    const chat = chatStore.get(id)
+    if (!chat) return
+    const valid = validProject(folder)
+    if (valid) chat.project = valid
+    else delete chat.project
+    refreshPrompt(id)
+    chatStore.save(chat)
+    this.emit('event', { type: 'chat', chat })
+    this.emit('changed', this.list())
   }
 
   setPlan(id: string, plan: boolean): void {
@@ -596,6 +613,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     const chosen = !existing && options.setup?.agent ? agentStore.find(options.setup.agent) : undefined
     if (chosen) chat.agent = chosen.id
     if (!existing && options.setup?.plan) chat.plan = true
+    if (!existing && validProject(options.setup?.project)) chat.project = options.setup!.project
     if (!chat.model) chat.model = settings.get('selectedModel')
     // A plugin may pick the model per message; typed messages use the chat's model.
     if (existing && options.via && options.model) chat.model = options.model
@@ -849,7 +867,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
         tools:
           turn?.tools === false
             ? undefined
-            : chatTools({ shell, chatId: chat.id, messageId: assistant.id, computer: computerOn, routine: turn?.routine, model, thinking: turnThinking, signal: controller.signal, allow: agent?.tools, plan: chat.plan }),
+            : chatTools({ shell, chatId: chat.id, messageId: assistant.id, computer: computerOn, routine: turn?.routine, model, thinking: turnThinking, signal: controller.signal, allow: agent?.tools, plan: chat.plan, project: validProject(chat.project) }),
         system: systemFor(turn?.system, shell, Boolean(computerOn), install, chat.id, agent?.prompt),
         maxToolRounds: maxRounds,
         vision: Boolean(info?.capabilities?.includes('vision')),
