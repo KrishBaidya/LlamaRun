@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { LoaderCircle, MoreHorizontal, Pencil, Search, Settings2, SquarePen, Trash2 } from 'lucide-react'
+import { Download, LoaderCircle, MoreHorizontal, Pencil, Search, Settings2, SquarePen, Trash2 } from 'lucide-react'
 import type { ChatSummary } from '@shared/types'
 import {
   AlertDialog,
@@ -82,6 +82,9 @@ function ChatRow({
         <DropdownMenuContent align="start" className="w-40">
           <DropdownMenuItem onSelect={() => setEditing(true)}>
             <Pencil /> Rename
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => void api.chats.export(chat.id)}>
+            <Download /> Export…
           </DropdownMenuItem>
           <DropdownMenuItem variant="destructive" onSelect={onDelete}>
             <Trash2 /> Delete

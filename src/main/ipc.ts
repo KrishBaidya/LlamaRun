@@ -20,6 +20,7 @@ import { clearDirectoryCache, getDirectoryServer, listDirectory, readmeUrl } fro
 import { mcp } from './mcp/manager'
 import { memoryStore } from './memory/store'
 import { routineStore } from './routines/store'
+import { exportChat } from './chats/exportFile'
 import { agentStore } from './assistant/agents'
 import { pluginDataDir, pluginsDir } from './paths'
 import { pluginHost } from './plugins/host'
@@ -188,6 +189,7 @@ export function registerIpc(): void {
   handle('models:context', (_e, models) => Promise.all(models.map((m) => contextFor(m))))
   handle('chats:cancel', (_e, id) => chatService.cancel(id))
   handle('chats:retry', (_e, id) => chatService.retry(id))
+  handle('chats:export', (_e, chatId) => exportChat(String(chatId)))
   handle('chats:queue', (_e, chatId, text) => chatService.queue(String(chatId), String(text ?? '')))
   handle('chats:steer', (_e, chatId, id) => chatService.steer(String(chatId), String(id)))
   handle('chats:unqueue', (_e, chatId, id) => chatService.unqueue(String(chatId), String(id)))

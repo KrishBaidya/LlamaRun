@@ -76,6 +76,8 @@ export interface InvokeChannels {
   'chats:cancel': (chatId: string) => void
   /** Re-runs the last user message (after an error or to get a new answer). */
   'chats:retry': (chatId: string) => void
+  /** Save the chat as Markdown or a self-contained HTML page; the path, or null if cancelled. */
+  'chats:export': (chatId: string) => string | null
   /** A message typed while the reply runs: sent when it ends. */
   'chats:queue': (chatId: string, text: string) => void
   /** Send a queued message into the running reply now. */
@@ -265,6 +267,7 @@ export const INVOKE_CHANNELS = [
   'chats:setPlan',
   'chats:cancel',
   'chats:retry',
+  'chats:export',
   'chats:queue',
   'chats:steer',
   'chats:unqueue',

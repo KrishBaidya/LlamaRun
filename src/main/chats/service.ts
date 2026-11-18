@@ -75,7 +75,8 @@ export const BUILTIN_COMMANDS: SlashCommand[] = [
   { name: 'compact', description: 'Summarise older messages to free up context', kind: 'builtin', plugin: 'Llama Run', args: '[what to focus on]' },
   { name: 'new', description: 'Start a new chat', kind: 'builtin', plugin: 'Llama Run' },
   { name: 'learn', description: 'Save what worked in this chat as a skill', kind: 'builtin', plugin: 'Llama Run', args: '[what to focus on]' },
-  { name: 'usage', description: 'Tokens this chat has used, and the last 30 days by model', kind: 'builtin', plugin: 'Llama Run' }
+  { name: 'usage', description: 'Tokens this chat has used, and the last 30 days by model', kind: 'builtin', plugin: 'Llama Run' },
+  { name: 'export', description: 'Save this chat as Markdown or a web page', kind: 'builtin', plugin: 'Llama Run' }
 ]
 
 /** What /learn asks the model (Hermes' /learn): turn this chat's working procedure into a skill. */
@@ -408,6 +409,13 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     if (compact) {
       if (!chatId || !chatStore.get(chatId)?.messages.length) throw new Error('Nothing to compact yet')
       await this.compact(chatId, compact[1], true)
+      return chatId
+    }
+    if (!attachments?.length && /^\/export\s*$/i.test(text.trim())) {
+      if (!chatId || !chatStore.get(chatId)?.messages.length) throw new Error('Nothing to export yet')
+      const { exportChat } = await import('./exportFile')
+      const path = await exportChat(chatId)
+      if (path) this.post(chatId, `Saved this chat to ${path}`, 'Llama Run')
       return chatId
     }
     if (!attachments?.length && /^\/usage\s*$/i.test(text.trim())) {
