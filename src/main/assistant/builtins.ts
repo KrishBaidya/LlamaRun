@@ -9,6 +9,7 @@ import { formatHits, readChat, searchChats } from '../chats/search'
 import { describeRoutine, routineStore } from '../routines/store'
 import { MAX_TOOL_RESULT_CHARS } from '../llm/toolPayload'
 import { renderHtml } from './render'
+import * as processes from './processes'
 import { formatPage, globFiles, grepFiles, listDir } from './search'
 import type { McpToolResult } from '../mcp/manager'
 import { kindOf, MEMORY_BUDGET, memoryStore } from '../memory/store'
@@ -142,9 +143,20 @@ const SHELL_TOOLS: McpToolInfo[] = [
   tool(
     'run_command',
     `Run a ${process.platform === 'win32' ? 'PowerShell' : 'shell'} command on the user's computer (run a script you wrote, convert a file, pip install, git clone…) and get its output. The user approves each command. Runs in the skill workspace folder (where skill scripts write files) unless cwd is given. "python" and "pip" are Llama Run's bundled Python.`,
-    { command: { type: 'string' }, cwd: { type: 'string', description: 'Working folder (absolute).' } },
+    {
+      command: { type: 'string' },
+      cwd: { type: 'string', description: 'Working folder (absolute).' },
+      background: { type: 'boolean', description: 'Start it and return at once with an id, for a server, watcher or anything long-running; read its output with process_output and end it with process_stop.' }
+    },
     ['command']
-  )
+  ),
+  tool(
+    'process_output',
+    "Read what a background command wrote since you last read it, and whether it's still running. Without id: list this chat's background commands.",
+    { id: { type: 'string', description: 'The id run_command gave, e.g. "bg1".' }, all: { type: 'boolean', description: 'Everything kept, not just what is new.' } },
+    []
+  ),
+  tool('process_stop', 'Stop a background command and everything it started.', { id: { type: 'string' } }, ['id'])
 ]
 
 const FILE_TOOLS: McpToolInfo[] = [
@@ -572,11 +584,15 @@ export function commandEnv(): NodeJS.ProcessEnv {
   return { ...process.env, PATH: path, Path: path, PYTHONIOENCODING: 'utf-8', GIT_TERMINAL_PROMPT: '0' }
 }
 
-async function runCommand(command: string, cwdArg?: string, chatId?: string): Promise<string> {
-  const cwd = resolve(cwdArg?.trim() || skillWorkspace())
-  mkdirSync(skillsDir(), { recursive: true })
-  mkdirSync(skillWorkspace(), { recursive: true })
-  if (!existsSync(cwd)) throw new Error(`${cwd} does not exist`)
+/** The status line and the newest output, when there is more than the model is shown. */
+function cutTail(text: string): string {
+  if (text.length <= MAX_OUTPUT_CHARS) return text
+  const nl = text.indexOf('\n')
+  return `${text.slice(0, nl)}\n…(older output cut)…\n${text.slice(-(MAX_OUTPUT_CHARS - nl - 30))}`
+}
+
+/** Asks for a command unless the user's rules allow it; throws when it may not run. */
+async function approveCommand(command: string, cwd: string, chatId: string | undefined, background: boolean): Promise<void> {
   const rules = commandRules()
   const decision = decide(command, rules, chatId ? (chatRules.get(chatId) ?? []) : [])
   if (decision.effect === 'deny') throw new Error(`Not run: the user's rule "${decision.rule}" blocks it. Ask them how to continue.`)
@@ -585,15 +601,30 @@ async function runCommand(command: string, cwdArg?: string, chatId?: string): Pr
     const proposed = proposeRules(command, rules)
     const scope = proposed.length ? proposed.join(', ') : command
     const answer = await askApproval(chatId, {
-      title: 'Run this command on your computer?',
+      title: background ? 'Start this command in the background?' : 'Run this command on your computer?',
       command,
-      detail: decision.hardline ? `In ${cwd}. It ${decision.hardline}, so it always asks.` : `In ${cwd}`,
+      detail: decision.hardline ? `In ${cwd}. It ${decision.hardline}, so it always asks.` : `In ${cwd}${background ? '. It keeps running until it ends, the model stops it, or the chat is deleted.' : ''}`,
       alwaysLabel: decision.hardline || !proposed.length ? '' : `Always allow ${scope}`,
       ...(decision.hardline ? {} : { chatLabel: 'Allow for this chat' })
     })
     if (answer === 'deny') throw new Error('The user denied this command. Ask them how to continue.')
     if (answer === 'always' && proposed.length) settings.set({ commandRules: [...rules, ...proposed.map((pattern) => ({ pattern, effect: 'allow' as const }))] })
     if (answer === 'chat' && chatId) chatRules.set(chatId, [...(chatRules.get(chatId) ?? []), ...(proposed.length ? proposed : [command])])
+  }
+}
+
+async function runCommand(command: string, cwdArg?: string, chatId?: string, background = false): Promise<string> {
+  const cwd = resolve(cwdArg?.trim() || skillWorkspace())
+  mkdirSync(skillsDir(), { recursive: true })
+  mkdirSync(skillWorkspace(), { recursive: true })
+  if (!existsSync(cwd)) throw new Error(`${cwd} does not exist`)
+  if (background && !chatId) throw new Error('Background commands need a chat')
+  await approveCommand(command, cwd, chatId, background)
+  if (background) {
+    const p = processes.startBackground(chatId!, command, cwd, commandEnv())
+    // A moment for it to fail fast or print its first lines (a URL, a port).
+    await new Promise((r) => setTimeout(r, 1500))
+    return `Started ${p.id} in the background. ${processes.output(chatId, p.id)}`
   }
   const [shell, args] =
     process.platform === 'win32'
@@ -708,7 +739,13 @@ export async function callBuiltinTool(name: string, args: Record<string, unknown
       case 'file_grep':
         return await searchTool(name, args, context)
       case 'run_command':
-        return result(await runCommand(str(args, 'command'), typeof args.cwd === 'string' ? args.cwd : undefined, context.chatId))
+        return result(await runCommand(str(args, 'command'), typeof args.cwd === 'string' ? args.cwd : undefined, context.chatId, args.background === true))
+      case 'process_output':
+        return result(
+          typeof args.id === 'string' && args.id.trim() ? cutTail(processes.output(context.chatId, args.id.trim(), args.all === true)) : processes.list(context.chatId)
+        )
+      case 'process_stop':
+        return result(processes.stop(context.chatId, str(args, 'id')))
       case 'skills_refresh': {
         skillStore.changed()
         const skills = skillStore.list()

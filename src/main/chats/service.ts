@@ -28,6 +28,7 @@ import { memoryStore } from '../memory/store'
 import { skillStore } from '../skills/store'
 import { reviewTask } from './review'
 import { joinRound } from '../llm/toolRun'
+import { stopChat as stopChatProcesses } from '../assistant/processes'
 import { COMPACT_SYSTEM, compactionRequest, splitForCompaction, SUMMARY_INTRO, transcriptOf, visibleMessages } from './compact'
 import { contextWindowFor, estimateParts, estimateTokens, usageOf } from './context'
 import { appendText, appendThinking, finishTool, recalledReplies, replaceText, replyForModel, textOf, toolPart } from './parts'
@@ -281,6 +282,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     chatStore.delete(id)
     refreshPrompt(id)
     forgetChanges(id)
+    stopChatProcesses(id)
   }
 
   cancel(id: string): void {

@@ -20,6 +20,7 @@ import { createTray } from './tray'
 import { openOnboarding } from './windows/onboarding'
 import { attachContextMenu } from './windows/contextMenu'
 import { createOverlay, markQuitting, showOverlay } from './windows/overlay'
+import { stopAll as stopProcesses } from './assistant/processes'
 
 // ---------------------------------------------------------------- crash log
 
@@ -126,6 +127,7 @@ if (!app.requestSingleInstanceLock()) {
     if (shuttingDown) return
     shuttingDown = true
     e.preventDefault()
+    stopProcesses()
     // Give plugins their on_unload, close MCP servers, stop the computer-use driver and flush analytics before exiting.
     void Promise.allSettled([pluginHost.stop(), mcp.stop(), closeDriver(), analytics.shutdown()]).finally(() => app.quit())
   })
