@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
-import { delimiter, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
+import { basename, delimiter, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { nativeImage, type NativeImage } from 'electron'
 import type { CommandRule, McpToolInfo, MemoryKind } from '@shared/types'
 import { analytics } from '../analytics'
@@ -9,6 +9,7 @@ import { formatHits, readChat, searchChats } from '../chats/search'
 import { describeRoutine, routineStore } from '../routines/store'
 import { MAX_TOOL_RESULT_CHARS } from '../llm/toolPayload'
 import { renderHtml } from './render'
+import { formatPage, globFiles, grepFiles, listDir } from './search'
 import type { McpToolResult } from '../mcp/manager'
 import { kindOf, MEMORY_BUDGET, memoryStore } from '../memory/store'
 import { pythonExecutable, userDataPath } from '../paths'
@@ -175,6 +176,38 @@ const FILE_TOOLS: McpToolInfo[] = [
     ['path', 'old_string', 'new_string']
   ),
   tool(
+    'file_list',
+    'List a folder: subfolders (ending in /) first, then files with their sizes. Relative paths are in the skill workspace folder.',
+    {
+      path: { type: 'string', description: 'The folder: absolute, or relative to the skill workspace folder. Default: the workspace.' },
+      offset: { type: 'integer', description: 'Entries to skip, to read on. Default 0.' }
+    },
+    []
+  ),
+  tool(
+    'file_glob',
+    'Find files by name pattern under a folder, newest first: "*.pdf", "**/*.ts", "src/**/test_*.py", "report.{docx,pdf}". Skips node_modules, .git and similar unless the pattern names them.',
+    {
+      pattern: { type: 'string' },
+      path: { type: 'string', description: 'Folder to search: absolute, or relative to the skill workspace folder. Default: the workspace.' },
+      offset: { type: 'integer', description: 'Matches to skip, to read on. Default 0.' }
+    },
+    ['pattern']
+  ),
+  tool(
+    'file_grep',
+    'Search the text of files under a folder for a regular expression; returns "path:line: text" for each matching line. Binary files and files over 5 MB are skipped.',
+    {
+      pattern: { type: 'string', description: 'A JavaScript regular expression, e.g. "TODO|FIXME" or "def \w+\(".' },
+      path: { type: 'string', description: 'Folder (or file) to search: absolute, or relative to the skill workspace folder. Default: the workspace.' },
+      include: { type: 'string', description: 'Only files matching this glob, e.g. "*.py".' },
+      ignore_case: { type: 'boolean' },
+      context: { type: 'integer', description: 'Lines to show either side of each match (0-5). Default 0.' },
+      offset: { type: 'integer', description: 'Matches to skip, to read on. Default 0.' }
+    },
+    ['pattern']
+  ),
+  tool(
     'render_html',
     "Render HTML with Llama Run's built-in Chromium and save it as a PDF (printed like a browser prints; CSS @page sets size and margins, A4 by default) or a PNG of the whole page (returned as an image to models that can see). Give the markup itself or an HTML file. Relative URLs load from the skill workspace folder (or the HTML file's folder); local files load from there and from the chat's attachments.",
     {
@@ -338,19 +371,19 @@ const inside = (path: string, folder: string): boolean => {
  * reading, the chat's attachments are the model's own; anything else is the
  * user's, and they approve it once per folder for the chat.
  */
-async function approveFile(path: string, write: boolean, chatId: string | undefined): Promise<void> {
+async function approveFile(path: string, write: boolean, chatId: string | undefined, folder = false): Promise<void> {
   const own = write ? [skillWorkspace()] : [skillWorkspace(), userDataPath('Attachments')]
   if (own.some((folder) => inside(path, folder))) return
   const allowed = chatId ? allowedFolders.get(chatId) : undefined
   if (allowed && [...allowed].some((folder) => inside(path, folder))) return
   const answer = await askApproval(chatId, {
-    title: write ? 'Let the model write this file?' : 'Let the model read this file?',
+    title: write ? 'Let the model write this file?' : folder ? 'Let the model look through this folder?' : 'Let the model read this file?',
     command: path,
-    detail: write ? (existsSync(path) ? 'It replaces the file that is there.' : 'A new file.') : 'What it contains goes to the model.',
+    detail: write ? (existsSync(path) ? 'It replaces the file that is there.' : 'A new file.') : folder ? 'File names and matching lines go to the model.' : 'What it contains goes to the model.',
     alwaysLabel: 'Allow this folder'
   })
   if (answer === 'deny') throw new Error(`The user didn't allow ${write ? 'writing' : 'reading'} ${path}. Ask them how to continue.`)
-  if (answer === 'always' && chatId) allowedFolders.set(chatId, new Set([...(allowed ?? []), dirname(path)]))
+  if (answer === 'always' && chatId) allowedFolders.set(chatId, new Set([...(allowed ?? []), folder ? path : dirname(path)]))
 }
 
 /** Reads already returned in a reply (path, range -> the file's state then), so an unchanged repeat costs a line, not the file again. */
@@ -405,6 +438,47 @@ export function numbered(path: string, text: string, offset: number, limit: numb
   const more = last < lines.length ? `\n…more: read on with offset ${last + 1}.` : ''
   const range = offset > 1 || more ? ` (lines ${offset}-${last} of ${lines.length})` : ''
   return `${path}${range}\n${out.join('\n')}${more}`
+}
+
+/** Paging for the search tools. */
+const SEARCH_PAGE = 200
+const GREP_PAGE = 100
+
+/** The folder a search tool looks in, approved like a read (once per folder for the chat). */
+async function searchRoot(args: Record<string, unknown>, context: ToolContext, fileOk = false): Promise<string> {
+  const path = resolve(skillWorkspace(), typeof args.path === 'string' && args.path.trim() ? args.path.trim() : '.')
+  mkdirSync(skillWorkspace(), { recursive: true })
+  if (!existsSync(path)) throw new Error(`${path} does not exist`)
+  const isDir = statSync(path).isDirectory()
+  if (!isDir && !fileOk) throw new Error(`${path} is a file, not a folder`)
+  await approveFile(path, false, context.chatId, isDir)
+  return path
+}
+
+const offsetOf = (args: Record<string, unknown>): number => Math.max(0, Math.floor(Number(args.offset) || 0))
+
+async function searchTool(name: string, args: Record<string, unknown>, context: ToolContext): Promise<McpToolResult> {
+  const offset = offsetOf(args)
+  if (name === 'file_list') {
+    const dir = await searchRoot(args, context)
+    return result(formatPage(dir, listDir(dir, offset, SEARCH_PAGE), offset, `${dir} is empty.`))
+  }
+  if (name === 'file_glob') {
+    const root = await searchRoot(args, context)
+    const pattern = str(args, 'pattern')
+    return result(formatPage(`Files matching ${pattern} in ${root}, newest first`, globFiles(root, pattern, offset, SEARCH_PAGE), offset, `No files match ${pattern} in ${root}.`))
+  }
+  const root = await searchRoot(args, context, true)
+  const pattern = str(args, 'pattern')
+  const isFile = statSync(root).isFile()
+  const page = await grepFiles(isFile ? dirname(root) : root, pattern, {
+    include: isFile ? basename(root) : typeof args.include === 'string' && args.include.trim() ? args.include.trim() : undefined,
+    ignoreCase: args.ignore_case === true,
+    context: Math.floor(Number(args.context) || 0),
+    offset,
+    limit: GREP_PAGE
+  })
+  return result(formatPage(`Lines matching /${pattern}/ in ${root}`, page, offset, `Nothing matches /${pattern}/ in ${root}.`))
 }
 
 async function editFile(args: Record<string, unknown>, context: ToolContext): Promise<McpToolResult> {
@@ -629,6 +703,10 @@ export async function callBuiltinTool(name: string, args: Record<string, unknown
         return await editFile(args, context)
       case 'render_html':
         return await render(args, context)
+      case 'file_list':
+      case 'file_glob':
+      case 'file_grep':
+        return await searchTool(name, args, context)
       case 'run_command':
         return result(await runCommand(str(args, 'command'), typeof args.cwd === 'string' ? args.cwd : undefined, context.chatId))
       case 'skills_refresh': {
