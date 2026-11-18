@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process'
+import { spawnSandboxed } from './sandbox'
 
 /**
  * Commands left running in the background (a dev server, a long download, a
@@ -52,11 +53,11 @@ function append(p: BackgroundProcess, chunk: string): void {
   p.log = (p.log + chunk).slice(-KEEP)
 }
 
-export function startBackground(chatId: string, command: string, cwd: string, env: NodeJS.ProcessEnv): BackgroundProcess {
+export function startBackground(chatId: string, command: string, cwd: string, env: NodeJS.ProcessEnv, writable?: string[]): BackgroundProcess {
   const mine = byChat.get(chatId) ?? new Map<string, BackgroundProcess>()
   const running = [...mine.values()].filter((p) => p.exitCode === null && !p.stopped)
   if (running.length >= MAX_PER_CHAT) throw new Error(`This chat already has ${MAX_PER_CHAT} background commands running. Stop one with process_stop first.`)
-  const child = spawner(command, cwd, env)
+  const child = writable && spawner === defaultSpawner ? spawnSandboxed(command, cwd, env, writable) : spawner(command, cwd, env)
   const p: BackgroundProcess = { id: `bg${++counter}`, chatId, command, cwd, started: Date.now(), exitCode: null, stopped: false, written: 0, log: '', read: 0, child }
   child.stdout?.setEncoding('utf8')
   child.stderr?.setEncoding('utf8')

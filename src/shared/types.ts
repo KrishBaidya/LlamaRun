@@ -37,6 +37,8 @@ export interface Settings {
   reviewAfterTasks: boolean
   /** A Windows notification when a reply that used tools finishes, or a chat needs an approval, while Llama Run isn't focused. */
   notifyWhenDone: boolean
+  /** Windows: commands the model runs can change files only in the workspace and the chat's folder (low integrity). */
+  commandSandbox: boolean
   /** Tool calls a reply needs before it's reviewed. */
   reviewMinToolCalls: number
   /** Summarise older messages when a chat gets close to the model's context window. */

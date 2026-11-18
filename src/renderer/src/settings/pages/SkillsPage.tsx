@@ -264,6 +264,19 @@ export function SkillsPage() {
 
       <CommandRules rules={settings?.commandRules ?? []} onChange={(commandRules) => void update({ commandRules })} />
 
+      {window.llamarun.platform === 'win32' && (
+        <Card>
+          <CardContent>
+            <SettingRow
+              title="Run commands in a sandbox"
+              description="Commands the model runs (and their scripts) can then change files only in the skills workspace and the chat's folder; they can still read files and use the internet. Windows marks those folders as writable from the sandbox when it first uses them. Installing with pip into Llama Run's Python won't work while it's on."
+            >
+              <Switch checked={settings?.commandSandbox === true} onCheckedChange={(v) => void update({ commandSandbox: v })} />
+            </SettingRow>
+          </CardContent>
+        </Card>
+      )}
+
 
       {skills && !skills.length ? (
         <EmptyState icon={<Bot />} title="No skills yet">

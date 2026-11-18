@@ -11,6 +11,7 @@ import { describeRoutine, routineStore } from '../routines/store'
 import { MAX_TOOL_RESULT_CHARS } from '../llm/toolPayload'
 import { renderHtml } from './render'
 import * as processes from './processes'
+import { sandboxNote, sandboxOn, spawnSandboxed } from './sandbox'
 import { formatPage, globFiles, grepFiles, listDir } from './search'
 import { webSearch } from './webSearch'
 import type { McpToolResult } from '../mcp/manager'
@@ -605,7 +606,7 @@ function cutTail(text: string): string {
 }
 
 /** Asks for a command unless the user's rules allow it; throws when it may not run. */
-async function approveCommand(command: string, cwd: string, chatId: string | undefined, background: boolean): Promise<void> {
+async function approveCommand(command: string, cwd: string, chatId: string | undefined, background: boolean, writable?: string[]): Promise<void> {
   const rules = commandRules()
   const decision = decide(command, rules, chatId ? (chatRules.get(chatId) ?? []) : [])
   if (decision.effect === 'deny') throw new Error(`Not run: the user's rule "${decision.rule}" blocks it. Ask them how to continue.`)
@@ -616,7 +617,9 @@ async function approveCommand(command: string, cwd: string, chatId: string | und
     const answer = await askApproval(chatId, {
       title: background ? 'Start this command in the background?' : 'Run this command on your computer?',
       command,
-      detail: decision.hardline ? `In ${cwd}. It ${decision.hardline}, so it always asks.` : `In ${cwd}${background ? '. It keeps running until it ends, the model stops it, or the chat is deleted.' : ''}`,
+      detail: decision.hardline
+        ? `In ${cwd}. It ${decision.hardline}, so it always asks.`
+        : `In ${cwd}${background ? '. It keeps running until it ends, the model stops it, or the chat is deleted.' : ''}${writable ? `. ${sandboxNote(writable)}` : ''}`,
       alwaysLabel: decision.hardline || !proposed.length ? '' : `Always allow ${scope}`,
       ...(decision.hardline ? {} : { chatLabel: 'Allow for this chat' })
     })
@@ -632,9 +635,11 @@ async function runCommand(command: string, cwdArg?: string, chatId?: string, bac
   mkdirSync(skillWorkspace(), { recursive: true })
   if (!existsSync(cwd)) throw new Error(`${cwd} does not exist`)
   if (background && !chatId) throw new Error('Background commands need a chat')
-  await approveCommand(command, cwd, chatId, background)
+  // Sandboxed, a command may change files only in the workspace and the chat's folder.
+  const writable = sandboxOn() ? [...new Set([skillWorkspace(), base])] : undefined
+  await approveCommand(command, cwd, chatId, background, writable)
   if (background) {
-    const p = processes.startBackground(chatId!, command, cwd, commandEnv())
+    const p = processes.startBackground(chatId!, command, cwd, commandEnv(), writable)
     // A moment for it to fail fast or print its first lines (a URL, a port).
     await new Promise((r) => setTimeout(r, 1500))
     return `Started ${p.id} in the background. ${processes.output(chatId, p.id)}`
@@ -644,15 +649,15 @@ async function runCommand(command: string, cwdArg?: string, chatId?: string, bac
       ? ['powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command]]
       : ['/bin/sh', ['-c', command]]
   return new Promise((done, fail) => {
-    const proc = spawn(shell, args, { cwd, windowsHide: true, env: commandEnv() })
+    const proc = writable ? spawnSandboxed(command, cwd, commandEnv(), writable) : spawn(shell, args, { cwd, windowsHide: true, env: commandEnv() })
     let out = ''
     let timedOut = false
     const timer = setTimeout(() => {
       timedOut = true
       proc.kill()
     }, COMMAND_TIMEOUT_MS)
-    proc.stdout.on('data', (d) => (out += d))
-    proc.stderr.on('data', (d) => (out += d))
+    proc.stdout?.on('data', (d) => (out += d))
+    proc.stderr?.on('data', (d) => (out += d))
     proc.on('error', (e) => {
       clearTimeout(timer)
       fail(e)
@@ -662,7 +667,7 @@ async function runCommand(command: string, cwdArg?: string, chatId?: string, bac
       const tail = timedOut ? `\n(stopped after ${COMMAND_TIMEOUT_MS / 60_000} minutes)` : ''
       done(cut(`exit code: ${code}\n${out.trim()}${tail}`, MAX_OUTPUT_CHARS))
     })
-    proc.stdin.end()
+    proc.stdin?.end()
   })
 }
 

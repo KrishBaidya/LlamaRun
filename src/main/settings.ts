@@ -24,6 +24,7 @@ export const DEFAULT_SETTINGS: Settings = {
   commandRules: [],
   reviewAfterTasks: true,
   notifyWhenDone: true,
+  commandSandbox: false,
   reviewMinToolCalls: 6,
   autoCompact: true,
   autoCompactPercent: 80,
