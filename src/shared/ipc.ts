@@ -3,6 +3,7 @@ import type {
   AgentInput,
   AppearanceInfo,
   ChatSetup,
+  HookConfig,
   QueuedMessage,
   Chat,
   ChatAttachment,
@@ -116,6 +117,11 @@ export interface InvokeChannels {
 
   'memory:list': () => MemoryItem[]
   /** Scheduled prompts. */
+  'hooks:get': () => HookConfig
+  /** Saves the hooks (Claude Code's format); throws saying what's wrong. */
+  'hooks:save': (config: HookConfig) => HookConfig
+  /** Claude Code's own hooks from ~/.claude/settings.json, or null. */
+  'hooks:claudeCode': () => HookConfig | null
   'agents:list': () => AgentInfo[]
   'agents:save': (agent: AgentInput) => AgentInfo[]
   'agents:delete': (id: string) => AgentInfo[]
@@ -291,6 +297,9 @@ export const INVOKE_CHANNELS = [
   'models:context',
   'attachments:read',
   'memory:list',
+  'hooks:get',
+  'hooks:save',
+  'hooks:claudeCode',
   'agents:list',
   'agents:save',
   'agents:delete',

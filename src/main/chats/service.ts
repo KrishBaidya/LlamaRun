@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { resolveThinking } from '@shared/thinking'
-import type { Chat, ChatAttachment, ChatEvent, ChatSetup, QueuedMessage, ChatMessage, ChatSummary, ContextUsage, ModelContextInfo, ModelInfo, SlashCommand, ThinkingChoice } from '@shared/types'
+import type { Chat, ChatAttachment, ChatEvent, ChatSetup, HookEvent, QueuedMessage, ChatMessage, ChatSummary, ContextUsage, ModelContextInfo, ModelInfo, SlashCommand, ThinkingChoice } from '@shared/types'
 import { analytics } from '../analytics'
 import { approvals } from '../assistant/approval'
-import { builtinInstructions, builtinTools, callBuiltinTool, installNote, isBuiltinTool } from '../assistant/builtins'
+import { builtinInstructions, builtinTools, callBuiltinTool, commandEnv, installNote, isBuiltinTool } from '../assistant/builtins'
 import { RUN_CODE, RUN_CODE_TOOL, runCode } from '../assistant/codeMode'
 import { changedFiles, forgetChanges, undoChanges } from '../assistant/fileChanges'
 import { documentBlock } from '../attachments/read'
@@ -20,17 +20,19 @@ import {
   type ToolBridge,
   type ToolPause
 } from '../llm'
+import { toolResultToText } from '../llm/types'
 import { isCloudModel } from '../llm/models'
 import { mcp } from '../mcp/manager'
 import { pluginHost } from '../plugins/host'
 import { settings } from '../settings'
 import { memoryStore } from '../memory/store'
-import { skillStore } from '../skills/store'
+import { skillStore, skillWorkspace } from '../skills/store'
 import { reviewTask } from './review'
 import { joinRound } from '../llm/toolRun'
 import { describeDays, describeUsage, usageStore } from '../usage'
 import { editMessage, switchVersion } from './branches'
 import { projectInstructions, validProject } from '../assistant/project'
+import { loadHooks, runHooks } from '../assistant/hooks'
 import { agentStore, allowedTools } from '../assistant/agents'
 import { AGENT_RUN, agentRunTool, runSubagent } from './subagent'
 import * as notify from '../notify'
@@ -66,6 +68,8 @@ export interface SendOptions {
   thinking?: ThinkingChoice
   /** A new chat's agent and plan mode, chosen before it existed. */
   setup?: ChatSetup
+  /** Sent by a hook (a Stop hook's feedback): shown as such, but runs like a typed message. */
+  hook?: HookEvent
 }
 
 /** Most images one message may carry. */
@@ -136,6 +140,21 @@ export function chatTools(options: ChatToolOptions = {}): ToolBridge | undefined
   const tools = allowedTools([...own, ...mcpTools, ...pluginTools], options)
   if (!tools.length) return undefined
   const offered = new Set(tools.map((t) => t.name))
+  // The user's PreToolUse / PostToolUse hooks wrap every call, including those from scripts and helpers.
+  const hookConfig = options.chatId ? loadHooks() : {}
+  const hooked: ToolBridge['call'] = async (name, args) => {
+    if (!hookConfig.PreToolUse?.length && !hookConfig.PostToolUse?.length) return call(name, args)
+    const input = { chatId: options.chatId!, cwd: options.project ?? skillWorkspace(), tool: name, args }
+    if (hookConfig.PreToolUse?.length) {
+      const pre = await runHooks('PreToolUse', input, commandEnv(), hookConfig)
+      if (pre.blocked) return { content: [{ type: 'text', text: `A hook blocked ${name}: ${pre.reason}` }], isError: true }
+    }
+    const result = await call(name, args)
+    if (!hookConfig.PostToolUse?.length) return result
+    const post = await runHooks('PostToolUse', { ...input, result: toolResultToText(result) }, commandEnv(), hookConfig)
+    const note = [post.blocked ? `A hook objected: ${post.reason}` : '', post.context].filter(Boolean).join('\n')
+    return note ? { ...result, content: [...result.content, { type: 'text', text: `\n[hook] ${note}` }] } : result
+  }
   const call: ToolBridge['call'] = (name, args) =>
     !offered.has(name)
       ? Promise.resolve({ content: [{ type: 'text', text: `${name} is not available in this chat${options.plan ? ' while plan mode is on' : ''}.` }], isError: true })
@@ -146,10 +165,10 @@ export function chatTools(options: ChatToolOptions = {}): ToolBridge | undefined
         : fromPlugins.has(name)
           ? pluginHost.callModelTool(name, args)
           : name === RUN_CODE
-            ? runCode(args, { tools: tools.filter((t) => t.name !== RUN_CODE), call }, { chatId: options.chatId, project: options.project })
+            ? runCode(args, { tools: tools.filter((t) => t.name !== RUN_CODE), call: hooked }, { chatId: options.chatId, project: options.project })
             : name === AGENT_RUN && options.model
               ? runSubagent(args, {
-                  bridge: { tools: tools.filter((t) => t.name !== AGENT_RUN), call, sequential: (n) => isComputerTool(n) || n === RUN_CODE },
+                  bridge: { tools: tools.filter((t) => t.name !== AGENT_RUN), call: hooked, sequential: (n) => isComputerTool(n) || n === RUN_CODE },
                   model: options.model,
                   thinking: options.thinking,
                   signal: options.signal,
@@ -162,7 +181,7 @@ export function chatTools(options: ChatToolOptions = {}): ToolBridge | undefined
     tools,
     // One desktop, one action at a time; other tools in the same step run together. A script may drive the desktop too.
     sequential: (name) => isComputerTool(name) || name === RUN_CODE,
-    call
+    call: hooked
   }
 }
 
@@ -623,6 +642,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     if (options.via) user.via = options.via
     if (attachments.length) user.attachments = attachments
     if (options.skill) user.skill = options.skill
+    if (options.hook) user.hook = options.hook
     if (!chat.messages.length) chat.title = titleFrom(content || attachments[0].name)
     chat.messages.push(user)
     chatStore.save(chat)
@@ -691,6 +711,25 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     const steer = items.filter((i) => i.steer)
     if (steer.length) this.setQueue(chatId, items.filter((i) => !i.steer))
     return steer.map((i) => i.text)
+  }
+
+  /**
+   * The user's Stop hooks after a reply: one that blocks sends its reason back
+   * as the next message, so the model carries on (up to 3 times in a row, like
+   * Claude Code's stop_hook_active guard). Otherwise anything queued is sent.
+   */
+  private async stopHooks(chat: Chat, user: ChatMessage): Promise<void> {
+    const hooks = loadHooks()
+    if (hooks.Stop?.length) {
+      let streak = 0
+      for (let i = chat.messages.length - 2; i >= 0 && chat.messages[i].role === 'user' && chat.messages[i].hook === 'Stop'; i -= 2) streak++
+      const outcome = await runHooks('Stop', { chatId: chat.id, cwd: validProject(chat.project) ?? skillWorkspace(), stopActive: Boolean(user.hook) }, commandEnv(), hooks).catch(() => null)
+      if (outcome?.blocked && streak < 3 && !this.running.has(chat.id)) {
+        this.start(chat.id, outcome.reason || 'A Stop hook asked you to keep going.', { hook: 'Stop' })
+        return
+      }
+    }
+    this.sendQueued(chat.id)
   }
 
   /** After a reply: what was queued goes as the next message (all of it at once). A stopped reply keeps the queue. */
@@ -852,6 +891,25 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
       if (!resume) await this.autoCompact(chat, model, context, controller.signal, shell, computerOn)
       if (controller.signal.aborted) throw new Error('Stopped')
 
+      // The user's hooks: a new chat's SessionStart, and UserPromptSubmit (which can stop the prompt or add context).
+      let hookContext = ''
+      if (!resume && typed && !turn?.routine) {
+        const hookInput = { chatId: chat.id, cwd: validProject(chat.project) ?? skillWorkspace() }
+        if (chat.messages.filter((m) => m.role === 'user').length === 1) {
+          const start = await runHooks('SessionStart', hookInput, commandEnv())
+          hookContext = start.context
+        }
+        const submit = await runHooks('UserPromptSubmit', { ...hookInput, prompt: user.prompt ?? user.content }, commandEnv())
+        if (submit.blocked) {
+          assistant.status = 'cancelled'
+          assistant.note = `A hook stopped this message: ${submit.reason}`
+          chat.messages.push(assistant)
+          this.emit('event', { type: 'message', chatId: chat.id, message: { ...assistant } })
+          return { ...assistant }
+        }
+        hookContext = [hookContext, submit.context].filter(Boolean).join('\n\n')
+      }
+
       if (resume) emitUpdate()
       else {
         chat.messages.push(assistant)
@@ -868,7 +926,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
           turn?.tools === false
             ? undefined
             : chatTools({ shell, chatId: chat.id, messageId: assistant.id, computer: computerOn, routine: turn?.routine, model, thinking: turnThinking, signal: controller.signal, allow: agent?.tools, plan: chat.plan, project: validProject(chat.project) }),
-        system: systemFor(turn?.system, shell, Boolean(computerOn), install, chat.id, agent?.prompt),
+        system: systemFor([turn?.system, hookContext].filter(Boolean).join('\n\n') || undefined, shell, Boolean(computerOn), install, chat.id, agent?.prompt),
         maxToolRounds: maxRounds,
         vision: Boolean(info?.capabilities?.includes('vision')),
         thinking: turnThinking,
@@ -980,7 +1038,8 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
       if (reviewing && typed && !pause && assistant.status === 'done' && toolCalls >= (settings.get('reviewMinToolCalls') || 6)) void this.review(chat, assistant, assistant.model || chat.model)
       // Steers the reply never got to (it answered without another tool round) go as the next message, with the rest.
       if (this.queued.get(chat.id)?.length) this.setQueue(chat.id, (this.queued.get(chat.id) ?? []).map((i) => ({ id: i.id, text: i.text })))
-      if (assistant.status !== 'cancelled' && !pause) setImmediate(() => this.sendQueued(chat.id))
+      if (assistant.status === 'done' && typed && !pause && !turn?.routine) void this.stopHooks(chat, user)
+      else if (assistant.status !== 'cancelled' && !pause) setImmediate(() => this.sendQueued(chat.id))
     }
     return { ...assistant }
   }

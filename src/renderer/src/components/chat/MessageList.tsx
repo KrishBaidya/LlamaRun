@@ -140,6 +140,11 @@ function UserMessage({
           </Button>
         </span>
       )}
+      {message.hook && (
+        <span className="inline-flex items-center gap-1 pe-1 text-2xs text-muted-foreground">
+          <Bot className="size-3" /> Sent by your {message.hook} hook
+        </span>
+      )}
       {message.via && (
         <span className="inline-flex items-center gap-1 pe-1 text-2xs text-muted-foreground">
           {message.via.voice ? <Mic className="size-3" /> : <Bot className="size-3" />}

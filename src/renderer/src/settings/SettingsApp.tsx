@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 import { createHashRouter, NavLink, Outlet, RouterProvider, useNavigate } from 'react-router'
-import { AlarmClock, Blocks, Bot, Boxes, Brain, Home, LogIn, LogOut, MessagesSquare, MousePointerClick, Plug, Sparkles } from 'lucide-react'
+import { AlarmClock, Blocks, Bot, Boxes, Brain, Webhook, Home, LogIn, LogOut, MessagesSquare, MousePointerClick, Plug, Sparkles } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils'
 import { TitleBar } from '@/components/TitleBar'
 import { AgentsPage } from './pages/AgentsPage'
 import { ComputerPage } from './pages/ComputerPage'
+import { HooksPage } from './pages/HooksPage'
 import { HomePage } from './pages/HomePage'
 import { PluginDetailsPage } from './pages/PluginDetailsPage'
 import { PluginsPage } from './pages/PluginsPage'
@@ -29,6 +30,7 @@ const NAV = [
   { to: '/skills', label: 'Skills', icon: Sparkles, end: false },
   { to: '/agents', label: 'Agents', icon: Bot, end: false },
   { to: '/routines', label: 'Routines', icon: AlarmClock, end: false },
+  { to: '/hooks', label: 'Hooks', icon: Webhook, end: false },
   { to: '/computer', label: 'Computer use', icon: MousePointerClick, end: false },
   { to: '/plugins', label: 'Plugins', icon: Blocks, end: false },
   { to: '/mcp', label: 'MCP Servers', icon: Plug, end: false }
@@ -140,6 +142,7 @@ const router = createHashRouter([
       { path: 'skills', element: <SkillsPage /> },
       { path: 'agents', element: <AgentsPage /> },
       { path: 'routines', element: <RoutinesPage /> },
+      { path: 'hooks', element: <HooksPage /> },
       { path: 'computer', element: <ComputerPage /> },
       { path: 'plugins', element: <PluginsPage /> },
       { path: 'plugins/:id', element: <PluginDetailsPage /> },

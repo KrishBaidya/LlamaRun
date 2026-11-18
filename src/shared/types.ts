@@ -271,12 +271,26 @@ export interface ChatMessage {
   from?: { plugin: string }
   /** User messages that ran a skill as a /command: the model gets its instructions instead of the typed text. */
   skill?: { name: string; instructions: string }
+  /** User messages a hook sent (a Stop hook's feedback), not typed. */
+  hook?: HookEvent
   /** User messages that were edited: every version, each with the replies that followed it (‹ 1/2 ›). */
   versions?: MessageVersion[]
   /** Which of `versions` is showing. */
   version?: number
   createdAt: number
 }
+
+export type HookEvent = 'SessionStart' | 'UserPromptSubmit' | 'PreToolUse' | 'PostToolUse' | 'Stop'
+
+export interface HookHandler {
+  type: 'command'
+  command: string
+  /** Seconds before it's stopped (default 60). */
+  timeout?: number
+}
+
+/** Claude Code's hooks format: per event, groups of commands with an optional tool-name matcher. */
+export type HookConfig = Partial<Record<HookEvent, { matcher?: string; hooks: HookHandler[] }[]>>
 
 /** One version of an edited user message and the messages that followed it then. */
 export interface MessageVersion {

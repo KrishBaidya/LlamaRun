@@ -22,6 +22,7 @@ import { memoryStore } from './memory/store'
 import { routineStore } from './routines/store'
 import { exportChat } from './chats/exportFile'
 import { agentStore } from './assistant/agents'
+import { claudeCodeHooks, loadHooks, saveHooks } from './assistant/hooks'
 import { pluginDataDir, pluginsDir } from './paths'
 import { pluginHost } from './plugins/host'
 import { inspectPlugin, installPlugin } from './plugins/install'
@@ -184,6 +185,9 @@ export function registerIpc(): void {
     const { canceled, filePaths } = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options)
     return canceled || !filePaths[0] ? null : filePaths[0]
   })
+  handle('hooks:get', () => loadHooks())
+  handle('hooks:save', (_e, config) => saveHooks(config))
+  handle('hooks:claudeCode', () => claudeCodeHooks())
   handle('agents:list', () => agentStore.list())
   handle('agents:save', (_e, input) => (agentStore.save(input), agentStore.list()))
   handle('agents:delete', (_e, id) => (agentStore.remove(String(id)), agentStore.list()))
