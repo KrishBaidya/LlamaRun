@@ -54,7 +54,7 @@ export function skillIdFor(folder: string): string {
 }
 
 /** Puts the source's files in `out` and returns the folder to search for skills. */
-async function fetchSource(source: SkillSource, tmp: string): Promise<string> {
+export async function fetchSource(source: SkillSource, tmp: string): Promise<string> {
   const out = join(tmp, 'src')
   mkdirSync(out, { recursive: true })
   switch (source.kind) {

@@ -2,6 +2,8 @@ import type {
   AgentInfo,
   AgentInput,
   AppearanceInfo,
+  BundleInfo,
+  BundlePreview,
   ChannelStatus,
   ChatSetup,
   HookConfig,
@@ -125,6 +127,12 @@ export interface InvokeChannels {
   'channels:newCode': (id: 'telegram' | 'discord') => ChannelStatus[]
   'channels:unpair': (id: 'telegram' | 'discord', peer: string) => ChannelStatus[]
   'channels:setDeliver': (on: boolean) => ChannelStatus[]
+  /** Reads a Claude Code plugin (a link or folder) and says what it would add; nothing is installed yet. */
+  'bundles:inspect': (input: string) => { token: string; preview: BundlePreview }
+  'bundles:install': (token: string) => BundleInfo[]
+  'bundles:cancel': (token: string) => void
+  'bundles:list': () => BundleInfo[]
+  'bundles:remove': (name: string) => BundleInfo[]
   'hooks:get': () => HookConfig
   /** Saves the hooks (Claude Code's format); throws saying what's wrong. */
   'hooks:save': (config: HookConfig) => HookConfig
@@ -313,6 +321,11 @@ export const INVOKE_CHANNELS = [
   'channels:newCode',
   'channels:unpair',
   'channels:setDeliver',
+  'bundles:inspect',
+  'bundles:install',
+  'bundles:cancel',
+  'bundles:list',
+  'bundles:remove',
   'hooks:get',
   'hooks:save',
   'hooks:claudeCode',

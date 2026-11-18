@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, shell, systemPreferences } from 'electron'
 import type { EventChannel, EventChannels, InvokeChannel, InvokeChannels } from '@shared/ipc'
-import type { ChatSetup, Settings, ThinkingChoice } from '@shared/types'
+import type { ChatSetup, McpServerConfig, Settings, ThinkingChoice } from '@shared/types'
 import { THINKING_CHOICES } from '@shared/thinking'
 import { DEFAULT_CLOUD_MODEL } from '@shared/constants'
 import { analytics } from './analytics'
@@ -22,6 +22,7 @@ import { memoryStore } from './memory/store'
 import { routineStore } from './routines/store'
 import { exportChat } from './chats/exportFile'
 import { agentStore } from './assistant/agents'
+import { cancelBundle, inspectBundle, installBundle, listBundles, removeBundle } from './plugins/claudeBundle'
 import { channelHub } from './channels'
 import { claudeCodeHooks, loadHooks, saveHooks } from './assistant/hooks'
 import { pluginDataDir, pluginsDir } from './paths'
@@ -194,6 +195,12 @@ export function registerIpc(): void {
   handle('channels:newCode', (_e, id) => channelHub.newCode(channelId(id)))
   handle('channels:unpair', (_e, id, peer) => channelHub.unpair(channelId(id), String(peer)))
   handle('channels:setDeliver', (_e, on) => channelHub.setDeliver(on === true))
+  const bundleDeps = { addMcpServer: (s: McpServerConfig) => mcp.saveServer(s), removeMcpServer: (n: string) => mcp.remove(n) }
+  handle('bundles:inspect', (_e, input) => inspectBundle(String(input ?? '').trim()))
+  handle('bundles:install', async (_e, token) => (await installBundle(String(token), bundleDeps), listBundles()))
+  handle('bundles:cancel', (_e, token) => cancelBundle(String(token)))
+  handle('bundles:list', () => listBundles())
+  handle('bundles:remove', async (_e, name) => (await removeBundle(String(name), bundleDeps), listBundles()))
   handle('hooks:get', () => loadHooks())
   handle('hooks:save', (_e, config) => saveHooks(config))
   handle('hooks:claudeCode', () => claudeCodeHooks())

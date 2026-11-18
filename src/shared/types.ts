@@ -297,6 +297,32 @@ export interface ChannelStatus {
   deliverRoutines: boolean
 }
 
+/** What a Claude Code plugin would add, shown before installing. */
+export interface BundlePreview {
+  name: string
+  description: string
+  version?: string
+  skills: string[]
+  /** Slash commands (installed as /command skills). */
+  commands: string[]
+  agents: string[]
+  /** "Event (matcher): command" for each hook. */
+  hooks: string[]
+  /** "name: command" for each MCP server. */
+  mcpServers: string[]
+}
+
+/** An installed Claude Code plugin and what it added, so it can be removed. */
+export interface BundleInfo {
+  name: string
+  description: string
+  root: string
+  installedAt: number
+  skills: string[]
+  agents: string[]
+  mcpServers: string[]
+}
+
 export type HookEvent = 'SessionStart' | 'UserPromptSubmit' | 'PreToolUse' | 'PostToolUse' | 'Stop'
 
 export interface HookHandler {
