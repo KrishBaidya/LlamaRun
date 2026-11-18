@@ -96,6 +96,7 @@ Every plugin runs in its own Python process. A plugin that crashes or hangs affe
 | `commands` | `chats.add_command` (/commands in the chat box) and `chats.post` | The app checks each call. |
 | `context` | `chats.set_context`: adding live information to every message models see | The app checks each call. |
 | `memory` | `llamarun.memory`: reading and changing what the AI remembers about the user | The app checks each call. |
+| `usage` | `llamarun.usage`: token counts per day and model (SDK 1.5; counts only, never content) | The app checks each call. |
 | `skills` | `llamarun.skills`: listing skills, and asking to install new ones | The app checks each call, and asks the user before installing. |
 | `appearance` | `app.set_theme`: restyling Llama Run's windows with CSS | The app checks each call. |
 | `microphone`, `clipboard` | Shown to the user | Declared only. They can't be enforced from Python. |
@@ -125,6 +126,8 @@ Check permissions at runtime with `llamarun.permissions.has("network")`, since t
 | `on_unload(self)` | App quit, plugin reload, disable, removal, or a permission change | – |
 | `on_before_text_generation(self, ctx)` | Before the prompt goes to the model (needs `hooks`) | `TextGenerationContext` or `None` |
 | `on_after_text_generation(self, result)` | After the model has finished (needs `hooks`) | `TextGenerationResult` or `None` |
+| `on_before_tool_call(self, ctx)` | Before any tool a model calls in a chat runs (needs `hooks`, SDK 1.5) | `ToolCallContext` with `block=True` to stop it, or `None` |
+| `on_after_tool_call(self, result)` | After a tool call finished (needs `hooks`, SDK 1.5) | Text to add to the result the model sees, or `None` |
 
 ```python
 @dataclass
@@ -138,7 +141,25 @@ class TextGenerationResult:
     input_text: str
     response_text: str
     model: str
+
+@dataclass
+class ToolCallContext:      # SDK 1.5
+    tool: str               # Llama Run's tool name: run_command, edit_file, an MCP tool...
+    arguments: dict
+    chat_id: str
+    block: bool = False
+    reason: str = ""        # told to the model when you block
+
+@dataclass
+class ToolCallResult:       # SDK 1.5
+    tool: str
+    arguments: dict
+    result: str             # the result as text
+    chat_id: str
+    is_error: bool = False
 ```
+
+The tool-call hooks see every call a chat makes (built-in tools, MCP tools, other plugins' tools, and calls from `run_code` scripts and `agent_run` helpers), after the user's own hooks (Settings > Hooks). A blocked call never runs and the model is told your reason. Text you return from `on_after_tool_call` is added under the result, so the model reads it in its next step. Both run in the same order and with the same 120-second budget as the text hooks.
 
 Hooks fire once per chat turn, in both the overlay and the chat window. `ctx.input_text` is the newest user message; the earlier conversation is sent to the model automatically. If you rewrite `input_text`, the chat shows the user's original text with a "Rewritten by a plugin" marker. The rewritten text is what the model sees, now and in later turns.
 
@@ -437,6 +458,16 @@ memory.list() -> list[Memory]      # id, text, source ("user", "model" or a plug
 memory.add(text) -> Memory          # up to 500 characters; saving the same fact twice keeps one
 memory.update(id, text) -> Memory
 memory.delete(id) -> bool
+```
+
+### `llamarun.usage` (needs `usage`, SDK 1.5)
+
+```python
+from llamarun import usage
+
+for day in usage.days(30):          # oldest first, up to 90 days
+    for model, t in day.models.items():
+        print(day.day, model, t.input_tokens, t.output_tokens, t.cached_input_tokens, t.reasoning_tokens, t.requests)
 ```
 
 ### `llamarun.skills` (needs `skills`)

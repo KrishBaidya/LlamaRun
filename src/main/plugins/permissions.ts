@@ -86,6 +86,13 @@ export const PERMISSIONS: Record<PluginPermission, PermissionInfo> = {
     risk: 'medium',
     enforced: false
   },
+  usage: {
+    id: 'usage',
+    label: 'Your token usage',
+    description: 'Reads how many tokens your chats used, per day and model. Counts only, never what was said.',
+    risk: 'low',
+    enforced: true
+  },
   memory: {
     id: 'memory',
     label: 'Your AI memory',

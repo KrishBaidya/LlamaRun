@@ -39,7 +39,7 @@ from typing import Any, Callable, Dict, List, Optional  # noqa: E402
 
 import llamarun  # noqa: E402
 from llamarun import _rpc, _sandbox, app, chats, events, settings, tools, ui  # noqa: E402
-from llamarun.types import TextGenerationContext, TextGenerationResult  # noqa: E402
+from llamarun.types import TextGenerationContext, TextGenerationResult, ToolCallContext, ToolCallResult  # noqa: E402
 
 IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 REQUIRED_FIELDS = ("name", "description", "version", "author", "sdk_version")
@@ -207,6 +207,8 @@ def check_sdk_version(wanted: str, host: str = llamarun.__version__) -> None:
 HOOKS = {
     "before_text_generation": "on_before_text_generation",
     "after_text_generation": "on_after_text_generation",
+    "before_tool_call": "on_before_tool_call",
+    "after_tool_call": "on_after_tool_call",
 }
 
 
@@ -380,6 +382,35 @@ class PluginRunner:
             return None
         return asdict(returned)
 
+    def before_tool_call(self, tool: str, arguments: dict, chat_id: str) -> Optional[dict]:
+        if self.instance is None:
+            return None
+        ctx = ToolCallContext(tool=tool, arguments=dict(arguments or {}), chat_id=chat_id)
+        try:
+            returned = self.instance.on_before_tool_call(ctx)
+        except Exception:
+            self._report("on_before_tool_call")
+            return None
+        if returned is None:
+            return None
+        if not isinstance(returned, ToolCallContext):
+            self._log("warning", f"on_before_tool_call returned {type(returned).__name__}; ignored")
+            return None
+        return {"block": bool(returned.block), "reason": str(returned.reason or "")}
+
+    def after_tool_call(self, tool: str, arguments: dict, result: str, chat_id: str, is_error: bool) -> Optional[str]:
+        if self.instance is None:
+            return None
+        call = ToolCallResult(tool=tool, arguments=dict(arguments or {}), result=result, chat_id=chat_id, is_error=is_error)
+        try:
+            returned = self.instance.on_after_tool_call(call)
+        except Exception:
+            self._report("on_after_tool_call")
+            return None
+        if returned is None:
+            return None
+        return str(returned)[:10000]
+
     def custom(self, action: str) -> bool:
         if self.instance is None:
             raise RpcError(f"{self.name} is not loaded")
@@ -497,6 +528,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         "events.before_text_generation": lambda p: runner.before_text_generation(p["input_text"], p.get("model", "")),
         "events.after_text_generation": lambda p: runner.after_text_generation(
             p["input_text"], p["response_text"], p.get("model", "")
+        ),
+        "events.before_tool_call": lambda p: runner.before_tool_call(str(p.get("tool", "")), p.get("arguments") or {}, str(p.get("chat_id", ""))),
+        "events.after_tool_call": lambda p: runner.after_tool_call(
+            str(p.get("tool", "")), p.get("arguments") or {}, str(p.get("result", "")), str(p.get("chat_id", "")), bool(p.get("is_error"))
         ),
         "events.custom": lambda p: runner.custom(p["action"]),
         "events.deliver": lambda p: events._deliver(p["topic"], p.get("data"), p.get("source", "")),

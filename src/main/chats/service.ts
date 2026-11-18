@@ -149,18 +149,26 @@ export function chatTools(options: ChatToolOptions = {}): ToolBridge | undefined
   const offered = new Set(tools.map((t) => t.name))
   // The user's PreToolUse / PostToolUse hooks wrap every call, including those from scripts and helpers.
   const hookConfig = options.chatId ? loadHooks() : {}
+  const pluginHooks = Boolean(options.chatId) && pluginHost.hasToolHooks()
   const hooked: ToolBridge['call'] = async (name, args) => {
-    if (!hookConfig.PreToolUse?.length && !hookConfig.PostToolUse?.length) return call(name, args)
+    if (!hookConfig.PreToolUse?.length && !hookConfig.PostToolUse?.length && !pluginHooks) return call(name, args)
     const input = { chatId: options.chatId!, cwd: options.project ?? skillWorkspace(), tool: name, args }
     if (hookConfig.PreToolUse?.length) {
       const pre = await runHooks('PreToolUse', input, commandEnv(), hookConfig)
       if (pre.blocked) return { content: [{ type: 'text', text: `A hook blocked ${name}: ${pre.reason}` }], isError: true }
     }
+    if (pluginHooks) {
+      const pre = await pluginHost.beforeToolCall(name, args, options.chatId!)
+      if (pre.blocked) return { content: [{ type: 'text', text: `The ${pre.by} plugin blocked ${name}: ${pre.reason}` }], isError: true }
+    }
     const result = await call(name, args)
-    if (!hookConfig.PostToolUse?.length) return result
-    const post = await runHooks('PostToolUse', { ...input, result: toolResultToText(result) }, commandEnv(), hookConfig)
-    const note = [post.blocked ? `A hook objected: ${post.reason}` : '', post.context].filter(Boolean).join('\n')
-    return note ? { ...result, content: [...result.content, { type: 'text', text: `\n[hook] ${note}` }] } : result
+    const notes: string[] = []
+    if (hookConfig.PostToolUse?.length) {
+      const post = await runHooks('PostToolUse', { ...input, result: toolResultToText(result) }, commandEnv(), hookConfig)
+      notes.push(...[post.blocked ? `A hook objected: ${post.reason}` : '', post.context].filter(Boolean))
+    }
+    if (pluginHooks) notes.push(...(await pluginHost.afterToolCall(name, args, toolResultToText(result), Boolean(result.isError), options.chatId!)))
+    return notes.length ? { ...result, content: [...result.content, { type: 'text', text: `\n[hook] ${notes.join('\n')}` }] } : result
   }
   const call: ToolBridge['call'] = (name, args) =>
     !offered.has(name)

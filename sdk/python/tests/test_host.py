@@ -102,7 +102,7 @@ def test_sdk_version_rules():
         check_sdk_version("1.4", "1.3")
     with pytest.raises(ManifestError):
         check_sdk_version("2.0", "1.3")
-    assert llamarun.__version__ == "1.4"
+    assert llamarun.__version__ == "1.5"
 
 
 def test_manifest_reports_missing_field(tmp_path):
@@ -131,6 +131,26 @@ def test_hooks_report_and_rewrite(load):
     assert runner.before_text_generation("hi", "m")["input_text"] == "hi!"
     assert runner.before_text_generation("stop", "m")["cancel"] is True
     assert runner.after_text_generation("q", "a", "m") is None
+
+
+def test_tool_call_hooks_block_and_add_notes(load):
+    runner = load("""
+        import llamarun
+        class P(llamarun.Plugin):
+            def on_before_tool_call(self, ctx):
+                if ctx.tool == "run_command" and "rm" in ctx.arguments.get("command", ""):
+                    ctx.block = True
+                    ctx.reason = "no deleting"
+                    return ctx
+                return None
+            def on_after_tool_call(self, result):
+                return "2 lint errors" if result.tool == "edit_file" else None
+    """)
+    assert runner.info()["hooks"] == ["before_tool_call", "after_tool_call"]
+    assert runner.before_tool_call("run_command", {"command": "rm -rf x"}, "c1") == {"block": True, "reason": "no deleting"}
+    assert runner.before_tool_call("read_file", {"path": "a"}, "c1") is None
+    assert runner.after_tool_call("edit_file", {"path": "a.ts"}, "Edited", "c1", False) == "2 lint errors"
+    assert runner.after_tool_call("read_file", {}, "x", "c1", False) is None
 
 
 def test_failing_hook_is_skipped(load, fake):

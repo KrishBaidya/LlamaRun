@@ -34,6 +34,7 @@ import { closePluginDialogs, showPluginDialog } from './ui/dialogs'
 import { hudHost } from './ui/hud'
 import { closePanel, closePluginPanels, openPanel, reloadPluginPanels, renderPanel, setPanelState, setPanelTitle } from './ui/panels'
 import { pluginSettings } from './ui/settingsForms'
+import { usageStore } from '../usage'
 
 export interface BeforeGenerationResult {
   input_text: string
@@ -680,7 +681,7 @@ class PluginHost extends EventEmitter<{
 
   // ------------------------------------------------------------------- hooks
 
-  private hookTargets(hook: 'before_text_generation' | 'after_text_generation'): PluginRecord[] {
+  private hookTargets(hook: 'before_text_generation' | 'after_text_generation' | 'before_tool_call' | 'after_tool_call'): PluginRecord[] {
     return this.order
       .map((id) => this.records.get(id)!)
       .filter((r) => r.process?.running && r.load?.hooks.includes(hook) && allows(this.grantsOf(r) ?? [], 'hooks'))
@@ -730,6 +731,38 @@ class PluginHost extends EventEmitter<{
       }
     }
     return result
+  }
+
+  /** Plugins watching tool calls (SDK 1.5), so a chat skips the round trip when none are. */
+  hasToolHooks(): boolean {
+    return this.hookTargets('before_tool_call').length > 0 || this.hookTargets('after_tool_call').length > 0
+  }
+
+  /** Each plugin's on_before_tool_call in turn; the first that blocks stops the call. */
+  async beforeToolCall(tool: string, args: Record<string, unknown>, chatId: string): Promise<{ blocked: boolean; reason: string; by?: string }> {
+    for (const record of this.hookTargets('before_tool_call')) {
+      try {
+        const out = await record.process!.request<{ block?: boolean; reason?: string } | null>('events.before_tool_call', { tool, arguments: args, chat_id: chatId }, HOOK_TIMEOUT_MS)
+        if (out?.block) return { blocked: true, reason: String(out.reason || 'blocked'), by: record.manifest!.name }
+      } catch (err) {
+        await this.hookFailed(record, 'before_tool_call', err)
+      }
+    }
+    return { blocked: false, reason: '' }
+  }
+
+  /** What plugins' on_after_tool_call add to a result (a lint error, say), one note per plugin that said something. */
+  async afterToolCall(tool: string, args: Record<string, unknown>, result: string, isError: boolean, chatId: string): Promise<string[]> {
+    const notes: string[] = []
+    for (const record of this.hookTargets('after_tool_call')) {
+      try {
+        const out = await record.process!.request<string | null>('events.after_tool_call', { tool, arguments: args, result, is_error: isError, chat_id: chatId }, HOOK_TIMEOUT_MS)
+        if (out && String(out).trim()) notes.push(`${record.manifest!.name}: ${String(out).trim()}`)
+      } catch (err) {
+        await this.hookFailed(record, 'after_tool_call', err)
+      }
+    }
+    return notes
   }
 
   // --------------------------------------------------------------- host API
@@ -871,6 +904,7 @@ class PluginHost extends EventEmitter<{
         else record.context?.delete(String(p.key))
         return null
       },
+      'usage.list': (p) => (need('usage'), usageStore.days(Math.max(1, Math.min(90, Number(p.since_days) || 30)))),
       'memory.list': () => (need('memory'), memoryStore.list()),
       'memory.add': (p) => (need('memory'), memoryStore.add(String(p.text ?? ''), manifest.name)),
       'memory.update': (p) => (need('memory'), memoryStore.update(String(p.id ?? ''), String(p.text ?? ''), manifest.name)),

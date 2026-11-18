@@ -704,6 +704,7 @@ export type PluginPermission =
   | 'context'
   | 'appearance'
   | 'commands'
+  | 'usage'
   | 'unrestricted'
 
 export interface PermissionInfo {

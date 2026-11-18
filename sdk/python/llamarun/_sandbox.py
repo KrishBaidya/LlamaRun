@@ -37,6 +37,7 @@ PERMISSIONS = (
     "context",
     "appearance",
     "commands",
+    "usage",
 )
 UNRESTRICTED = "unrestricted"
 

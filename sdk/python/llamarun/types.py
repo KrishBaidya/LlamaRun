@@ -19,6 +19,32 @@ class TextGenerationContext:
 
 
 @dataclass
+class ToolCallContext:
+    """Passed to ``on_before_tool_call`` (needs the ``hooks`` permission).
+
+    Set ``block = True`` (and a ``reason`` the model is told) and return the
+    context to stop the call.
+    """
+
+    tool: str
+    arguments: dict
+    chat_id: str
+    block: bool = False
+    reason: str = ""
+
+
+@dataclass
+class ToolCallResult:
+    """Passed to ``on_after_tool_call``: the call and its result as text."""
+
+    tool: str
+    arguments: dict
+    result: str
+    chat_id: str
+    is_error: bool = False
+
+
+@dataclass
 class TextGenerationResult:
     """Passed to ``on_after_text_generation``.
 

@@ -6,7 +6,7 @@ import contextvars
 import threading
 from typing import Any, Callable, Optional
 
-from .types import TextGenerationContext, TextGenerationResult
+from .types import TextGenerationContext, TextGenerationResult, ToolCallContext, ToolCallResult
 
 
 class Plugin:
@@ -38,6 +38,21 @@ class Plugin:
         """Called after the model has finished responding.
 
         Return a (possibly modified) result to replace it, or ``None``.
+        """
+        return None
+
+    def on_before_tool_call(self, ctx: ToolCallContext) -> Optional[ToolCallContext]:
+        """Called before any tool a model calls in a chat runs (SDK 1.5, ``hooks`` permission).
+
+        Return the context with ``block=True`` and a ``reason`` to stop the call
+        (the model is told why), or ``None`` to let it run.
+        """
+        return None
+
+    def on_after_tool_call(self, result: ToolCallResult) -> Optional[str]:
+        """Called after a tool call finished (SDK 1.5, ``hooks`` permission).
+
+        Return text to add to the result the model sees (a lint error, say), or ``None``.
         """
         return None
 
