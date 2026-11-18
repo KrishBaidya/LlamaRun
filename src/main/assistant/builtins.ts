@@ -14,6 +14,7 @@ import * as processes from './processes'
 import { sandboxNote, sandboxOn, spawnSandboxed } from './sandbox'
 import { formatPage, globFiles, grepFiles, listDir } from './search'
 import { webSearch } from './webSearch'
+import { generateImage } from './imageGen'
 import type { McpToolResult } from '../mcp/manager'
 import { kindOf, MEMORY_BUDGET, memoryStore } from '../memory/store'
 import { pythonExecutable, userDataPath } from '../paths'
@@ -143,6 +144,16 @@ const SEARCH_TOOLS: McpToolInfo[] = [
     'Search the web (Google) for current information: news, prices, versions, facts you are unsure of. Returns an answer drawn from the results with numbered sources; read a source in full with web_fetch.',
     { query: { type: 'string', description: 'What to search for, as you would type it into a search engine.' } },
     ['query']
+  ),
+  tool(
+    'image_generate',
+    'Make an image from a description, or edit images (give their paths): a picture, illustration, logo, mockup, or a change to a photo. Saves a PNG and shows it to you, so you can check it and try again.',
+    {
+      prompt: { type: 'string', description: 'What the image should show (or what to change), in detail.' },
+      input_images: { type: 'array', items: { type: 'string' }, description: 'Paths of images to edit or use as references (up to 4).' },
+      out: { type: 'string', description: 'Where to save it (.png), absolute or relative. Default: a new file in the working folder.' }
+    },
+    ['prompt']
   )
 ]
 
@@ -613,6 +624,36 @@ export function commandEnv(): NodeJS.ProcessEnv {
   return { ...process.env, PATH: path, Path: path, PYTHONIOENCODING: 'utf-8', GIT_TERMINAL_PROMPT: '0' }
 }
 
+/** image_generate: reads the inputs (approved like reads), asks the server, saves the PNG (approved like a write) and shows it. */
+async function imageTool(args: Record<string, unknown>, context: ToolContext): Promise<McpToolResult> {
+  const prompt = str(args, 'prompt')
+  const paths = (Array.isArray(args.input_images) ? args.input_images.map(String) : []).slice(0, 4)
+  const inputs: { data: string; mediaType: string }[] = []
+  for (const p of paths) {
+    const path = resolve(baseOf(context), p.trim())
+    const type = IMAGE_TYPES[extname(path).toLowerCase()]
+    if (!type || !existsSync(path)) throw new Error(`${path} is not an image file`)
+    await approveFile(path, false, context.chatId, false, context.project)
+    // Sent as PNG or JPEG, scaled to a sensible size.
+    const image = nativeImage.createFromPath(path)
+    if (image.isEmpty()) throw new Error(`${path} is not an image Llama Run can open`)
+    const { width, height } = image.getSize()
+    const scale = Math.min(1, 2048 / Math.max(width, height))
+    const sized = scale < 1 ? image.resize({ width: Math.round(width * scale), height: Math.round(height * scale), quality: 'best' }) : image
+    inputs.push({ data: sized.toPNG().toString('base64'), mediaType: 'image/png' })
+  }
+  const outArg = typeof args.out === 'string' && args.out.trim() ? args.out.trim() : `image-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.png`
+  const out = resolve(baseOf(context), extname(outArg) ? outArg : `${outArg}.png`)
+  await approveFile(out, true, context.chatId, false, context.project)
+  const made = await generateImage(prompt, inputs, auth.token)
+  const image = nativeImage.createFromBuffer(made.bytes)
+  if (image.isEmpty()) throw new Error('The image that came back could not be read')
+  mkdirSync(dirname(out), { recursive: true })
+  recordChange(context.chatId, context.messageId, out)
+  writeFileSync(out, extname(out).toLowerCase() === '.jpg' || extname(out).toLowerCase() === '.jpeg' ? image.toJPEG(92) : image.toPNG())
+  return imageResult(`Saved ${out}${made.text ? ` (the model said: ${made.text.slice(0, 300)})` : ''}`, image)
+}
+
 /** The status line and the newest output, when there is more than the model is shown. */
 function cutTail(text: string): string {
   if (text.length <= MAX_OUTPUT_CHARS) return text
@@ -779,6 +820,8 @@ export async function callBuiltinTool(name: string, args: Record<string, unknown
         return result(skillStore.edit(str(args, 'skill'), str(args, 'old_string'), typeof args.new_string === 'string' ? args.new_string : '', args.replace_all === true))
       case 'skill_write_file':
         return result(skillStore.writeSkillFile(str(args, 'skill'), str(args, 'path'), typeof args.content === 'string' ? args.content : ''))
+      case 'image_generate':
+        return await imageTool(args, context)
       case 'web_search':
         return result(await webSearch(str(args, 'query'), auth.token))
       case 'web_fetch':
