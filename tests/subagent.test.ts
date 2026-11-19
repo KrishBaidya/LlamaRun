@@ -1,50 +1,59 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { AgentInfo, McpToolInfo } from '../src/shared/types'
+import type { McpToolInfo } from '../src/shared/types'
 import type { GenerateOptions, ToolBridge } from '../src/main/llm/types'
 
 vi.mock('electron', () => ({ app: { getPath: () => '.', isPackaged: false, getAppPath: () => '.' } }))
 const { childTools, runSubagent, MAX_PARALLEL, answerText } = await import('../src/main/chats/subagent')
+const { allowedTools } = await import('../src/main/assistant/planMode')
 
 const tool = (name: string): McpToolInfo => ({ name, server: 'Llama Run', description: '', inputSchema: {} })
 const parentTools = ['read_file', 'file_grep', 'write_file', 'run_command', 'agent_run', 'ask_user', 'mcp_thing'].map(tool)
 const bridge: ToolBridge = { tools: parentTools, call: vi.fn(async (name: string) => ({ content: [{ type: 'text', text: `${name} ok` }] })) }
 
-const writer: AgentInfo = { id: 'llamarun:writer', name: 'writer', description: 'Writes files', tools: ['read_file', 'write_file'], prompt: 'You write tidy files.', location: 'llamarun', file: 'x', model: 'gemini-x' }
-const all: AgentInfo = { ...writer, id: 'llamarun:all', name: 'all', tools: '*' }
-
 describe('childTools', () => {
-  it('is read-only by default and never offers agent_run or ask_user', () => {
-    expect(childTools(parentTools, undefined).map((t) => t.name)).toEqual(['read_file', 'file_grep'])
-    expect(childTools(parentTools, '*').map((t) => t.name)).toEqual(['read_file', 'file_grep', 'write_file', 'run_command', 'mcp_thing'])
-    expect(childTools(parentTools, writer.tools).map((t) => t.name)).toEqual(['read_file', 'write_file'])
+  it("gets the chat's tools to do the task, never agent_run or ask_user; read-only when asked", () => {
+    expect(childTools(parentTools, false).map((t) => t.name)).toEqual(['read_file', 'file_grep', 'write_file', 'run_command', 'mcp_thing'])
+    expect(childTools(parentTools, true).map((t) => t.name)).toEqual(['read_file', 'file_grep'])
+  })
+})
+
+describe('plan mode', () => {
+  it('keeps reading, asking and read-only sub-agents only', () => {
+    const tools = ['read_file', 'file_grep', 'write_file', 'run_command', 'ask_user', 'agent_run', 'todo_update', 'some_mcp_tool'].map((name) => ({ name }))
+    expect(allowedTools(tools, { plan: true }).map((t) => t.name)).toEqual(['read_file', 'file_grep', 'ask_user', 'agent_run', 'todo_update'])
+    expect(allowedTools(tools, {})).toHaveLength(tools.length)
   })
 })
 
 describe('runSubagent', () => {
-  it('runs the task with its agent prompt, model and tools, and returns only the answer with steps', async () => {
+  it("does the task with the chat's model and tools, and returns only the answer with steps", async () => {
     let seen: GenerateOptions | undefined
-    const generate = vi.fn(async (input: unknown, opts: GenerateOptions) => {
+    const generate = vi.fn(async (_input: unknown, opts: GenerateOptions) => {
       seen = opts
-      opts.onTool?.({ id: '1', name: 'read_file', server: 'Llama Run', args: { path: 'a.txt' } })
-      await opts.tools!.call('read_file', { path: 'a.txt' })
+      opts.onTool?.({ id: '1', name: 'write_file', server: 'Llama Run', args: { path: 'a.txt' } })
+      await opts.tools!.call('write_file', { path: 'a.txt' })
       opts.onToolResult?.('1', { content: [] })
-      // A tool the agent may not use is refused even if the model asks.
-      const refused = await opts.tools!.call('run_command', { command: 'del *' })
+      // A tool it doesn't have is refused even if the model asks.
+      const refused = await opts.tools!.call('agent_run', { task: 'more' })
       expect(refused.isError).toBe(true)
-      return 'Found it in a.txt'
+      return 'Wrote a.txt'
     })
-    const result = await runSubagent({ task: 'find x', agent: 'writer' }, { bridge, model: 'parent-model', generate, findAgent: (n) => (n === 'writer' ? writer : undefined) })
-    expect(answerText(result)).toContain('Found it in a.txt')
-    expect(result.steps).toEqual([{ name: 'read_file', status: 'done', hint: 'a.txt' }])
-    expect(seen!.model).toBe('gemini-x')
-    expect(seen!.system).toContain('You write tidy files.')
-    expect(seen!.tools!.tools.map((t) => t.name)).toEqual(['read_file', 'write_file'])
-    expect(seen!.onPause).toBeUndefined()
+    const result = await runSubagent({ task: 'write x' }, { bridge, model: 'parent-model', generate })
+    expect(answerText(result)).toContain('Wrote a.txt')
+    expect(result.steps).toEqual([{ name: 'write_file', status: 'done', hint: 'a.txt' }])
+    expect(seen!.model).toBe('parent-model')
+    expect(seen!.tools!.tools.map((t) => t.name)).toEqual(['read_file', 'file_grep', 'write_file', 'run_command', 'mcp_thing'])
   })
 
-  it('rejects an unknown agent', async () => {
-    const r = await runSubagent({ task: 'x', agent: 'nobody' }, { bridge, model: 'm', generate: vi.fn(), findAgent: () => undefined })
-    expect(r.isError).toBe(true)
+  it('only reads in plan mode or when the model asks', async () => {
+    const names: string[][] = []
+    const generate = vi.fn(async (_input: unknown, opts: GenerateOptions) => (names.push(opts.tools!.tools.map((t) => t.name)), 'ok'))
+    await runSubagent({ task: 'x' }, { bridge, model: 'm', generate, readOnly: true })
+    await runSubagent({ task: 'x', read_only: true }, { bridge, model: 'm', generate })
+    expect(names).toEqual([
+      ['read_file', 'file_grep'],
+      ['read_file', 'file_grep']
+    ])
   })
 
   it('runs at most MAX_PARALLEL at once', async () => {
@@ -57,7 +66,7 @@ describe('runSubagent', () => {
       running--
       return 'ok'
     }
-    await Promise.all(Array.from({ length: MAX_PARALLEL + 3 }, () => runSubagent({ task: 't', agent: 'all' }, { bridge, model: 'm', generate, findAgent: () => all })))
+    await Promise.all(Array.from({ length: MAX_PARALLEL + 3 }, () => runSubagent({ task: 't' }, { bridge, model: 'm', generate })))
     expect(peak).toBe(MAX_PARALLEL)
   })
 })

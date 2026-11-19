@@ -12,7 +12,6 @@ vi.mock('electron', () => ({ app: { getPath: () => userData, isPackaged: false, 
 
 const { inspectBundle, installBundle, listBundles, removeBundle } = await import('../src/main/plugins/claudeBundle')
 const { loadHooks } = await import('../src/main/assistant/hooks')
-const { agentStore } = await import('../src/main/assistant/agents')
 const { skillStore, skillsDir } = await import('../src/main/skills/store')
 
 /** A plugin folder with one of everything. */
@@ -47,7 +46,9 @@ describe('Claude Code plugin bundles', () => {
     expect(lint?.modelInvocable).toBe(false)
     expect(readFileSync(join(skillsDir(), 'code-kit-cmd-lint', 'SKILL.md'), 'utf8')).toContain('Run the linter on $ARGUMENTS.')
     expect(skillStore.list().some((s) => s.name === 'review-pr')).toBe(true)
-    expect(agentStore.find('reviewer')?.tools).toEqual(['read_file', 'file_grep'])
+    const reviewer = skillStore.list().find((s) => s.name === 'reviewer')
+    expect(reviewer).toMatchObject({ description: 'Reviews code', modelInvocable: true })
+    expect(readFileSync(join(skillsDir(), 'code-kit-agent-reviewer', 'SKILL.md'), 'utf8')).toContain('Be strict.')
     expect(loadHooks().PostToolUse?.[0].hooks[0].command).toBe(`node ${root}/fmt.js`)
     expect(added[0].data.Arguments).toEqual([`${root}/server.js`])
     expect(listBundles().map((b) => b.name)).toEqual(['Code Kit'])
@@ -55,7 +56,7 @@ describe('Claude Code plugin bundles', () => {
     await removeBundle('Code Kit', deps)
     expect(removed).toEqual([info.mcpServers[0]])
     expect(loadHooks().PostToolUse).toBeUndefined()
-    expect(agentStore.find('reviewer')).toBeUndefined()
+    expect(existsSync(join(skillsDir(), 'code-kit-agent-reviewer'))).toBe(false)
     expect(existsSync(join(skillsDir(), 'code-kit-cmd-lint'))).toBe(false)
     expect(listBundles()).toEqual([])
   })

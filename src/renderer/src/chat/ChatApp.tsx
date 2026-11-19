@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { FoldVertical, MessageSquare } from 'lucide-react'
 import type { ChatAttachment, ChatSetup, ThinkingChoice } from '@shared/types'
-import { AgentPicker, PlanToggle } from '@/components/chat/AgentPicker'
+import { PlanToggle } from '@/components/chat/PlanToggle'
 import { ProjectPicker } from '@/components/chat/ProjectPicker'
 import { Composer, type ComposerHandle } from '@/components/chat/Composer'
 import { ContextRing } from '@/components/chat/ContextRing'
@@ -70,11 +70,6 @@ export function ChatApp() {
     if (chat) void api.chats.setThinking(chat.id, t ?? null)
     else setDraftThinking(t)
   }
-  const agent = chat ? chat.agent : draftSetup.agent
-  const setAgent = (a: string | undefined): void => {
-    if (chat) void api.chats.setAgent(chat.id, a ?? null)
-    else setDraftSetup((s) => ({ ...s, agent: a }))
-  }
   const plan = chat ? !!chat.plan : !!draftSetup.plan
   const setPlan = (p: boolean): void => {
     if (chat) void api.chats.setPlan(chat.id, p)
@@ -110,7 +105,6 @@ export function ChatApp() {
           <ModelPicker value={model} onChange={setModel} />
           <ThinkingPicker model={model} value={thinking} onChange={setThinking} />
           <ProjectPicker value={project} recent={recentProjects} onChange={setProject} />
-          <AgentPicker value={agent} onChange={setAgent} />
           <PlanToggle value={plan} onChange={setPlan} />
         </>
       }

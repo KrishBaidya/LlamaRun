@@ -87,7 +87,7 @@ export function ClaudePlugins() {
             {staged.preview.description && <p className="text-xs text-muted-foreground">{staged.preview.description}</p>}
             <Section title="Skills" items={staged.preview.skills} />
             <Section title="Commands" items={staged.preview.commands.map((c) => `/${c}`)} />
-            <Section title="Agents" items={staged.preview.agents} />
+            <Section title="Agents (added as skills a sub-agent can follow)" items={staged.preview.agents} />
             <Section title="Hooks: these commands run on your PC without asking" items={staged.preview.hooks} mono />
             <Section title="MCP servers: these programs start with Llama Run" items={staged.preview.mcpServers} mono />
             <div className="flex justify-end gap-2">
@@ -107,7 +107,7 @@ export function ClaudePlugins() {
                 <div className="min-w-0 flex-1">
                   <p className="text-sm">{b.name}</p>
                   <p className="text-2xs text-muted-foreground">
-                    {[b.skills.length && `${b.skills.length} skills/commands`, b.agents.length && `${b.agents.length} agents`, b.mcpServers.length && `${b.mcpServers.length} MCP servers`].filter(Boolean).join(' · ') ||
+                    {[b.skills.length && `${b.skills.length} skills/commands`,b.mcpServers.length && `${b.mcpServers.length} MCP servers`].filter(Boolean).join(' · ') ||
                       'Hooks only'}
                   </p>
                 </div>

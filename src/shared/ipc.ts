@@ -1,6 +1,4 @@
 import type {
-  AgentInfo,
-  AgentInput,
   AppearanceInfo,
   BundleInfo,
   BundlePreview,
@@ -74,7 +72,6 @@ export interface InvokeChannels {
   /** Sends a user message; creates the chat when chatId is null. Returns the chat id. */
   'chats:send': (chatId: string | null, text: string, model?: string, attachments?: ChatAttachment[], thinking?: ThinkingChoice, setup?: ChatSetup) => string
   /** The agent a chat runs as; null for none. */
-  'chats:setAgent': (id: string, agent: string | null) => void
   /** Plan mode on or off for a chat. */
   'chats:setPlan': (id: string, plan: boolean) => void
   /** The folder a chat works in; null for none. */
@@ -138,9 +135,6 @@ export interface InvokeChannels {
   'hooks:save': (config: HookConfig) => HookConfig
   /** Claude Code's own hooks from ~/.claude/settings.json, or null. */
   'hooks:claudeCode': () => HookConfig | null
-  'agents:list': () => AgentInfo[]
-  'agents:save': (agent: AgentInput) => AgentInfo[]
-  'agents:delete': (id: string) => AgentInfo[]
   'routines:list': () => Routine[]
   'routines:add': (prompt: string, when: string, quiet?: boolean) => Routine[]
   'routines:setQuiet': (id: string, quiet: boolean) => Routine[]
@@ -291,7 +285,6 @@ export const INVOKE_CHANNELS = [
   'chats:setModel',
   'chats:setThinking',
   'chats:send',
-  'chats:setAgent',
   'chats:setPlan',
   'chats:setProject',
   'chats:pickFolder',
@@ -329,9 +322,6 @@ export const INVOKE_CHANNELS = [
   'hooks:get',
   'hooks:save',
   'hooks:claudeCode',
-  'agents:list',
-  'agents:save',
-  'agents:delete',
   'routines:list',
   'routines:add',
   'routines:setQuiet',

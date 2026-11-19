@@ -175,26 +175,6 @@ export interface ToolStep {
   hint?: string
 }
 
-export type AgentLocation = 'llamarun' | 'claude' | 'opencode'
-
-/** A custom agent (OpenCode agents, Claude Code's .claude/agents): a prompt with its own model and tools. */
-export interface AgentInfo {
-  /** location:file-name, e.g. "llamarun:researcher". */
-  id: string
-  name: string
-  /** What it is for: decides when the model hands it work. */
-  description: string
-  /** A model id; absent: the chat's model. */
-  model?: string
-  /** Tool names it may call, or every tool. */
-  tools: string[] | '*'
-  thinking?: ThinkingChoice
-  /** Its instructions (the file's body). */
-  prompt: string
-  location: AgentLocation
-  file: string
-}
-
 /** What the model thought on the way (a thinking model's summary of its reasoning), shown in place; never sent back to it. */
 export interface ThinkingPart {
   type: 'thinking'
@@ -305,6 +285,7 @@ export interface BundlePreview {
   skills: string[]
   /** Slash commands (installed as /command skills). */
   commands: string[]
+  /** Agent files (installed as skills). */
   agents: string[]
   /** "Event (matcher): command" for each hook. */
   hooks: string[]
@@ -319,7 +300,6 @@ export interface BundleInfo {
   root: string
   installedAt: number
   skills: string[]
-  agents: string[]
   mcpServers: string[]
 }
 
@@ -359,8 +339,6 @@ export interface Chat {
   installer?: boolean
   /** How hard the model thinks in this chat, chosen in the chat box. Absent: the model's default from Model settings. */
   thinking?: ThinkingChoice
-  /** The custom agent this chat runs as (its id): its prompt, and only its tools. */
-  agent?: string
   /** Plan mode: the model only reads and looks things up; nothing on the PC changes until it's turned off. */
   plan?: boolean
   /** The folder this chat works in (see Project). */
@@ -369,20 +347,8 @@ export interface Chat {
 
 /** Chosen in the chat box before a chat exists; goes with its first message. */
 export interface ChatSetup {
-  agent?: string
   plan?: boolean
   project?: string
-}
-
-/** A Llama Run agent as Settings > Agents saves it. */
-export interface AgentInput {
-  id?: string
-  name: string
-  description: string
-  model?: string
-  tools: string[] | '*'
-  thinking?: ThinkingChoice
-  prompt: string
 }
 
 export interface ChatSummary {

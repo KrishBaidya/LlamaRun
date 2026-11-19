@@ -33,7 +33,7 @@ import { describeDays, describeUsage, usageStore } from '../usage'
 import { editMessage, switchVersion } from './branches'
 import { projectInstructions, validProject } from '../assistant/project'
 import { loadHooks, runHooks } from '../assistant/hooks'
-import { agentStore, allowedTools } from '../assistant/agents'
+import { allowedTools } from '../assistant/planMode'
 import { AGENT_RUN, agentRunTool, runSubagent } from './subagent'
 import * as notify from '../notify'
 import { stopChat as stopChatProcesses } from '../assistant/processes'
@@ -117,8 +117,6 @@ export interface ChatToolOptions {
   model?: string
   thinking?: ThinkingChoice
   signal?: AbortSignal
-  /** The chat's agent's tools: only these (and ask_user, todo_update) are offered. */
-  allow?: string[] | '*'
   /** Plan mode: read-only tools only, and agent_run's helpers stay read-only. */
   plan?: boolean
   /** The chat's project folder. */
@@ -132,12 +130,11 @@ export interface ChatToolOptions {
  * the MCP servers' and the plugins'.
  */
 export function chatTools(options: ChatToolOptions = {}): ToolBridge | undefined {
-  const agents = options.shell && options.model ? agentStore.list() : []
   const own = [
     ...builtinTools(options),
     ...(options.computer ? computer.tools() : []),
     ...(options.shell ? [RUN_CODE_TOOL] : []),
-    ...(options.shell && options.model ? [agentRunTool(agents)] : [])
+    ...(options.shell && options.model ? [agentRunTool()] : [])
   ]
   const ownNames = new Set(own.map((t) => t.name))
   const mcpTools = mcp.tools().filter((t) => !isBuiltinTool(t.name) && !ownNames.has(t.name))
@@ -188,7 +185,6 @@ export function chatTools(options: ChatToolOptions = {}): ToolBridge | undefined
                   thinking: options.thinking,
                   signal: options.signal,
                   generate,
-                  findAgent: (n) => agentStore.find(n),
                   readOnly: options.plan
                 })
               : mcp.callTool(name, args)
@@ -212,14 +208,14 @@ const promptSnapshots = new Map<string, string>()
  * Instructions for a turn, most stable first so a cached prefix lasts: memories
  * and skills, what plugins added, computer use, an install note, then the turn's own.
  */
-export function systemFor(turn?: string, shell = false, computerOn = false, install = false, chatId?: string, agentPrompt?: string): string | undefined {
+export function systemFor(turn?: string, shell = false, computerOn = false, install = false, chatId?: string): string | undefined {
   let base = chatId ? promptSnapshots.get(chatId) : undefined
   if (base === undefined) {
     const project = chatId ? chatStore.get(chatId)?.project : undefined
     base = [builtinInstructions({ shell }), projectInstructions(validProject(project))].filter(Boolean).join('\n\n')
     if (chatId) promptSnapshots.set(chatId, base)
   }
-  const parts = [base, agentPrompt?.trim(), pluginHost.contextText(), computerOn ? computerInstructions() : '', install ? installNote() : '', turn?.trim()].filter(Boolean)
+  const parts = [base, pluginHost.contextText(), computerOn ? computerInstructions() : '', install ? installNote() : '', turn?.trim()].filter(Boolean)
   return parts.length ? parts.join('\n\n') : undefined
 }
 
@@ -350,19 +346,6 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     if (!chat) return
     if (thinking) chat.thinking = thinking
     else delete chat.thinking
-    chatStore.save(chat, false)
-    this.emit('event', { type: 'chat', chat })
-  }
-
-  /** The custom agent the chat runs as; picking one with its own model switches the chat to it. */
-  setAgent(id: string, agentId: string | null): void {
-    const chat = chatStore.get(id)
-    if (!chat) return
-    const agent = agentId ? agentStore.find(agentId) : undefined
-    if (agent) {
-      chat.agent = agent.id
-      if (agent.model) chat.model = agent.model
-    } else delete chat.agent
     chatStore.save(chat, false)
     this.emit('event', { type: 'chat', chat })
   }
@@ -644,8 +627,6 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     const chat = existing || this.create(options.model, options.ephemeral)
     if (this.running.has(chat.id)) throw new Error('Wait for the current response to finish, or stop it first.')
     if (!existing && options.thinking) chat.thinking = options.thinking
-    const chosen = !existing && options.setup?.agent ? agentStore.find(options.setup.agent) : undefined
-    if (chosen) chat.agent = chosen.id
     if (!existing && options.setup?.plan) chat.plan = true
     if (!existing && validProject(options.setup?.project)) chat.project = options.setup!.project
     if (!chat.model) chat.model = settings.get('selectedModel')
@@ -932,16 +913,15 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
       }
 
       // The chat's choice, else the model's default from Model settings, else low for computer-use steps.
-      const agent = chat.agent ? agentStore.find(chat.agent) : undefined
-      const turnThinking = resolveThinking(info, { chat: chat.thinking ?? agent?.thinking, modelDefault: settings.get('modelContext')?.[model]?.thinking, computerOn: Boolean(computerOn) })
+      const turnThinking = resolveThinking(info, { chat: chat.thinking, modelDefault: settings.get('modelContext')?.[model]?.thinking, computerOn: Boolean(computerOn) })
       const text = await generate(historyFor(chat.messages.slice(0, -1), chat.compaction), {
         model,
         signal: controller.signal,
         tools:
           turn?.tools === false
             ? undefined
-            : chatTools({ shell, chatId: chat.id, messageId: assistant.id, computer: computerOn, routine: turn?.routine, model, thinking: turnThinking, signal: controller.signal, allow: agent?.tools, plan: chat.plan, project: validProject(chat.project) }),
-        system: systemFor([turn?.system, hookContext].filter(Boolean).join('\n\n') || undefined, shell, Boolean(computerOn), install, chat.id, agent?.prompt),
+            : chatTools({ shell, chatId: chat.id, messageId: assistant.id, computer: computerOn, routine: turn?.routine, model, thinking: turnThinking, signal: controller.signal, plan: chat.plan, project: validProject(chat.project) }),
+        system: systemFor([turn?.system, hookContext].filter(Boolean).join('\n\n') || undefined, shell, Boolean(computerOn), install, chat.id),
         maxToolRounds: maxRounds,
         vision: Boolean(info?.capabilities?.includes('vision')),
         thinking: turnThinking,

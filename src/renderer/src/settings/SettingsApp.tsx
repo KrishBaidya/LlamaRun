@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 import { createHashRouter, NavLink, Outlet, RouterProvider, useNavigate } from 'react-router'
-import { AlarmClock, Blocks, Bot, Boxes, Brain, MessageCircle, Webhook, Home, LogIn, LogOut, MessagesSquare, MousePointerClick, Plug, Sparkles } from 'lucide-react'
+import { AlarmClock, Blocks, Boxes, Brain, MessageCircle, Webhook, Home, LogIn, LogOut, MessagesSquare, MousePointerClick, Plug, Sparkles } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -9,7 +9,6 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { api, useIpcEvent, useProfile } from '@/hooks/use-llamarun'
 import { cn } from '@/lib/utils'
 import { TitleBar } from '@/components/TitleBar'
-import { AgentsPage } from './pages/AgentsPage'
 import { ChannelsPage } from './pages/ChannelsPage'
 import { ComputerPage } from './pages/ComputerPage'
 import { HooksPage } from './pages/HooksPage'
@@ -29,7 +28,6 @@ const NAV = [
   { to: '/models', label: 'Models', icon: Boxes, end: false },
   { to: '/memory', label: 'Memory', icon: Brain, end: false },
   { to: '/skills', label: 'Skills', icon: Sparkles, end: false },
-  { to: '/agents', label: 'Agents', icon: Bot, end: false },
   { to: '/routines', label: 'Routines', icon: AlarmClock, end: false },
   { to: '/hooks', label: 'Hooks', icon: Webhook, end: false },
   { to: '/channels', label: 'Channels', icon: MessageCircle, end: false },
@@ -142,7 +140,6 @@ const router = createHashRouter([
       { path: 'models', element: <ModelsPage /> },
       { path: 'memory', element: <MemoryPage /> },
       { path: 'skills', element: <SkillsPage /> },
-      { path: 'agents', element: <AgentsPage /> },
       { path: 'routines', element: <RoutinesPage /> },
       { path: 'hooks', element: <HooksPage /> },
       { path: 'channels', element: <ChannelsPage /> },

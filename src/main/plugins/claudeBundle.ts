@@ -3,7 +3,6 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, 
 import { tmpdir } from 'node:os'
 import { basename, extname, join, resolve, sep } from 'node:path'
 import type { BundleInfo, BundlePreview, HookConfig, HookEvent, McpServerConfig } from '@shared/types'
-import { agentRoots } from '../assistant/agents'
 import { HOOK_EVENTS, loadHooks, saveHooks, validateHooks } from '../assistant/hooks'
 import { readJson, writeJson } from '../jsonFile'
 import { configFromDirectoryEntry } from '../mcp/config'
@@ -18,7 +17,7 @@ import { skillsDir, skillStore } from '../skills/store'
  * a folder or repository with .claude-plugin/plugin.json and any of skills/,
  * commands/, agents/, hooks/hooks.json and .mcp.json. Each part becomes its
  * Llama Run counterpart: skills as skills, commands as /command skills,
- * agents as agents, hooks merged into hooks.json and MCP servers added, with
+ * agents as skills, hooks merged into hooks.json and MCP servers added, with
  * ${CLAUDE_PLUGIN_ROOT} pointing at the plugin's copy in userData/bundles.
  * Hooks and MCP servers run code, so it's shown in full before installing.
  */
@@ -129,6 +128,19 @@ function commandSkill(file: string, plugin: string, root: string): { id: string;
   return { id: `${safeName(plugin)}-cmd-${safeName(name)}`, text: lines.join('\n') }
 }
 
+/**
+ * An agent file as a skill: Llama Run has no named agents, so the agent's
+ * instructions become a skill the model can load, and hand to a sub-agent
+ * (agent_run) as part of its task.
+ */
+function agentSkill(file: string, plugin: string, root: string): { id: string; text: string } {
+  const { data, body } = parseFrontMatter(withRoot(readFileSync(file, 'utf8'), root))
+  const name = (data.name || basename(file, '.md')).trim()
+  const description = (data.description || `The ${name} agent from the ${plugin} plugin`).replace(/\s+/g, ' ').trim()
+  const lines = ['---', `name: ${name}`, `description: ${JSON.stringify(description)}`, '---', '', body.trim(), '']
+  return { id: `${safeName(plugin)}-agent-${safeName(name)}`, text: lines.join('\n') }
+}
+
 export interface BundleDeps {
   addMcpServer: (server: McpServerConfig) => Promise<void>
   removeMcpServer: (name: string) => Promise<void>
@@ -149,7 +161,7 @@ export async function installBundle(token: string, deps: BundleDeps): Promise<Bu
     mkdirSync(bundlesDir(), { recursive: true })
     cpSync(s.dir, root, { recursive: true, filter: (p) => !SKIP.has(basename(p)) })
 
-    const info: BundleInfo = { name, description: s.preview.description, root, installedAt: Date.now(), skills: [], agents: [], mcpServers: [] }
+    const info: BundleInfo = { name, description: s.preview.description, root, installedAt: Date.now(), skills: [], mcpServers: [] }
     if (existsSync(join(root, 'skills'))) info.skills.push(...(await installSkills(join(root, 'skills'))).map((sk) => sk.id))
     mkdirSync(skillsDir(), { recursive: true })
     for (const f of mdFiles(join(root, 'commands'))) {
@@ -159,14 +171,14 @@ export async function installBundle(token: string, deps: BundleDeps): Promise<Bu
       writeFileSync(join(dest, 'SKILL.md'), skill.text, 'utf8')
       info.skills.push(skill.id)
     }
-    skillStore.changed()
-    const agentsDir = agentRoots()[0].dir
-    mkdirSync(agentsDir, { recursive: true })
     for (const f of mdFiles(join(root, 'agents'))) {
-      const file = `${safeName(name)}-${f}`
-      writeFileSync(join(agentsDir, file), withRoot(readFileSync(join(root, 'agents', f), 'utf8'), root), 'utf8')
-      info.agents.push(file)
+      const skill = agentSkill(join(root, 'agents', f), name, root)
+      const dest = join(skillsDir(), skill.id)
+      mkdirSync(dest, { recursive: true })
+      writeFileSync(join(dest, 'SKILL.md'), skill.text, 'utf8')
+      info.skills.push(skill.id)
     }
+    skillStore.changed()
     const hooksFile = join(root, 'hooks', 'hooks.json')
     if (existsSync(hooksFile)) {
       const theirs = describeHooks(hooksFile, root)
@@ -197,14 +209,12 @@ export function listBundles(): BundleInfo[] {
   return readJson<BundleInfo[]>(indexPath(), [])
 }
 
-/** Removes a plugin and everything it added: its skills, agents, hooks (those pointing into its folder) and MCP servers. */
+/** Removes a plugin and everything it added: its skills (commands and agents too), hooks (those pointing into its folder) and MCP servers. */
 export async function removeBundle(name: string, deps: BundleDeps): Promise<void> {
   const info = listBundles().find((b) => b.name === name)
   if (!info) return
   for (const id of info.skills) rmSync(join(skillsDir(), id), { recursive: true, force: true })
   skillStore.changed()
-  const agentsDir = agentRoots()[0].dir
-  for (const f of info.agents) rmSync(join(agentsDir, f), { force: true })
   const root = info.root.replace(/\\/g, '/')
   const hooks = loadHooks()
   for (const event of Object.keys(hooks) as HookEvent[]) {

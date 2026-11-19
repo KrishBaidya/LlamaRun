@@ -21,7 +21,6 @@ import { mcp } from './mcp/manager'
 import { memoryStore } from './memory/store'
 import { routineStore } from './routines/store'
 import { exportChat } from './chats/exportFile'
-import { agentStore } from './assistant/agents'
 import { cancelBundle, inspectBundle, installBundle, listBundles, removeBundle } from './plugins/claudeBundle'
 import { channelHub } from './channels'
 import { claudeCodeHooks, loadHooks, saveHooks } from './assistant/hooks'
@@ -174,12 +173,10 @@ export function registerIpc(): void {
     })
     const choice = (setup ?? {}) as ChatSetup
     return chatService.send(chatId, text, model, attachments, THINKING_CHOICES.includes(thinking as ThinkingChoice) ? (thinking as ThinkingChoice) : undefined, {
-      ...(typeof choice.agent === 'string' ? { agent: choice.agent } : {}),
       ...(choice.plan === true ? { plan: true } : {}),
       ...(typeof choice.project === 'string' ? { project: choice.project } : {})
     })
   })
-  handle('chats:setAgent', (_e, id, agent) => chatService.setAgent(String(id), typeof agent === 'string' ? agent : null))
   handle('chats:setPlan', (_e, id, plan) => chatService.setPlan(String(id), plan === true))
   handle('chats:setProject', (_e, id, folder) => chatService.setProject(String(id), typeof folder === 'string' ? folder : null))
   handle('chats:pickFolder', async (e) => {
@@ -204,9 +201,6 @@ export function registerIpc(): void {
   handle('hooks:get', () => loadHooks())
   handle('hooks:save', (_e, config) => saveHooks(config))
   handle('hooks:claudeCode', () => claudeCodeHooks())
-  handle('agents:list', () => agentStore.list())
-  handle('agents:save', (_e, input) => (agentStore.save(input), agentStore.list()))
-  handle('agents:delete', (_e, id) => (agentStore.remove(String(id)), agentStore.list()))
   handle('chats:compact', (_e, id, instructions) => chatService.compact(id, instructions))
   handle('chats:answerApproval', (_e, id, answer) => approvals.answer(id, answer))
   handle('chats:undoFiles', (_e, chatId, messageId) => chatService.undoFiles(String(chatId), String(messageId)))
