@@ -1,7 +1,8 @@
 import { useEffect, useState, type DragEvent } from 'react'
-import { AlertTriangle, Bot, Download, FileArchive, FolderOpen, Loader2, ShieldCheck, Sparkles, Trash2, Wand2 } from 'lucide-react'
+import { AlertTriangle, Bot, ChevronDown, Download, FileArchive, FolderOpen, Layers, Loader2, ShieldCheck, Sparkles, Trash2, Wand2 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { CommandRule, SkillInfo } from '@shared/types'
+import { groupSkills, type SkillGroup } from '@shared/skillGroups'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -131,6 +132,51 @@ function SkillCard({ skill }: { skill: SkillInfo }) {
             </Button>
           )}
         </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+/** A skill pack (li-*, seo-*…) as one entry: switch them all on or off, or open it to see each skill. */
+function SkillGroupCard({ group }: { group: SkillGroup }) {
+  const [open, setOpen] = useState(false)
+  const on = group.skills.filter((s) => s.enabled).length
+  const others = group.skills.filter((s) => s !== group.lead)
+  const setAll = (v: boolean): void => {
+    for (const s of group.skills) if (s.enabled !== v) void api.skills.setEnabled(s.id, v)
+  }
+  return (
+    <Card className={cn('gap-3 py-4', open && 'col-span-full', !on && 'opacity-70')}>
+      <CardHeader className="px-4">
+        <div className="flex items-start gap-3">
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <Layers className="size-4" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <CardTitle className="truncate text-sm">
+              {group.lead?.name ?? group.key}
+              <span className="ms-1.5 text-xs font-normal text-muted-foreground">
+                {group.skills.length} skills{on && on < group.skills.length ? `, ${on} on` : ''}
+              </span>
+            </CardTitle>
+            <CardDescription className="mt-0.5 line-clamp-3 text-xs">
+              {group.lead?.description || others.map((s) => s.name).join(', ')}
+            </CardDescription>
+          </div>
+          <Switch checked={on > 0} aria-label={`Use the ${group.key} skills`} onCheckedChange={setAll} />
+        </div>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3 px-4">
+        <Button size="sm" variant="ghost" className="h-7 self-start text-xs" aria-expanded={open} onClick={() => setOpen(!open)}>
+          <ChevronDown className={cn('transition-transform', open && 'rotate-180')} /> {open ? 'Hide skills' : 'Show skills'}
+        </Button>
+        {open && (
+          <div className="grid grid-cols-1 gap-3 @xl:grid-cols-2 @4xl:grid-cols-3">
+            {group.skills.map((s) => (
+              <SkillCard key={s.id} skill={s} />
+            ))}
+          </div>
+        )}
       </CardContent>
     </Card>
   )
@@ -285,7 +331,7 @@ export function SkillsPage() {
       ) : (
         <div className="@container">
           <div className="grid grid-cols-1 gap-3 @xl:grid-cols-2 @4xl:grid-cols-3">
-            {skills?.map((s) => <SkillCard key={s.id} skill={s} />)}
+            {groupSkills(skills ?? []).map((e) => (e.kind === 'group' ? <SkillGroupCard key={`group:${e.key}`} group={e} /> : <SkillCard key={e.skill.id} skill={e.skill} />))}
           </div>
         </div>
       )}
