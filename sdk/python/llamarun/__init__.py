@@ -21,7 +21,7 @@ from .errors import PluginError
 from .plugin import Plugin
 from .plugins import expose
 from .tools import ToolError, tool
-from .types import TextGenerationContext, TextGenerationResult, ToolCallContext, ToolCallResult
+from .types import SessionContext, StopContext, TextGenerationContext, TextGenerationResult, ToolCallContext, ToolCallResult
 
 __version__ = "1.5"
 """SDK API version (MAJOR.MINOR). Plugins declare the version they target in ``sdk_version``."""
@@ -29,6 +29,8 @@ __version__ = "1.5"
 __all__ = [
     "Plugin",
     "PluginError",
+    "SessionContext",
+    "StopContext",
     "TextGenerationContext",
     "TextGenerationResult",
     "ToolCallContext",

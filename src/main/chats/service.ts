@@ -32,7 +32,7 @@ import { joinRound } from '../llm/toolRun'
 import { describeDays, describeUsage, usageStore } from '../usage'
 import { editMessage, switchVersion } from './branches'
 import { projectInstructions, validProject } from '../assistant/project'
-import { loadHooks, runHooks } from '../assistant/hooks'
+import { createCommandHooks } from '../assistant/hooks'
 import { allowedTools } from '../assistant/planMode'
 import { AGENT_RUN, agentRunTool, runSubagent } from './subagent'
 import * as notify from '../notify'
@@ -78,6 +78,10 @@ export interface SendOptions {
 
 /** The user's own message: typed here, or in a messaging app (not sent by a plugin). */
 const typedBy = (m: ChatMessage): boolean => !m.via || m.via.remote === true
+const capitalize = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1)
+
+// The user's hooks.json runs on the plugin host's hook events, ahead of plugins' hooks.
+pluginHost.addBuiltinHooks(createCommandHooks(commandEnv))
 
 /** Most images one message may carry. */
 export const MAX_IMAGES = 6
@@ -144,27 +148,15 @@ export function chatTools(options: ChatToolOptions = {}): ToolBridge | undefined
   const tools = allowedTools([...own, ...mcpTools, ...pluginTools], options)
   if (!tools.length) return undefined
   const offered = new Set(tools.map((t) => t.name))
-  // The user's PreToolUse / PostToolUse hooks wrap every call, including those from scripts and helpers.
-  const hookConfig = options.chatId ? loadHooks() : {}
-  const pluginHooks = Boolean(options.chatId) && pluginHost.hasToolHooks()
+  // Tool-call hooks (the user's hooks.json and plugins') wrap every call, including those from scripts and sub-agents.
+  const watched = Boolean(options.chatId) && pluginHost.hasToolHooks()
   const hooked: ToolBridge['call'] = async (name, args) => {
-    if (!hookConfig.PreToolUse?.length && !hookConfig.PostToolUse?.length && !pluginHooks) return call(name, args)
-    const input = { chatId: options.chatId!, cwd: options.project ?? skillWorkspace(), tool: name, args }
-    if (hookConfig.PreToolUse?.length) {
-      const pre = await runHooks('PreToolUse', input, commandEnv(), hookConfig)
-      if (pre.blocked) return { content: [{ type: 'text', text: `A hook blocked ${name}: ${pre.reason}` }], isError: true }
-    }
-    if (pluginHooks) {
-      const pre = await pluginHost.beforeToolCall(name, args, options.chatId!)
-      if (pre.blocked) return { content: [{ type: 'text', text: `The ${pre.by} plugin blocked ${name}: ${pre.reason}` }], isError: true }
-    }
+    if (!watched) return call(name, args)
+    const scope = { chatId: options.chatId!, cwd: options.project ?? skillWorkspace() }
+    const pre = await pluginHost.beforeToolCall(name, args, scope)
+    if (pre.blocked) return { content: [{ type: 'text', text: `${capitalize(pre.by ?? 'a hook')} blocked ${name}: ${pre.reason}` }], isError: true }
     const result = await call(name, args)
-    const notes: string[] = []
-    if (hookConfig.PostToolUse?.length) {
-      const post = await runHooks('PostToolUse', { ...input, result: toolResultToText(result) }, commandEnv(), hookConfig)
-      notes.push(...[post.blocked ? `A hook objected: ${post.reason}` : '', post.context].filter(Boolean))
-    }
-    if (pluginHooks) notes.push(...(await pluginHost.afterToolCall(name, args, toolResultToText(result), Boolean(result.isError), options.chatId!)))
+    const notes = await pluginHost.afterToolCall(name, args, toolResultToText(result), Boolean(result.isError), scope)
     return notes.length ? { ...result, content: [...result.content, { type: 'text', text: `\n[hook] ${notes.join('\n')}` }] } : result
   }
   const call: ToolBridge['call'] = (name, args) =>
@@ -710,18 +702,19 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
   }
 
   /**
-   * The user's Stop hooks after a reply: one that blocks sends its reason back
-   * as the next message, so the model carries on (up to 3 times in a row, like
-   * Claude Code's stop_hook_active guard). Otherwise anything queued is sent.
+   * Stop hooks after a reply (the user's hooks.json and plugins' on_stop): one
+   * that answers sends its text back as the next message, so the model carries
+   * on (up to 3 times in a row, like Claude Code's stop_hook_active guard).
+   * Otherwise anything queued is sent.
    */
   private async stopHooks(chat: Chat, user: ChatMessage): Promise<void> {
-    const hooks = loadHooks()
-    if (hooks.Stop?.length) {
+    if (pluginHost.hasStopHooks()) {
       let streak = 0
       for (let i = chat.messages.length - 2; i >= 0 && chat.messages[i].role === 'user' && chat.messages[i].hook === 'Stop'; i -= 2) streak++
-      const outcome = await runHooks('Stop', { chatId: chat.id, cwd: validProject(chat.project) ?? skillWorkspace(), stopActive: Boolean(user.hook) }, commandEnv(), hooks).catch(() => null)
-      if (outcome?.blocked && streak < 3 && !this.running.has(chat.id)) {
-        this.start(chat.id, outcome.reason || 'A Stop hook asked you to keep going.', { hook: 'Stop' })
+      const reply = chat.messages[chat.messages.length - 1]
+      const outcome = await pluginHost.replyStopped({ chatId: chat.id, cwd: validProject(chat.project) ?? skillWorkspace() }, reply?.role === 'assistant' ? reply.content : '', Boolean(user.hook)).catch(() => null)
+      if (outcome && streak < 3 && !this.running.has(chat.id)) {
+        this.start(chat.id, outcome.text, { hook: 'Stop' })
         return
       }
     }
@@ -863,11 +856,22 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
 
       // A continued reply already went through the before-hooks.
       const before = resume
-        ? { cancel: false, cancelled_by: undefined, input_text: user.prompt ?? user.content, model: resume.pause.model }
-        : await pluginHost.beforeTextGeneration(user.content, chat.model)
+        ? { cancel: false, cancelled_by: undefined, reason: undefined, input_text: user.prompt ?? user.content, model: resume.pause.model }
+        : await pluginHost.beforeTextGeneration(
+            user.content,
+            chat.model,
+            // The user's own messages go through prompt and session-start hooks too.
+            typed && !turn?.routine
+              ? { chatId: chat.id, cwd: validProject(chat.project) ?? skillWorkspace(), newChat: chat.messages.filter((m) => m.role === 'user').length === 1 }
+              : undefined
+          )
       if (before.cancel) {
         assistant.status = 'cancelled'
-        assistant.note = before.cancelled_by ? `Cancelled by ${before.cancelled_by}` : 'Cancelled by a plugin'
+        assistant.note = before.reason
+          ? `${capitalize(before.cancelled_by ?? 'a hook')} stopped this message: ${before.reason}`
+          : before.cancelled_by
+            ? `Cancelled by ${before.cancelled_by}`
+            : 'Cancelled by a plugin'
         chat.messages.push(assistant)
         this.emit('event', { type: 'message', chatId: chat.id, message: { ...assistant } })
         return { ...assistant }
@@ -887,24 +891,8 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
       if (!resume) await this.autoCompact(chat, model, context, controller.signal, shell, computerOn)
       if (controller.signal.aborted) throw new Error('Stopped')
 
-      // The user's hooks: a new chat's SessionStart, and UserPromptSubmit (which can stop the prompt or add context).
-      let hookContext = ''
-      if (!resume && typed && !turn?.routine) {
-        const hookInput = { chatId: chat.id, cwd: validProject(chat.project) ?? skillWorkspace() }
-        if (chat.messages.filter((m) => m.role === 'user').length === 1) {
-          const start = await runHooks('SessionStart', hookInput, commandEnv())
-          hookContext = start.context
-        }
-        const submit = await runHooks('UserPromptSubmit', { ...hookInput, prompt: user.prompt ?? user.content }, commandEnv())
-        if (submit.blocked) {
-          assistant.status = 'cancelled'
-          assistant.note = `A hook stopped this message: ${submit.reason}`
-          chat.messages.push(assistant)
-          this.emit('event', { type: 'message', chatId: chat.id, message: { ...assistant } })
-          return { ...assistant }
-        }
-        hookContext = [hookContext, submit.context].filter(Boolean).join('\n\n')
-      }
+      // What session-start and prompt hooks added.
+      const hookContext = 'context' in before ? (before.context ?? '') : ''
 
       if (resume) emitUpdate()
       else {

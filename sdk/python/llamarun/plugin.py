@@ -6,7 +6,7 @@ import contextvars
 import threading
 from typing import Any, Callable, Optional
 
-from .types import TextGenerationContext, TextGenerationResult, ToolCallContext, ToolCallResult
+from .types import SessionContext, StopContext, TextGenerationContext, TextGenerationResult, ToolCallContext, ToolCallResult
 
 
 class Plugin:
@@ -53,6 +53,22 @@ class Plugin:
         """Called after a tool call finished (SDK 1.5, ``hooks`` permission).
 
         Return text to add to the result the model sees (a lint error, say), or ``None``.
+        """
+        return None
+
+    def on_session_start(self, ctx: SessionContext) -> Optional[str]:
+        """Called before a new chat's first message is answered (SDK 1.5, ``hooks`` permission).
+
+        Return text to add to that turn's context (the current git branch, say), or ``None``.
+        """
+        return None
+
+    def on_stop(self, ctx: StopContext) -> Optional[str]:
+        """Called when a reply to the user's message finished (SDK 1.5, ``hooks`` permission).
+
+        Return text to send back as the next message so the model keeps going
+        ("the tests still fail: ..."), or ``None`` to let the reply end.
+        Llama Run stops after three in a row.
         """
         return None
 

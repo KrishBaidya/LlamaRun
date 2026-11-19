@@ -6,7 +6,7 @@ import type { HookConfig } from '../src/shared/types'
 
 const userData = mkdtempSync(join(tmpdir(), 'llamarun-hooks-'))
 vi.mock('electron', () => ({ app: { getPath: () => userData, isPackaged: false, getAppPath: () => '.' } }))
-const { loadHooks, runHooks, saveHooks, setHookRunner, validateHooks } = await import('../src/main/assistant/hooks')
+const { createCommandHooks, loadHooks, runHooks, saveHooks, setHookRunner, validateHooks } = await import('../src/main/assistant/hooks')
 
 afterEach(() => setHookRunner(null))
 
@@ -53,6 +53,36 @@ describe('hooks', () => {
     expect(() => validateHooks({ Stop: [{ hooks: [{ type: 'command' }] }] })).toThrow('needs "type": "command"')
     saveHooks({ hooks: config })
     expect(loadHooks()).toEqual(config)
+  })
+
+  it('runs hooks.json on the plugin events: prompt, session start, tool calls and stop', async () => {
+    saveHooks({
+      hooks: {
+        UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'prompt' }] }],
+        SessionStart: [{ hooks: [{ type: 'command', command: 'start' }] }],
+        PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'guard' }] }],
+        PostToolUse: [{ hooks: [{ type: 'command', command: 'fmt' }] }],
+        Stop: [{ hooks: [{ type: 'command', command: 'stop' }] }]
+      }
+    })
+    const replies: Record<string, { code: number; stdout: string; stderr: string }> = {
+      prompt: { code: 0, stdout: 'branch: main', stderr: '' },
+      start: { code: 0, stdout: 'hello', stderr: '' },
+      guard: { code: 2, stdout: '', stderr: 'not here' },
+      fmt: { code: 0, stdout: 'formatted', stderr: '' },
+      stop: { code: 2, stdout: '', stderr: 'tests fail' }
+    }
+    setHookRunner(async (command) => replies[command])
+    const hooks = createCommandHooks(() => ({}))
+    const scope = { chatId: 'c', cwd: '.' }
+    expect(['prompt', 'session_start', 'tool', 'stop'].every((e) => hooks.watches(e as 'tool'))).toBe(true)
+    expect(await hooks.onPrompt(scope, 'hi')).toMatchObject({ blocked: false, context: 'branch: main' })
+    expect(await hooks.onSessionStart(scope)).toBe('hello')
+    expect(await hooks.onBeforeToolCall(scope, 'run_command', { command: 'x' })).toMatchObject({ blocked: true, reason: 'not here' })
+    expect(await hooks.onAfterToolCall(scope, 'write_file', { path: 'a' }, 'ok', false)).toBe('formatted')
+    expect(await hooks.onStop(scope, false)).toBe('tests fail')
+    saveHooks({ hooks: {} })
+    expect(hooks.watches('tool')).toBe(false)
   })
 
   it.runIf(process.platform === 'win32')('runs a real PowerShell hook: exit 2 with stderr blocks', async () => {

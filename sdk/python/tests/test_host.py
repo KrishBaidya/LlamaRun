@@ -153,6 +153,22 @@ def test_tool_call_hooks_block_and_add_notes(load):
     assert runner.after_tool_call("read_file", {}, "x", "c1", False) is None
 
 
+def test_session_start_and_stop_hooks(load):
+    runner = load("""
+        import llamarun
+        class P(llamarun.Plugin):
+            def on_session_start(self, ctx):
+                return f"cwd is {ctx.cwd}"
+            def on_stop(self, ctx):
+                return None if ctx.again or "done" in ctx.response_text else "tests still fail"
+    """)
+    assert runner.info()["hooks"] == ["session_start", "stop"]
+    assert runner.session_start("c1", "D:/proj") == "cwd is D:/proj"
+    assert runner.stop("c1", "D:/proj", "half way", False) == "tests still fail"
+    assert runner.stop("c1", "D:/proj", "half way", True) is None
+    assert runner.stop("c1", "D:/proj", "all done", False) is None
+
+
 def test_failing_hook_is_skipped(load, fake):
     runner = load("""
         import llamarun

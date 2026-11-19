@@ -39,7 +39,7 @@ from typing import Any, Callable, Dict, List, Optional  # noqa: E402
 
 import llamarun  # noqa: E402
 from llamarun import _rpc, _sandbox, app, chats, events, settings, tools, ui  # noqa: E402
-from llamarun.types import TextGenerationContext, TextGenerationResult, ToolCallContext, ToolCallResult  # noqa: E402
+from llamarun.types import SessionContext, StopContext, TextGenerationContext, TextGenerationResult, ToolCallContext, ToolCallResult  # noqa: E402
 
 IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 REQUIRED_FIELDS = ("name", "description", "version", "author", "sdk_version")
@@ -209,6 +209,8 @@ HOOKS = {
     "after_text_generation": "on_after_text_generation",
     "before_tool_call": "on_before_tool_call",
     "after_tool_call": "on_after_tool_call",
+    "session_start": "on_session_start",
+    "stop": "on_stop",
 }
 
 
@@ -398,6 +400,26 @@ class PluginRunner:
             return None
         return {"block": bool(returned.block), "reason": str(returned.reason or "")}
 
+    def session_start(self, chat_id: str, cwd: str) -> Optional[str]:
+        if self.instance is None:
+            return None
+        try:
+            returned = self.instance.on_session_start(SessionContext(chat_id=chat_id, cwd=cwd))
+        except Exception:
+            self._report("on_session_start")
+            return None
+        return None if returned is None else str(returned)[:10000]
+
+    def stop(self, chat_id: str, cwd: str, response_text: str, again: bool) -> Optional[str]:
+        if self.instance is None:
+            return None
+        try:
+            returned = self.instance.on_stop(StopContext(chat_id=chat_id, cwd=cwd, response_text=response_text, again=again))
+        except Exception:
+            self._report("on_stop")
+            return None
+        return None if returned is None else str(returned)[:10000]
+
     def after_tool_call(self, tool: str, arguments: dict, result: str, chat_id: str, is_error: bool) -> Optional[str]:
         if self.instance is None:
             return None
@@ -533,6 +555,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         "events.after_tool_call": lambda p: runner.after_tool_call(
             str(p.get("tool", "")), p.get("arguments") or {}, str(p.get("result", "")), str(p.get("chat_id", "")), bool(p.get("is_error"))
         ),
+        "events.session_start": lambda p: runner.session_start(str(p.get("chat_id", "")), str(p.get("cwd", ""))),
+        "events.stop": lambda p: runner.stop(str(p.get("chat_id", "")), str(p.get("cwd", "")), str(p.get("response_text", "")), bool(p.get("again"))),
         "events.custom": lambda p: runner.custom(p["action"]),
         "events.deliver": lambda p: events._deliver(p["topic"], p.get("data"), p.get("source", "")),
         "services.call": lambda p: runner.call_service(p["method"], p.get("args") or [], p.get("kwargs") or {}),

@@ -4,6 +4,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { HookConfig, HookEvent, HookHandler } from '@shared/types'
 import { readJson, writeJson } from '../jsonFile'
+import type { BuiltinHooks } from '../plugins/host'
 import { userDataPath } from '../paths'
 
 /**
@@ -218,4 +219,30 @@ export async function runHooks(event: HookEvent, input: HookInput, env: NodeJS.P
   outcome.reason = reasons.join('\n')
   outcome.context = context.join('\n\n')
   return outcome
+}
+
+/**
+ * hooks.json as a built-in handler on the plugin events, so the user's hooks
+ * and plugins' hooks run from one place: UserPromptSubmit on
+ * before_text_generation, SessionStart on session_start, PreToolUse and
+ * PostToolUse on before / after_tool_call, Stop on stop.
+ */
+export function createCommandHooks(env: () => NodeJS.ProcessEnv): BuiltinHooks {
+  const has = (event: HookEvent): boolean => Boolean(loadHooks()[event]?.length)
+  return {
+    label: 'your hooks',
+    watches: (event) =>
+      event === 'prompt' ? has('UserPromptSubmit') : event === 'session_start' ? has('SessionStart') : event === 'stop' ? has('Stop') : has('PreToolUse') || has('PostToolUse'),
+    onPrompt: (scope, prompt) => runHooks('UserPromptSubmit', { ...scope, prompt }, env()),
+    onSessionStart: async (scope) => (await runHooks('SessionStart', scope, env())).context,
+    onBeforeToolCall: (scope, tool, args) => runHooks('PreToolUse', { ...scope, tool, args }, env()),
+    onAfterToolCall: async (scope, tool, args, result) => {
+      const post = await runHooks('PostToolUse', { ...scope, tool, args, result }, env())
+      return [post.blocked ? `A hook objected: ${post.reason}` : '', post.context].filter(Boolean).join('\n')
+    },
+    onStop: async (scope, again) => {
+      const out = await runHooks('Stop', { ...scope, stopActive: again }, env())
+      return out.blocked ? out.reason : null
+    }
+  }
 }

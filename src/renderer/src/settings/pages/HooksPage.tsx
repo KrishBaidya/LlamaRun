@@ -69,7 +69,7 @@ export function HooksPage() {
     <Page>
       <PageHeader
         title="Hooks"
-        description="Your own commands that run at points in a chat, in the same format as Claude Code's hooks: each gets the event as JSON on stdin, and its exit code and output decide what happens. They run without asking, so only add commands you trust."
+        description="Your own commands that run at points in a chat, in the same format as Claude Code's hooks: each gets the event as JSON on stdin, and its exit code and output decide what happens. They run on the same events as plugin hooks, before any plugin's: UserPromptSubmit and SessionStart before a reply, PreToolUse and PostToolUse around tool calls, Stop when a reply ends. They run without asking, so only add commands you trust."
       />
       <Card>
         <CardHeader>

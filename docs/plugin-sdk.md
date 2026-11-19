@@ -128,6 +128,8 @@ Check permissions at runtime with `llamarun.permissions.has("network")`, since t
 | `on_after_text_generation(self, result)` | After the model has finished (needs `hooks`) | `TextGenerationResult` or `None` |
 | `on_before_tool_call(self, ctx)` | Before any tool a model calls in a chat runs (needs `hooks`, SDK 1.5) | `ToolCallContext` with `block=True` to stop it, or `None` |
 | `on_after_tool_call(self, result)` | After a tool call finished (needs `hooks`, SDK 1.5) | Text to add to the result the model sees, or `None` |
+| `on_session_start(self, ctx)` | Before a new chat's first message is answered (needs `hooks`, SDK 1.5) | Text to add to that turn's context, or `None` |
+| `on_stop(self, ctx)` | A reply to the user's message finished (needs `hooks`, SDK 1.5) | Text to send back as the next message so the model keeps going, or `None` |
 
 ```python
 @dataclass
@@ -159,7 +161,9 @@ class ToolCallResult:       # SDK 1.5
     is_error: bool = False
 ```
 
-The tool-call hooks see every call a chat makes (built-in tools, MCP tools, other plugins' tools, and calls from `run_code` scripts and `agent_run` helpers), after the user's own hooks (Settings > Hooks). A blocked call never runs and the model is told your reason. Text you return from `on_after_tool_call` is added under the result, so the model reads it in its next step. Both run in the same order and with the same 120-second budget as the text hooks.
+The tool-call hooks see every call a chat makes (built-in tools, MCP tools, other plugins' tools, and calls from `run_code` scripts and `agent_run` sub-agents), after the user's own hooks (Settings > Hooks).
+
+The user's `hooks.json` (Claude Code's format, Settings > Hooks) runs on these same events, built in and ahead of plugins: `UserPromptSubmit` on `before_text_generation`, `SessionStart` on `session_start`, `PreToolUse` and `PostToolUse` on `before_tool_call` and `after_tool_call`, and `Stop` on `stop`. Anything a hook command can do, a plugin can do with these methods. `on_stop` gets `StopContext(chat_id, cwd, response_text, again)`; `again` is true when the reply already continued because of a stop hook, and Llama Run stops after three in a row. A blocked call never runs and the model is told your reason. Text you return from `on_after_tool_call` is added under the result, so the model reads it in its next step. Both run in the same order and with the same 120-second budget as the text hooks.
 
 Hooks fire once per chat turn, in both the overlay and the chat window. `ctx.input_text` is the newest user message; the earlier conversation is sent to the model automatically. If you rewrite `input_text`, the chat shows the user's original text with a "Rewritten by a plugin" marker. The rewritten text is what the model sees, now and in later turns.
 

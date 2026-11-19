@@ -41,7 +41,40 @@ export interface BeforeGenerationResult {
   model: string
   cancel: boolean
   cancelled_by: string | null
+  /** Why it was cancelled, when the canceller said. */
+  reason?: string
+  /** Context hooks added for this turn (session start and prompt hooks). */
+  context?: string
 }
+
+/** The chat a hook event belongs to. */
+export interface HookScope {
+  chatId: string
+  /** The folder the chat works in. */
+  cwd: string
+}
+
+/**
+ * Hook handlers built into Llama Run that run in-process on the plugin events,
+ * before any plugin's. The user's hooks.json (Claude Code's format) is one:
+ * UserPromptSubmit runs on before_text_generation, SessionStart on
+ * session_start, PreToolUse / PostToolUse on before / after_tool_call and Stop
+ * on stop.
+ */
+export interface BuiltinHooks {
+  /** How it is named in notes, e.g. "your hooks". */
+  label: string
+  /** Whether it has anything for an event right now, so a chat can skip the work. */
+  watches(event: 'prompt' | 'session_start' | 'tool' | 'stop'): boolean
+  onPrompt(scope: HookScope, prompt: string): Promise<{ blocked: boolean; reason: string; context: string }>
+  onSessionStart(scope: HookScope): Promise<string>
+  onBeforeToolCall(scope: HookScope, tool: string, args: Record<string, unknown>): Promise<{ blocked: boolean; reason: string }>
+  onAfterToolCall(scope: HookScope, tool: string, args: Record<string, unknown>, result: string, isError: boolean): Promise<string>
+  /** Text to send back so the model keeps going, or null to let the reply end. */
+  onStop(scope: HookScope, again: boolean): Promise<string | null>
+}
+
+type HookName = 'before_text_generation' | 'after_text_generation' | 'before_tool_call' | 'after_tool_call' | 'session_start' | 'stop'
 
 export interface AfterGenerationResult {
   input_text: string
@@ -681,7 +714,14 @@ class PluginHost extends EventEmitter<{
 
   // ------------------------------------------------------------------- hooks
 
-  private hookTargets(hook: 'before_text_generation' | 'after_text_generation' | 'before_tool_call' | 'after_tool_call'): PluginRecord[] {
+  private builtins: BuiltinHooks[] = []
+
+  /** Adds hooks built into Llama Run (see BuiltinHooks). */
+  addBuiltinHooks(hooks: BuiltinHooks): void {
+    if (!this.builtins.includes(hooks)) this.builtins.push(hooks)
+  }
+
+  private hookTargets(hook: HookName): PluginRecord[] {
     return this.order
       .map((id) => this.records.get(id)!)
       .filter((r) => r.process?.running && r.load?.hooks.includes(hook) && allows(this.grantsOf(r) ?? [], 'hooks'))
@@ -701,7 +741,23 @@ class PluginHost extends EventEmitter<{
     }
   }
 
-  async beforeTextGeneration(inputText: string, model: string): Promise<BeforeGenerationResult> {
+  /**
+   * Before a reply: with a scope (a message the user sent), the built-in
+   * hooks' session start (for a new chat) and prompt hooks, and plugins'
+   * on_session_start, which can add context or (prompt hooks) stop it; then
+   * each plugin's on_before_text_generation, which can change it or stop it.
+   */
+  async beforeTextGeneration(inputText: string, model: string, scope?: HookScope & { newChat?: boolean }): Promise<BeforeGenerationResult> {
+    const context: string[] = []
+    if (scope) {
+      if (scope.newChat) context.push(...(await this.sessionStart(scope)))
+      for (const b of this.builtins.filter((x) => x.watches('prompt'))) {
+        const out = await b.onPrompt(scope, inputText).catch(() => null)
+        if (out?.blocked) return { input_text: inputText, model, cancel: true, cancelled_by: b.label, reason: out.reason }
+        if (out?.context) context.push(out.context)
+      }
+    }
+    const extra = context.length ? { context: context.join('\n\n') } : {}
     let ctx = { input_text: inputText, model, cancel: false }
     for (const record of this.hookTargets('before_text_generation')) {
       try {
@@ -717,7 +773,52 @@ class PluginHost extends EventEmitter<{
         await this.hookFailed(record, 'before_text_generation', err)
       }
     }
-    return { ...ctx, cancelled_by: null }
+    return { ...ctx, cancelled_by: null, ...extra }
+  }
+
+  /** A new chat's first message: what the built-in hooks and plugins' on_session_start add. */
+  private async sessionStart(scope: HookScope): Promise<string[]> {
+    const out: string[] = []
+    for (const b of this.builtins.filter((x) => x.watches('session_start'))) {
+      const text = await b.onSessionStart(scope).catch(() => '')
+      if (text) out.push(text)
+    }
+    for (const record of this.hookTargets('session_start')) {
+      try {
+        const text = await record.process!.request<string | null>('events.session_start', { chat_id: scope.chatId, cwd: scope.cwd }, HOOK_TIMEOUT_MS)
+        if (text && String(text).trim()) out.push(String(text).trim())
+      } catch (err) {
+        await this.hookFailed(record, 'session_start', err)
+      }
+    }
+    return out
+  }
+
+  /** Whether anything watches replies ending, so a chat skips the call when nothing does. */
+  hasStopHooks(): boolean {
+    return this.builtins.some((b) => b.watches('stop')) || this.hookTargets('stop').length > 0
+  }
+
+  /**
+   * After a reply the user's message started: the built-in Stop hooks, then
+   * each plugin's on_stop. The first that answers with text sends it back as
+   * the next message, so the model keeps going. `again`: this reply already
+   * continued because of one.
+   */
+  async replyStopped(scope: HookScope, reply: string, again: boolean): Promise<{ text: string; by: string } | null> {
+    for (const b of this.builtins.filter((x) => x.watches('stop'))) {
+      const text = await b.onStop(scope, again).catch(() => null)
+      if (text !== null) return { text: text || 'Keep going.', by: b.label }
+    }
+    for (const record of this.hookTargets('stop')) {
+      try {
+        const text = await record.process!.request<string | null>('events.stop', { chat_id: scope.chatId, cwd: scope.cwd, response_text: reply, again }, HOOK_TIMEOUT_MS)
+        if (text && String(text).trim()) return { text: String(text).trim(), by: `the ${record.manifest!.name} plugin` }
+      } catch (err) {
+        await this.hookFailed(record, 'stop', err)
+      }
+    }
+    return null
   }
 
   async afterTextGeneration(inputText: string, responseText: string, model: string): Promise<AfterGenerationResult> {
@@ -735,15 +836,19 @@ class PluginHost extends EventEmitter<{
 
   /** Plugins watching tool calls (SDK 1.5), so a chat skips the round trip when none are. */
   hasToolHooks(): boolean {
-    return this.hookTargets('before_tool_call').length > 0 || this.hookTargets('after_tool_call').length > 0
+    return this.builtins.some((b) => b.watches('tool')) || this.hookTargets('before_tool_call').length > 0 || this.hookTargets('after_tool_call').length > 0
   }
 
-  /** Each plugin's on_before_tool_call in turn; the first that blocks stops the call. */
-  async beforeToolCall(tool: string, args: Record<string, unknown>, chatId: string): Promise<{ blocked: boolean; reason: string; by?: string }> {
+  /** The built-in hooks, then each plugin's on_before_tool_call in turn; the first that blocks stops the call. `by` names who. */
+  async beforeToolCall(tool: string, args: Record<string, unknown>, scope: HookScope): Promise<{ blocked: boolean; reason: string; by?: string }> {
+    for (const b of this.builtins.filter((x) => x.watches('tool'))) {
+      const out = await b.onBeforeToolCall(scope, tool, args).catch(() => null)
+      if (out?.blocked) return { blocked: true, reason: out.reason || 'blocked', by: b.label }
+    }
     for (const record of this.hookTargets('before_tool_call')) {
       try {
-        const out = await record.process!.request<{ block?: boolean; reason?: string } | null>('events.before_tool_call', { tool, arguments: args, chat_id: chatId }, HOOK_TIMEOUT_MS)
-        if (out?.block) return { blocked: true, reason: String(out.reason || 'blocked'), by: record.manifest!.name }
+        const out = await record.process!.request<{ block?: boolean; reason?: string } | null>('events.before_tool_call', { tool, arguments: args, chat_id: scope.chatId }, HOOK_TIMEOUT_MS)
+        if (out?.block) return { blocked: true, reason: String(out.reason || 'blocked'), by: `the ${record.manifest!.name} plugin` }
       } catch (err) {
         await this.hookFailed(record, 'before_tool_call', err)
       }
@@ -752,11 +857,15 @@ class PluginHost extends EventEmitter<{
   }
 
   /** What plugins' on_after_tool_call add to a result (a lint error, say), one note per plugin that said something. */
-  async afterToolCall(tool: string, args: Record<string, unknown>, result: string, isError: boolean, chatId: string): Promise<string[]> {
+  async afterToolCall(tool: string, args: Record<string, unknown>, result: string, isError: boolean, scope: HookScope): Promise<string[]> {
     const notes: string[] = []
+    for (const b of this.builtins.filter((x) => x.watches('tool'))) {
+      const out = await b.onAfterToolCall(scope, tool, args, result, isError).catch(() => '')
+      if (out.trim()) notes.push(out.trim())
+    }
     for (const record of this.hookTargets('after_tool_call')) {
       try {
-        const out = await record.process!.request<string | null>('events.after_tool_call', { tool, arguments: args, result, is_error: isError, chat_id: chatId }, HOOK_TIMEOUT_MS)
+        const out = await record.process!.request<string | null>('events.after_tool_call', { tool, arguments: args, result, is_error: isError, chat_id: scope.chatId }, HOOK_TIMEOUT_MS)
         if (out && String(out).trim()) notes.push(`${record.manifest!.name}: ${String(out).trim()}`)
       } catch (err) {
         await this.hookFailed(record, 'after_tool_call', err)
