@@ -7,7 +7,7 @@ const skill = (name: string, source?: string): SkillInfo =>
 
 describe('groupSkills', () => {
   it('puts skills sharing a prefix under one entry, led by the skill named after it', () => {
-    const entries = groupSkills(['humanizer', 'li-post', 'seo-audit', 'li-comment', 'seo', 'linkedin-roast', 'pm-prd'].map(skill))
+    const entries = groupSkills(['humanizer', 'li-post', 'seo-audit', 'li-comment', 'seo', 'linkedin-roast', 'pm-prd'].map((n) => skill(n)))
     expect(entries.map((e) => (e.kind === 'group' ? `${e.key}: ${e.skills.map((s) => s.name).join(', ')}` : e.skill.name))).toEqual([
       'humanizer',
       'li: li-post, li-comment',
