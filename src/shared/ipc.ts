@@ -189,6 +189,8 @@ export interface InvokeChannels {
   'mcp:tools': () => McpToolInfo[]
   'mcp:saveServer': (server: McpServerConfig) => void
   'mcp:remove': (name: string) => void
+  'mcp:signIn': (name: string) => void
+  'mcp:signOut': (name: string) => void
   'mcp:directory': (query: McpDirectoryQuery) => McpDirectoryPage
   'mcp:clearDirectoryCache': () => void
   'mcp:directoryServer': (id: string) => McpDirectoryServer
@@ -359,6 +361,8 @@ export const INVOKE_CHANNELS = [
   'mcp:tools',
   'mcp:saveServer',
   'mcp:remove',
+  'mcp:signIn',
+  'mcp:signOut',
   'mcp:directory',
   'mcp:clearDirectoryCache',
   'mcp:directoryServer',

@@ -3,8 +3,13 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport, getDefaultEnvironment } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
+import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js'
 import type { McpServerConfig, McpServerStatus, McpToolInfo } from '@shared/types'
 import { loadMcpConfig, saveMcpConfig } from './config'
+import { forgetSignIn, McpOAuthProvider } from './oauth'
+
+/** A server that needs the user to sign in before it can connect. */
+class SignInNeeded extends Error {}
 
 interface Connection {
   config: McpServerConfig
@@ -69,8 +74,12 @@ class McpManager extends EventEmitter<{ changed: [McpServerStatus[]] }> {
     return [...this.connections.values()].flatMap((c) => c.tools.filter((t) => !seen.has(t.name) && seen.add(t.name)))
   }
 
-  /** Connect to every configured server, replacing existing connections. */
-  async start(): Promise<void> {
+  /**
+   * Connect to every configured server, replacing existing connections.
+   * `signIn` names a server that may open the browser to sign in (one the
+   * user just added, or clicked Sign in on); others only say they need it.
+   */
+  async start(signIn?: string): Promise<void> {
     const gen = ++this.generation
     await this.stop()
     const servers = loadMcpConfig()
@@ -82,7 +91,7 @@ class McpManager extends EventEmitter<{ changed: [McpServerStatus[]] }> {
       })
     }
     this.emitChanged()
-    await Promise.all(servers.map((s) => this.connect(s, gen)))
+    await Promise.all(servers.map((s) => this.connect(s, gen, s.name === signIn)))
   }
 
   async stop(): Promise<void> {
@@ -95,11 +104,30 @@ class McpManager extends EventEmitter<{ changed: [McpServerStatus[]] }> {
     const servers = loadMcpConfig().filter((s) => s.name !== server.name)
     servers.push(server)
     saveMcpConfig(servers)
-    await this.start()
+    await this.start(server.name)
   }
 
   async remove(name: string): Promise<void> {
     saveMcpConfig(loadMcpConfig().filter((s) => s.name !== name))
+    forgetSignIn(name)
+    await this.start()
+  }
+
+  /** Signs in to one server in the browser and connects it; the others stay as they are. */
+  async signIn(name: string): Promise<void> {
+    const config = loadMcpConfig().find((s) => s.name === name)
+    const conn = this.connections.get(name)
+    if (!config || !conn) throw new Error(`No MCP server called ${name}`)
+    await conn.client?.close().catch(() => undefined)
+    conn.client = undefined
+    conn.status = { name, state: 'connecting', toolCount: 0 }
+    this.emitChanged()
+    await this.connect(config, this.generation, true)
+  }
+
+  /** Forgets a server's sign-in and reconnects it (it then asks to sign in again). */
+  async signOut(name: string): Promise<void> {
+    forgetSignIn(name)
     await this.start()
   }
 
@@ -114,7 +142,7 @@ class McpManager extends EventEmitter<{ changed: [McpServerStatus[]] }> {
     return this.tools().find((t) => t.name === name)?.server
   }
 
-  private async connect(config: McpServerConfig, gen: number): Promise<void> {
+  private async connect(config: McpServerConfig, gen: number, interactive = false): Promise<void> {
     const client = new Client({ name: 'LlamaRun', version: '1.0.0' })
     let status: McpServerStatus
     let tools: McpToolInfo[] = []
@@ -134,10 +162,31 @@ class McpManager extends EventEmitter<{ changed: [McpServerStatus[]] }> {
       } else {
         if (!config.data.URL) throw new Error('No URL configured')
         const url = new URL(config.data.URL)
+        const auth = new McpOAuthProvider(config.name, interactive)
+        // Waits for the browser, then finishes signing in on the transport that asked.
+        const finish = async (transport: { finishAuth(code: string): Promise<void> }): Promise<void> => {
+          if (!interactive || !auth.code) throw new SignInNeeded('Sign in to use this server.')
+          this.setStatus(config.name, gen, { name: config.name, state: 'signin', toolCount: 0, error: 'Finish signing in in your browser.' })
+          await transport.finishAuth(await auth.code)
+        }
+        const streamable = new StreamableHTTPClientTransport(url, { authProvider: auth })
         try {
-          await client.connect(new StreamableHTTPClientTransport(url))
-        } catch {
-          await client.connect(new SSEClientTransport(url))
+          await client.connect(streamable)
+        } catch (err) {
+          if (err instanceof UnauthorizedError) {
+            await finish(streamable)
+            await client.connect(new StreamableHTTPClientTransport(url, { authProvider: auth }))
+          } else {
+            // Older servers only speak SSE.
+            const sse = new SSEClientTransport(url, { authProvider: auth })
+            try {
+              await client.connect(sse)
+            } catch (sseErr) {
+              if (!(sseErr instanceof UnauthorizedError)) throw sseErr
+              await finish(sse)
+              await client.connect(new SSEClientTransport(url, { authProvider: auth }))
+            }
+          }
         }
       }
       const listed = await client.listTools()
@@ -151,6 +200,9 @@ class McpManager extends EventEmitter<{ changed: [McpServerStatus[]] }> {
     } catch (err) {
       await client.close().catch(() => undefined)
       const message = err instanceof Error ? err.message : String(err)
+      if (err instanceof SignInNeeded || err instanceof UnauthorizedError) {
+        status = { name: config.name, state: 'signin', toolCount: 0, error: err instanceof SignInNeeded ? message : 'Sign in to use this server.' }
+      } else {
       // "Connection closed" alone says nothing; the server's own output usually does.
       const detail = stderr.lines()
       if (detail) console.warn(`MCP server ${config.name} failed:\n${detail}`)
@@ -159,6 +211,7 @@ class McpManager extends EventEmitter<{ changed: [McpServerStatus[]] }> {
         state: 'error',
         toolCount: 0,
         error: detail ? `${message}\n${detail}` : message
+      }
       }
     }
 
@@ -171,6 +224,14 @@ class McpManager extends EventEmitter<{ changed: [McpServerStatus[]] }> {
     conn.status = status
     conn.tools = tools
     if (status.state === 'connected') conn.client = client
+    this.emitChanged()
+  }
+
+  /** A status while still connecting, if this connection is still the current one. */
+  private setStatus(name: string, gen: number, status: McpServerStatus): void {
+    const conn = this.connections.get(name)
+    if (gen !== this.generation || !conn) return
+    conn.status = status
     this.emitChanged()
   }
 

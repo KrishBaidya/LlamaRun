@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
-import { BadgeCheck, Globe, KeyRound, LoaderCircle, Plug, Plus, RefreshCw, Search, Terminal, Trash2, Wrench } from 'lucide-react'
+import { BadgeCheck, Globe, KeyRound, LoaderCircle, LogIn, Plug, Plus, RefreshCw, Search, Terminal, Trash2, Wrench } from 'lucide-react'
 import { toast } from 'sonner'
 import type { McpDirectoryServer, McpServerConfig, McpServerStatus } from '@shared/types'
 import { SEARCH_DEBOUNCE_MS } from '@shared/constants'
@@ -44,6 +44,12 @@ function StatusBadge({ status }: { status?: McpServerStatus }) {
       return (
         <Badge variant="destructive" title={status.error}>
           Failed
+        </Badge>
+      )
+    case 'signin':
+      return (
+        <Badge variant="secondary" title={status.error}>
+          <LogIn /> Needs sign-in
         </Badge>
       )
     default:
@@ -125,7 +131,13 @@ function InstalledServers({ onAdd }: { onAdd: () => void }) {
                     {status.error}
                   </div>
                 )}
+                {status?.state === 'signin' && <div className="mt-1 text-xs text-muted-foreground">{status.error}</div>}
               </div>
+              {status?.state === 'signin' && (
+                <Button size="sm" variant="outline" onClick={() => void api.mcp.signIn(s.name).catch((err) => toast.error(errorMessage(err)))}>
+                  <LogIn /> Sign in
+                </Button>
+              )}
               <Button variant="ghost" size="icon" title="Remove" onClick={() => setToRemove(s.name)}>
                 <Trash2 />
               </Button>

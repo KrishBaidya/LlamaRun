@@ -308,6 +308,8 @@ export function registerIpc(): void {
     analytics.track(existed ? 'mcp_server_updated' : 'mcp_server_added', { transport: String(server.mcpType) })
   })
   handle('mcp:remove', (_e, name) => (analytics.track('mcp_server_removed'), mcp.remove(name)))
+  handle('mcp:signIn', (_e, name) => mcp.signIn(String(name)))
+  handle('mcp:signOut', (_e, name) => mcp.signOut(String(name)))
   handle('mcp:directory', (_e, query) => listDirectory(query))
   handle('mcp:clearDirectoryCache', () => clearDirectoryCache())
   handle('mcp:directoryServer', (_e, id) => getDirectoryServer(id))

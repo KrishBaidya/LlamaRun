@@ -605,7 +605,8 @@ export interface McpServerConfig {
 
 export interface McpServerStatus {
   name: string
-  state: 'connecting' | 'connected' | 'error' | 'disconnected'
+  /** signin: it needs the user to sign in (error says what to do). */
+  state: 'connecting' | 'connected' | 'error' | 'disconnected' | 'signin'
   error?: string
   toolCount: number
 }
