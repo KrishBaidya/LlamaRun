@@ -3,7 +3,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport, getDefaultEnvironment } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
-import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js'
+import { auth, UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js'
 import type { McpAppRef, McpAppResource, McpServerConfig, McpServerStatus, McpToolInfo, SlashCommand } from '@shared/types'
 import { cleanCsp, MCP_APP_MIME, MCP_APPS_EXTENSION, toolUiMeta, type McpAppToolMeta } from '@shared/mcpApps'
 import { loadMcpConfig, saveMcpConfig } from './config'
@@ -11,6 +11,37 @@ import { forgetSignIn, McpOAuthProvider } from './oauth'
 
 /** A server that needs the user to sign in before it can connect. */
 class SignInNeeded extends Error {}
+
+const httpStatus = (err: unknown): number | undefined => {
+  const code = (err as { code?: unknown })?.code
+  return typeof code === 'number' ? code : undefined
+}
+
+/**
+ * Where a server says it signs in with OAuth (RFC 9728 protected-resource
+ * metadata): at /.well-known/oauth-protected-resource plus its path, or at
+ * the root. Undefined when it publishes none.
+ */
+/** One step of the SDK's OAuth flow (discovery, registration, the browser), for a server found through its metadata. */
+async function authorize(provider: McpOAuthProvider, url: URL, resourceMetadataUrl: URL, authorizationCode?: string): Promise<'AUTHORIZED' | 'REDIRECT'> {
+  return auth(provider, { serverUrl: url, resourceMetadataUrl, ...(authorizationCode ? { authorizationCode } : {}) })
+}
+
+export async function protectedResourceMetadata(url: URL, fetchFn: typeof fetch = fetch): Promise<URL | undefined> {
+  const path = url.pathname.replace(/\/+$/, '')
+  const candidates = [...(path ? [`${url.origin}/.well-known/oauth-protected-resource${path}`] : []), `${url.origin}/.well-known/oauth-protected-resource`]
+  for (const candidate of candidates) {
+    try {
+      const res = await fetchFn(candidate, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(10_000) })
+      if (!res.ok) continue
+      const body = (await res.json()) as { authorization_servers?: unknown }
+      if (Array.isArray(body.authorization_servers) && body.authorization_servers.length) return new URL(candidate)
+    } catch {
+      /* not there, or not JSON */
+    }
+  }
+  return undefined
+}
 
 interface McpPrompt {
   name: string
@@ -320,9 +351,30 @@ class McpManager extends EventEmitter<{ changed: [McpServerStatus[]] }> {
         try {
           await client.connect(streamable)
         } catch (err) {
+          const status = httpStatus(err)
+          // Some servers (Adobe's) answer a client that hasn't signed in with 403 instead of 401, so the
+          // SDK never starts signing in. If the server publishes OAuth metadata, sign in the standard way.
+          const metadata = status === 403 || status === 401 ? await protectedResourceMetadata(url) : undefined
           if (err instanceof UnauthorizedError) {
             await finish(streamable)
             await client.connect(new StreamableHTTPClientTransport(url, { authProvider: auth }))
+          } else if (metadata && auth.tokens()) {
+            throw new Error(`${config.name} refused Llama Run (HTTP ${status}) even though it's signed in. The server may only accept the apps it has approved. Sign out and in again from Settings > MCP to retry.`)
+          } else if (metadata) {
+            if (!interactive) throw new SignInNeeded('Sign in to use this server.')
+            const result = await authorize(auth, url, metadata)
+            if (result === 'REDIRECT') {
+              if (!auth.code) throw new SignInNeeded('Sign in to use this server.')
+              this.setStatus(config.name, gen, { name: config.name, state: 'signin', toolCount: 0, error: 'Finish signing in in your browser.' })
+              await authorize(auth, url, metadata, await auth.code)
+            }
+            try {
+              await client.connect(new StreamableHTTPClientTransport(url, { authProvider: auth }))
+            } catch (again) {
+              const s = httpStatus(again)
+              if (s === 403 || s === 401) throw new Error(`${config.name} refused Llama Run (HTTP ${s}) after signing in. The server may only accept the apps it has approved.`)
+              throw again
+            }
           } else {
             // Older servers only speak SSE.
             const sse = new SSEClientTransport(url, { authProvider: auth })
