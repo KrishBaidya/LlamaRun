@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import type { ApprovalRequest, SlashCommand } from '../src/shared/types'
 import type { BotCommand, ChannelEvents, Sender } from '../src/main/channels/types'
+import type { ChatEvent } from '../src/shared/types'
 
 const userData = mkdtempSync(join(tmpdir(), 'llamarun-channels-'))
 vi.mock('electron', () => ({
@@ -15,7 +16,7 @@ vi.mock('electron', () => ({
 
 const { TelegramChannel } = await import('../src/main/channels/telegram')
 const { DiscordChannel } = await import('../src/main/channels/discord')
-const { chunks } = await import('../src/main/channels/types')
+const { chunks, toTelegramHtml } = await import('../src/main/channels/types')
 const { channelHub, menuCommands, BOT_COMMANDS } = await import('../src/main/channels')
 const { approvals } = await import('../src/main/assistant/approval')
 
@@ -33,7 +34,7 @@ describe('Telegram', () => {
     await tg.ask('42', request)
     const keyboard = calls[0].body.reply_markup as { inline_keyboard: { text: string; callback_data: string }[][] }
     expect(keyboard.inline_keyboard.map((r) => r[0].text)).toEqual(['Allow once', 'Allow for this chat', 'Always allow pip *', 'Deny'])
-    tg.handle(
+    await tg.handle(
       [
         { update_id: 5, message: { chat: { id: 42, type: 'private' }, from: { first_name: 'Krish', username: 'krish' }, text: 'hello' } },
         { update_id: 6, message: { chat: { id: -100, type: 'group' }, text: 'ignored' } },
@@ -41,12 +42,36 @@ describe('Telegram', () => {
       ],
       events
     )
-    expect(events.message).toHaveBeenCalledWith({ peer: '42', name: 'Krish', username: 'krish' }, 'hello')
+    expect(events.message).toHaveBeenCalledWith({ peer: '42', name: 'Krish', username: 'krish' }, 'hello', {})
     expect(events.message).toHaveBeenCalledTimes(1)
     expect(events.answer).toHaveBeenCalledWith('ap1', 'deny')
     // The / menu is set for that one chat, not for everyone who opens the bot.
     await tg.setCommands([{ command: 'new', description: 'x' }], '42')
     expect(calls.at(-1)).toEqual({ method: 'setMyCommands', body: { commands: [{ command: 'new', description: 'x' }], scope: { type: 'chat', chat_id: 42 } } })
+    await tg.setCommands([{ command: 'help', description: 'x' }], null)
+    expect(calls.at(-1)!.body.scope).toEqual({ type: 'default' })
+  })
+
+  it('downloads a photo sent with a caption', async () => {
+    const http = vi.fn(async (url: string) => {
+      if (String(url).endsWith('/getFile')) return new Response(JSON.stringify({ ok: true, result: { file_path: 'photos/1.jpg' } }))
+      if (String(url).includes('/file/bot')) return new Response(new Uint8Array([1, 2, 3]))
+      return new Response(JSON.stringify({ ok: true, result: true }))
+    }) as unknown as typeof fetch
+    const tg = new TelegramChannel(http)
+    const events = { message: vi.fn(), answer: vi.fn() }
+    await tg.handle([{ update_id: 1, message: { message_id: 9, chat: { id: 42, type: 'private' }, from: { first_name: 'K' }, caption: 'what is this', photo: [{ file_id: 'small' }, { file_id: 'big' }] } }], events)
+    const [, text, extra] = events.message.mock.calls[0]
+    expect(text).toBe('what is this')
+    expect(extra.messageId).toBe('9')
+    expect(extra.files[0]).toMatchObject({ kind: 'image', mimeType: 'image/jpeg' })
+    expect([...extra.files[0].bytes]).toEqual([1, 2, 3])
+  })
+
+  it("formats the model's Markdown as Telegram HTML, escaping the rest", () => {
+    expect(toTelegramHtml('**Total** is `5 < 6` & [docs](https://x.dev/a?b=1)\n- one\n```py\nprint("<hi>")\n```')).toBe(
+      '<b>Total</b> is <code>5 &lt; 6</code> &amp; <a href="https://x.dev/a?b=1">docs</a>\n• one\n<pre><code>print("&lt;hi&gt;")</code></pre>'
+    )
   })
 
   it('splits long replies at line breaks', () => {
@@ -83,7 +108,11 @@ describe('the channel hub', () => {
   const me: Sender = { peer: '42', name: 'Krish', username: 'krish' }
   const sent: { peer: string; text: string }[] = []
   const asked: ApprovalRequest[] = []
-  const menus: { peer: string; commands: BotCommand[] }[] = []
+  const menus: { peer: string | null; commands: BotCommand[] }[] = []
+  const edits: { id: string; text: string; final: boolean }[] = []
+  const images: string[] = []
+  const choices: { text: string; options: { label: string; value: string }[] }[] = []
+  let chatEvents: ((e: ChatEvent) => void) | null = null
   let events: ChannelEvents | null = null
   const port = {
     ask: vi.fn(async (_chatId: string | undefined, text: string) => ({ chatId: 'chat-9', done: Promise.resolve({ status: 'done', content: `You said: ${text}` }) })),
@@ -99,7 +128,9 @@ describe('the channel hub', () => {
       { id: 'gemini-pro', name: 'Gemini Pro' }
     ],
     commands: (): SlashCommand[] => [{ name: 'li-post', description: 'Write a post', kind: 'skill', plugin: 'Skill' }],
-    requestNotice: vi.fn()
+    requestNotice: vi.fn(),
+    watch: (_chatId: string, listener: (e: ChatEvent) => void) => ((chatEvents = listener), () => (chatEvents = null)),
+    attach: vi.fn(async (file: { kind: 'image' | 'document'; name: string }) => ({ id: 'a1', kind: file.kind, name: file.name, mimeType: 'image/jpeg', size: 3 }))
   }
 
   it('makes strangers wait for the user at the PC, and lets the user allow them', async () => {
@@ -110,11 +141,19 @@ describe('the channel hub', () => {
       send: async (peer, text) => void sent.push({ peer, text }),
       ask: async (_p, r) => void asked.push(r),
       typing: async () => undefined,
-      setCommands: async (commands, peer) => void menus.push({ peer, commands })
+      setCommands: async (commands, peer) => void menus.push({ peer, commands }),
+      draft: async (_peer, text) => (edits.push({ id: `m${edits.length}`, text, final: false }), `m${edits.length - 1}`),
+      edit: async (_peer, id, text, final) => void edits.push({ id, text, final }),
+      remove: async () => undefined,
+      sendImage: async (_peer, path) => void images.push(path),
+      choose: async (_peer, text, options) => void choices.push({ text, options })
     })
     channelHub.start(port)
     const [status] = await channelHub.connect('telegram', '123:ABC')
     expect(status.connected).toBe(true)
+    // Everyone gets the bot's own commands; nobody's skills yet.
+    await new Promise((r) => setTimeout(r, 0))
+    expect(menus.find((m) => m.peer === null)?.commands.map((c) => c.command)).toEqual(BOT_COMMANDS.map((c) => c.command))
     expect(JSON.parse(readFileSync(join(userData, 'channels.json'), 'utf8')).telegram.token).not.toContain('123:ABC')
 
     await channelHub.onMessage('telegram', me, 'hi')
@@ -137,11 +176,12 @@ describe('the channel hub', () => {
     expect(menus.at(-1)!.commands.map((c) => c.command)).toContain('li_post')
 
     await channelHub.onMessage('telegram', me, 'what time is it')
-    expect(port.ask).toHaveBeenCalledWith(undefined, 'what time is it', 'Telegram')
+    expect(port.ask).toHaveBeenCalledWith(undefined, 'what time is it', 'Telegram', {})
+    // Nothing streamed, so the reply goes as its own message.
     expect(sent.at(-1)!.text).toBe('You said: what time is it')
     // A menu skill comes back as its /command.
     await channelHub.onMessage('telegram', me, '/li_post about launches')
-    expect(port.ask).toHaveBeenLastCalledWith('chat-9', '/li-post about launches', 'Telegram')
+    expect(port.ask).toHaveBeenLastCalledWith('chat-9', '/li-post about launches', 'Telegram', {})
 
     const pending = approvals.ask('chat-9', { title: 'Run?', command: 'x', detail: '', alwaysLabel: '' })
     await new Promise((r) => setTimeout(r, 0))
@@ -151,14 +191,41 @@ describe('the channel hub', () => {
     expect(events).not.toBeNull()
   })
 
+  it('streams a reply into one message, says which tool runs, and sends images the model made', async () => {
+    let finish: (d: { status: string; content: string }) => void = () => {}
+    port.ask.mockImplementationOnce(async () => ({ chatId: 'chat-9', done: new Promise((r) => (finish = r)) }))
+    edits.length = 0
+    const run = channelHub.onMessage('telegram', me, 'draw a cat', { messageId: '5' })
+    await new Promise((r) => setTimeout(r, 10))
+    chatEvents!({ type: 'delta', chatId: 'chat-9', messageId: 'x', text: 'Drawing ' })
+    chatEvents!({ type: 'tool', chatId: 'chat-9', messageId: 'x', tool: { id: 't', name: 'image_generate', server: 'Llama Run', args: {} } } as ChatEvent)
+    await new Promise((r) => setTimeout(r, 400))
+    expect(edits[0].text).toContain('Drawing')
+    expect(edits[0].text).toContain('Using image_generate')
+    chatEvents!({ type: 'tool-done', chatId: 'chat-9', messageId: 'x', part: { type: 'tool', id: 't', name: 'image_generate', server: 'Llama Run', args: {}, status: 'done', result: 'Saved C:\\pics\\cat.png (the model said: meow)' } })
+    finish({ status: 'done', content: '**Here** is your cat.' })
+    await run
+    expect(edits.at(-1)).toEqual({ id: 'm0', text: '**Here** is your cat.', final: true })
+    expect(images).toEqual(['C:\\pics\\cat.png'])
+  })
+
+  it('reads photos and files someone sends', async () => {
+    await channelHub.onMessage('telegram', me, '', { files: [{ kind: 'image', name: 'photo.jpg', mimeType: 'image/jpeg', bytes: new Uint8Array([1]) }] })
+    expect(port.ask).toHaveBeenLastCalledWith('chat-9', 'What do you see in this?', 'Telegram', { attachments: [expect.objectContaining({ kind: 'image' })] })
+  })
+
   it('answers the bot commands without the model', async () => {
     port.ask.mockClear()
     await channelHub.onMessage('telegram', me, '/status')
     expect(sent.at(-1)!.text).toContain('Model: gemini-chat')
+    // /model shows buttons; pressing one switches the chat.
     await channelHub.onMessage('telegram', me, '/model')
-    expect(sent.at(-1)!.text).toContain('2. Gemini Pro')
-    await channelHub.onMessage('telegram', me, '/model 2')
+    expect(choices.at(-1)!.options.map((o) => o.value)).toEqual(['model:gemini-flash', 'model:gemini-pro'])
+    events!.choice!('42', 'model:gemini-pro')
+    await new Promise((r) => setTimeout(r, 0))
     expect(port.setModel).toHaveBeenCalledWith('chat-9', 'gemini-pro')
+    await channelHub.onMessage('telegram', me, '/model flash')
+    expect(port.setModel).toHaveBeenLastCalledWith('chat-9', 'gemini-flash')
     await channelHub.onMessage('telegram', me, '/usage')
     expect(sent.at(-1)!.text).toBe('1,000 tokens')
     port.busy.mockReturnValue(true)

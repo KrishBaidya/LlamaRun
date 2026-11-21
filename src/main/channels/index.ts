@@ -1,12 +1,13 @@
 import { EventEmitter } from 'node:events'
 import { safeStorage } from 'electron'
-import type { ChannelStatus, SlashCommand } from '@shared/types'
+import type { ChannelStatus, ChatAttachment, ChatEvent, SlashCommand } from '@shared/types'
 import { approvals } from '../assistant/approval'
 import { readJson, writeJson } from '../jsonFile'
 import { userDataPath } from '../paths'
 import { DiscordChannel } from './discord'
 import { TelegramChannel } from './telegram'
-import type { BotCommand, Channel, ChannelEvents, ChannelId, Sender } from './types'
+import type { BotCommand, Channel, ChannelEvents, ChannelId, IncomingFile, MessageExtra, Sender } from './types'
+import { chunks } from './types'
 
 /**
  * Talking to Llama Run from the phone, like Hermes' and OpenClaw's messaging
@@ -14,9 +15,10 @@ import type { BotCommand, Channel, ChannelEvents, ChannelId, Sender } from './ty
  * someone new who messages the bot becomes a request in Settings > Channels
  * (with a notification), showing their name, username, id and first message,
  * and only the user at the PC can allow or block them, as OpenClaw's DM
- * pairing does. Allowed people each get their own chat; replies, approvals
- * (as buttons) and, if the user wants, routine results go back there.
- * Blocked people and strangers past the request limit hear nothing.
+ * pairing does. Allowed people each get their own chat; replies stream into
+ * one message as they're written, photos and files go in as attachments,
+ * images the model makes come back, and approvals arrive as buttons. Blocked
+ * people and strangers past the request limit hear nothing.
  */
 
 interface Person {
@@ -27,6 +29,8 @@ interface Person {
 
 interface Paired extends Person {
   chatId?: string
+  /** The model their next new chat starts with, picked with /model before a chat existed. */
+  model?: string
 }
 
 interface Pending extends Person {
@@ -52,10 +56,16 @@ interface ChannelsFile {
   deliverRoutines?: boolean
 }
 
+type Done = { status: string; content: string; error?: string }
+
 /** What the bridge needs from the rest of the app (passed in, to keep this module free of it). */
 export interface ChatPort {
   /** Runs the message in the chat (a new one when chatId is missing or gone); a skill or MCP prompt /command runs as such. */
-  ask(chatId: string | undefined, text: string, via: string): Promise<{ chatId: string; done: Promise<{ status: string; content: string; error?: string }> }>
+  ask(chatId: string | undefined, text: string, via: string, options?: { model?: string; attachments?: ChatAttachment[] }): Promise<{ chatId: string; done: Promise<Done> }>
+  /** The chat's events while a reply runs (text as it streams, tool calls); returns the unsubscribe. */
+  watch?(chatId: string, listener: (event: ChatEvent) => void): () => void
+  /** A photo or file someone sent, as an attachment the model reads. */
+  attach?(file: IncomingFile): Promise<ChatAttachment | null>
   busy(chatId: string): boolean
   queue(chatId: string, text: string): void
   stop(chatId: string): void
@@ -79,28 +89,40 @@ const LABEL: Record<ChannelId, string> = { telegram: 'Telegram', discord: 'Disco
 const MAX_PENDING = 5
 /** A request nobody answered goes away after an hour, as OpenClaw's pairing codes do. */
 const PENDING_MS = 60 * 60_000
+/** How often a streaming reply's message is edited (Telegram allows about one edit a second per chat). */
+const EDIT_EVERY_MS = 1200
+/** A streaming message moves on to a new one past this length. */
+const DRAFT_MAX = 3500
 
 /** The bot's own commands, handled here rather than by the model. */
 export const BOT_COMMANDS: BotCommand[] = [
   { command: 'new', description: 'Start a fresh chat' },
   { command: 'stop', description: 'Stop the reply in progress' },
-  { command: 'model', description: 'Show or change the model: /model <name or number>' },
+  { command: 'model', description: 'Show or change the model' },
   { command: 'compact', description: 'Summarise older messages to free up room' },
   { command: 'usage', description: 'Tokens used in this chat and the last 30 days' },
   { command: 'status', description: 'Model, chat and whether a reply is running' },
   { command: 'help', description: 'What the bot can do' }
 ]
 
-/** Telegram allows lowercase letters, digits and underscores, up to 32 characters, and 100 commands. */
+const menuName = (name: string): string =>
+  name
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 32)
+
+/** Telegram allows lowercase letters, digits and underscores, up to 32 characters, descriptions up to 256, and 100 commands. */
 export function menuCommands(commands: SlashCommand[]): BotCommand[] {
   const seen = new Set(BOT_COMMANDS.map((c) => c.command))
   const out = [...BOT_COMMANDS]
   for (const c of commands) {
     if (c.kind !== 'skill' && c.kind !== 'mcp') continue
-    const command = c.name.toLowerCase().replace(/[^a-z0-9_]+/g, '_').slice(0, 32)
+    const command = menuName(c.name)
     if (!command || seen.has(command) || out.length >= 100) continue
     seen.add(command)
-    out.push({ command, description: (c.description || c.name).replace(/\s+/g, ' ').slice(0, 100) })
+    const description = (c.description || c.name).replace(/\s+/g, ' ').trim()
+    out.push({ command, description: description.length > 100 ? `${description.slice(0, 99)}…` : description || command })
   }
   return out
 }
@@ -109,14 +131,110 @@ export function menuCommands(commands: SlashCommand[]): BotCommand[] {
 function fromMenu(text: string, commands: SlashCommand[]): string {
   const m = /^\/([a-z0-9_]+)(@\w+)?(\s[\s\S]*)?$/i.exec(text.trim())
   if (!m) return text
-  const match = commands.find((c) => c.name.toLowerCase().replace(/[^a-z0-9_]+/g, '_').slice(0, 32) === m[1].toLowerCase())
+  const match = commands.find((c) => menuName(c.name) === m[1].toLowerCase())
   return match ? `/${match.name}${m[3] ?? ''}` : text.replace(/^(\/\w+)@\w+/, '$1')
 }
 
 const HELP =
-  'Messages here go to a chat on your PC, with its tools and skills. Approvals come as buttons. Computer use stays off from here.\n\n' +
+  'Messages here go to a chat on your PC, with its tools and skills. Send photos and files too. Approvals come as buttons. Computer use stays off from here.\n\n' +
   BOT_COMMANDS.map((c) => `/${c.command}: ${c.description}`).join('\n') +
   '\n\nYour skills and MCP prompts are in the / menu too.'
+
+const PROFILE = {
+  description: "This is someone's own Llama Run. Only people they allow can use it: message the bot and they're asked on their PC.",
+  short: 'A Llama Run, reached from your phone.'
+}
+
+/** "Saved C:\...\x.png" from image_generate's result. */
+const savedImage = (result: string | undefined): string | null => /^Saved (.+?\.(?:png|jpe?g|webp))(?:\s|$)/i.exec(result ?? '')?.[1] ?? null
+
+/**
+ * One reply streaming into a chat app: a message edited as text arrives (at
+ * most about once a second), a line saying which tool is running, a new
+ * message once one gets long, and the final text formatted.
+ */
+class StreamedReply {
+  private ids: string[] = []
+  /** Messages already holding a full part. */
+  private completed = 0
+  private text = ''
+  private status = ''
+  private shown = ''
+  private timer: NodeJS.Timeout | null = null
+  private sending: Promise<void> = Promise.resolve()
+  private done = false
+
+  constructor(
+    private readonly channel: Channel & Required<Pick<Channel, 'draft' | 'edit'>>,
+    private readonly peer: string
+  ) {}
+
+  add(text: string): void {
+    this.text += text
+    this.status = ''
+    this.schedule()
+  }
+
+  tool(label: string | null): void {
+    this.status = label ? `⏳ ${label}` : ''
+    this.schedule()
+  }
+
+  /** The text of the message being written now (earlier messages are full). */
+  private current(): string {
+    const parts = chunks(this.text || ' ', DRAFT_MAX)
+    return parts[parts.length - 1]
+  }
+
+  private schedule(): void {
+    if (this.timer || this.done) return
+    this.timer = setTimeout(() => {
+      this.timer = null
+      this.sending = this.sending.then(() => this.flush())
+    }, this.ids.length ? EDIT_EVERY_MS : 300)
+  }
+
+  private async flush(): Promise<void> {
+    if (this.done) return
+    const parts = chunks(this.text || ' ', DRAFT_MAX)
+    // Parts that filled up: each keeps its own message with its full text.
+    for (let i = this.completed; i < parts.length - 1; i++) {
+      if (this.ids[i]) await this.channel.edit(this.peer, this.ids[i], parts[i], false)
+      else this.ids.push(await this.channel.draft(this.peer, parts[i]))
+      this.completed = i + 1
+      this.shown = ''
+    }
+    const body = [this.text.trim() ? this.current() : '', this.status || (this.text.trim() ? '' : '⏳ Thinking…')].filter(Boolean).join('\n\n')
+    if (body === this.shown) return
+    this.shown = body
+    const last = parts.length - 1
+    if (this.ids[last]) await this.channel.edit(this.peer, this.ids[last], body, false)
+    else this.ids.push(await this.channel.draft(this.peer, body))
+  }
+
+  /** The whole reply, formatted, in as many messages as it needs; extra drafts are removed. */
+  async finish(content: string): Promise<void> {
+    if (this.timer) clearTimeout(this.timer)
+    this.timer = null
+    await this.sending.catch(() => {})
+    this.done = true
+    const parts = chunks(content, DRAFT_MAX)
+    for (let i = 0; i < parts.length; i++) {
+      if (this.ids[i]) await this.channel.edit(this.peer, this.ids[i], parts[i], true)
+      else if (this.channel.sendFormatted) await this.channel.sendFormatted(this.peer, parts[i])
+      else await this.channel.send(this.peer, parts[i])
+    }
+    for (const id of this.ids.slice(parts.length)) await this.channel.remove?.(this.peer, id)
+  }
+
+  /** Stopped or failed: the drafts go, so a half reply isn't left looking finished. */
+  async abandon(): Promise<void> {
+    if (this.timer) clearTimeout(this.timer)
+    this.done = true
+    await this.sending.catch(() => {})
+    for (const id of this.ids) await this.channel.remove?.(this.peer, id)
+  }
+}
 
 class ChannelHub extends EventEmitter<{ changed: [ChannelStatus[]] }> {
   private data: ChannelsFile | null = null
@@ -125,8 +243,8 @@ class ChannelHub extends EventEmitter<{ changed: [ChannelStatus[]] }> {
   private port: ChatPort | null = null
   /** Chat id -> where its approvals go. */
   private routes = new Map<string, { id: ChannelId; peer: string }>()
-  /** Model lists shown by /model, so "/model 2" picks from what they saw. */
-  private shownModels = new Map<string, string[]>()
+  /** The last menu each person was sent, so it's only sent again when it changes. */
+  private menus = new Map<string, string>()
   factory: (id: ChannelId) => Channel = (id) => (id === 'telegram' ? new TelegramChannel() : new DiscordChannel())
 
   private get path(): string {
@@ -211,6 +329,8 @@ class ChannelHub extends EventEmitter<{ changed: [ChannelStatus[]] }> {
       this.live.set(id, channel)
       this.errors.delete(id)
       this.emit('changed', this.status())
+      for (const key of [...this.menus.keys()]) if (key.startsWith(`${id}:`)) this.menus.delete(key)
+      void channel.setProfile?.(PROFILE.description, PROFILE.short).catch(() => {})
       void this.refreshCommands(id)
       return botName
     } catch (err) {
@@ -220,27 +340,41 @@ class ChannelHub extends EventEmitter<{ changed: [ChannelStatus[]] }> {
     }
   }
 
+  /** Sends one menu (null peer: everyone's default) unless it's what they already have; a failure shows in Settings. */
+  private async sendMenu(id: ChannelId, peer: string | null, list: BotCommand[]): Promise<void> {
+    const channel = this.live.get(id)
+    if (!channel?.setCommands) return
+    const key = `${id}:${peer ?? '*'}`
+    const value = JSON.stringify(list)
+    if (this.menus.get(key) === value) return
+    try {
+      await channel.setCommands(list, peer)
+      this.menus.set(key, value)
+      if (this.errors.get(id)?.startsWith('Menu:')) {
+        this.errors.delete(id)
+        this.emit('changed', this.status())
+      }
+    } catch (err) {
+      this.menus.delete(key)
+      this.errors.set(id, `Menu: couldn't update the bot's / menu: ${(err as Error).message}`)
+      this.emit('changed', this.status())
+    }
+  }
+
   /**
-   * The bot's / menu: only for allowed people (Telegram's per-chat scope), so
-   * a stranger who opens the bot doesn't see your skills. Call it when
-   * skills, plugins or MCP prompts change.
+   * The bot's / menus: everyone sees the bot's own commands; allowed people
+   * also see their skills and MCP prompts (set for their chat only, so a
+   * stranger who opens the bot doesn't see them). Call it when skills,
+   * plugins or MCP prompts change; only what changed is sent.
    */
   async refreshCommands(only?: ChannelId): Promise<void> {
     const list = menuCommands(this.port?.commands() ?? [])
     for (const id of only ? [only] : IDS) {
-      const channel = this.live.get(id)
-      if (!channel?.setCommands) continue
-      const peers = this.record(id).paired.map((p) => p.peer)
-      // Skills and MCP servers report changes often: only call the app when the menu is different.
-      const key = JSON.stringify([list, peers])
-      if (!only && this.menus.get(id) === key) continue
-      this.menus.set(id, key)
-      for (const peer of peers) await channel.setCommands(list, peer).catch(() => {})
+      if (!this.live.has(id)) continue
+      await this.sendMenu(id, null, BOT_COMMANDS)
+      for (const p of this.record(id).paired) await this.sendMenu(id, p.peer, list)
     }
   }
-
-  /** The last menu sent per channel. */
-  private menus = new Map<ChannelId, string>()
 
   /** Connects with a bot token the user pasted; saved encrypted once it works. */
   async connect(id: ChannelId, token: string): Promise<ChannelStatus[]> {
@@ -269,8 +403,8 @@ class ChannelHub extends EventEmitter<{ changed: [ChannelStatus[]] }> {
   async approve(id: ChannelId, peer: string): Promise<ChannelStatus[]> {
     const r = this.record(id)
     const peerId = peer.trim()
-    if (!/^-?\d{1,20}$/.test(peerId) && id === 'telegram') throw new Error('A Telegram id is a number. They can see theirs in the message the bot sent them.')
     if (!peerId) throw new Error('Enter an id')
+    if (!/^-?\d{1,20}$/.test(peerId)) throw new Error(`A ${LABEL[id]} id is a number. They can see theirs in the message the bot sent them.`)
     const request = r.pending.find((p) => p.peer === peerId)
     r.pending = r.pending.filter((p) => p.peer !== peerId)
     r.blocked = r.blocked.filter((p) => p.peer !== peerId)
@@ -278,7 +412,7 @@ class ChannelHub extends EventEmitter<{ changed: [ChannelStatus[]] }> {
     this.save()
     const channel = this.live.get(id)
     if (channel) {
-      await channel.setCommands?.(menuCommands(this.port?.commands() ?? []), peerId).catch(() => {})
+      await this.sendMenu(id, peerId, menuCommands(this.port?.commands() ?? []))
       await channel.send(peerId, `You're in. ${HELP}`).catch(() => {})
     }
     return this.status()
@@ -304,7 +438,10 @@ class ChannelHub extends EventEmitter<{ changed: [ChannelStatus[]] }> {
   private forget(id: ChannelId, peer: string): void {
     const r = this.record(id)
     for (const p of r.paired) if (p.peer === peer && p.chatId) this.routes.delete(p.chatId)
-    if (r.paired.some((p) => p.peer === peer)) void this.live.get(id)?.setCommands?.([], peer).catch(() => {})
+    if (r.paired.some((p) => p.peer === peer)) {
+      this.menus.delete(`${id}:${peer}`)
+      void this.live.get(id)?.setCommands?.([], peer).catch(() => {})
+    }
     r.paired = r.paired.filter((p) => p.peer !== peer)
     r.pending = r.pending.filter((p) => p.peer !== peer)
     r.blocked = r.blocked.filter((p) => p.peer !== peer)
@@ -319,16 +456,20 @@ class ChannelHub extends EventEmitter<{ changed: [ChannelStatus[]] }> {
   /** A routine's notification, to every paired chat when the user asked for that. */
   deliver(text: string): void {
     if (!this.load().deliverRoutines) return
-    for (const id of IDS) for (const p of this.record(id).paired) void this.live.get(id)?.send(p.peer, text).catch(() => {})
+    for (const id of IDS) {
+      const channel = this.live.get(id)
+      for (const p of this.record(id).paired) void (channel?.sendFormatted ? channel.sendFormatted(p.peer, text) : channel?.send(p.peer, text))?.catch(() => {})
+    }
   }
 
   private events(id: ChannelId): ChannelEvents {
     return {
-      message: (from, text) => void this.onMessage(id, from, text),
+      message: (from, text, extra) => void this.onMessage(id, from, text, extra),
       answer: (approvalId, answer) => {
         if (typeof answer === 'object') approvals.reply(approvalId, answer.text)
         else approvals.answer(approvalId, answer)
-      }
+      },
+      choice: (peer, value) => void this.onChoice(id, peer, value)
     }
   }
 
@@ -342,7 +483,7 @@ class ChannelHub extends EventEmitter<{ changed: [ChannelStatus[]] }> {
       return
     }
     if (r.pending.length >= MAX_PENDING) return
-    r.pending.push({ peer: from.peer, name: from.name, ...(from.username ? { username: from.username } : {}), text: text.slice(0, 200), at: Date.now() })
+    r.pending.push({ peer: from.peer, name: from.name, ...(from.username ? { username: from.username } : {}), text: (text || '(a file)').slice(0, 200), at: Date.now() })
     this.save()
     this.port?.requestNotice(LABEL[id], from.username ? `${from.name} (@${from.username})` : from.name)
     await channel
@@ -350,13 +491,32 @@ class ChannelHub extends EventEmitter<{ changed: [ChannelStatus[]] }> {
       .catch(() => {})
   }
 
+  /** A model button from /model. */
+  private async onChoice(id: ChannelId, peer: string, value: string): Promise<void> {
+    const channel = this.live.get(id)
+    const paired = this.record(id).paired.find((p) => p.peer === peer)
+    if (!channel || !paired || !this.port || !value.startsWith('model:')) return
+    const model = value.slice('model:'.length)
+    const name = (await this.port.models()).find((m) => m.id === model)?.name ?? model
+    this.pickModel(paired, model)
+    await channel.send(peer, paired.chatId ? `This chat now uses ${name}.` : `Your next chat starts with ${name}.`).catch(() => {})
+  }
+
+  private pickModel(paired: Paired, model: string): void {
+    paired.model = model
+    if (paired.chatId) this.port!.setModel(paired.chatId, model)
+    this.save()
+  }
+
   /** Exposed for tests. */
-  async onMessage(id: ChannelId, from: Sender, raw: string): Promise<void> {
+  async onMessage(id: ChannelId, from: Sender, raw: string, extra: MessageExtra = {}): Promise<void> {
     const channel = this.live.get(id)
     if (!channel || !this.port) return
     const paired = this.record(id).paired.find((p) => p.peer === from.peer)
     if (!paired) return this.request(id, channel, from, raw)
     const port = this.port
+    // A menu that failed to arrive earlier gets another try.
+    void this.sendMenu(id, from.peer, menuCommands(port.commands()))
     const text = fromMenu(raw, port.commands())
     const command = /^\/([a-z]+)(?:@\w+)?(?:\s+([\s\S]*))?$/i.exec(text.trim())
     const name = command?.[1].toLowerCase()
@@ -380,7 +540,8 @@ class ChannelHub extends EventEmitter<{ changed: [ChannelStatus[]] }> {
     if (name === 'usage') return reply(port.usage(paired.chatId) || 'No usage yet.')
     if (name === 'status') {
       const running = paired.chatId ? port.busy(paired.chatId) : false
-      return reply(`Model: ${port.model(paired.chatId)}\nChat: ${paired.chatId ? 'ongoing' : 'none yet (your next message starts one)'}\nReply running: ${running ? 'yes' : 'no'}`)
+      const model = paired.chatId ? port.model(paired.chatId) : (paired.model ?? port.model(undefined))
+      return reply(`Model: ${model}\nChat: ${paired.chatId ? 'ongoing' : 'none yet (your next message starts one)'}\nReply running: ${running ? 'yes' : 'no'}`)
     }
     if (name === 'compact') {
       if (!paired.chatId) return reply('Nothing to compact yet.')
@@ -391,54 +552,93 @@ class ChannelHub extends EventEmitter<{ changed: [ChannelStatus[]] }> {
         (err: Error) => reply(`Couldn't compact: ${err.message}`)
       )
     }
-    if (name === 'model') return this.modelCommand(id, paired, arg, reply)
+    if (name === 'model') return this.modelCommand(channel, paired, arg, reply)
+
+    if (extra.messageId) void channel.react?.(from.peer, extra.messageId, '👀')
+    const attachments: ChatAttachment[] = []
+    for (const file of extra.files ?? []) {
+      const a = await port.attach?.(file).catch(() => null)
+      if (a) attachments.push(a)
+      else await reply(`Couldn't read ${file.name}.`)
+    }
+    const message = text.trim() || (attachments.length ? (attachments.some((a) => a.kind === 'image') ? 'What do you see in this?' : 'Here is a file.') : '')
+    if (!message) return
 
     // An open question in their chat: this message is the answer.
     const open = paired.chatId ? approvals.current(paired.chatId) : null
-    if (open?.kind === 'question' && open.other !== false) {
-      approvals.reply(open.id, text)
+    if (open?.kind === 'question' && open.other !== false && !attachments.length) {
+      approvals.reply(open.id, message)
       return
     }
     if (paired.chatId && port.busy(paired.chatId)) {
-      port.queue(paired.chatId, text)
+      port.queue(paired.chatId, message)
       return reply('Queued: it goes in when the current reply finishes. /stop stops the reply.')
     }
     const typing = setInterval(() => void channel.typing(from.peer), 4500)
     void channel.typing(from.peer)
+    let unwatch = (): void => {}
+    const stream = channel.draft && channel.edit && port.watch ? new StreamedReply(channel as Channel & Required<Pick<Channel, 'draft' | 'edit'>>, from.peer) : null
+    const images: string[] = []
     try {
-      const run = await port.ask(paired.chatId, text, LABEL[id])
+      const run = await port.ask(paired.chatId, message, LABEL[id], { ...(!paired.chatId && paired.model ? { model: paired.model } : {}), ...(attachments.length ? { attachments } : {}) })
       if (run.chatId !== paired.chatId) {
         paired.chatId = run.chatId
         this.routes.set(run.chatId, { id, peer: from.peer })
         this.save()
       }
+      unwatch =
+        port.watch?.(run.chatId, (event) => {
+          if (event.type === 'delta') stream?.add(event.text)
+          else if (event.type === 'tool') stream?.tool(`Using ${event.tool.name}…`)
+          else if (event.type === 'tool-done') {
+            stream?.tool(null)
+            const saved = event.part.name === 'image_generate' && event.part.status === 'done' ? savedImage(event.part.result) : null
+            if (saved) images.push(saved)
+          }
+        }) ?? unwatch
       const done = await run.done
-      if (done.status === 'cancelled') return
-      await reply(done.status === 'error' ? `Something went wrong: ${done.error ?? 'the reply failed'}` : done.content || '(no text in the reply)')
+      unwatch()
+      if (done.status === 'cancelled') return void (await stream?.abandon())
+      if (done.status === 'error') {
+        await stream?.abandon()
+        return reply(`Something went wrong: ${done.error ?? 'the reply failed'}`)
+      }
+      const content = done.content || (images.length ? '' : '(no text in the reply)')
+      if (content) {
+        if (stream) await stream.finish(content)
+        else if (channel.sendFormatted) await channel.sendFormatted(from.peer, content)
+        else await reply(content)
+      } else await stream?.abandon()
+      for (const path of images) await channel.sendImage?.(from.peer, path).catch(() => {})
     } catch (err) {
+      unwatch()
+      await stream?.abandon()
       await reply(`Couldn't send that to Llama Run: ${(err as Error).message}`)
     } finally {
       clearInterval(typing)
     }
   }
 
-  private async modelCommand(id: ChannelId, paired: Paired, arg: string, reply: (t: string) => Promise<void>): Promise<void> {
+  private async modelCommand(channel: Channel, paired: Paired, arg: string, reply: (t: string) => Promise<void>): Promise<void> {
     const port = this.port!
-    const key = `${id}:${paired.peer}`
+    const models = await port.models()
+    const current = paired.chatId ? port.model(paired.chatId) : (paired.model ?? port.model(undefined))
     if (!arg) {
-      const models = await port.models()
-      this.shownModels.set(key, models.map((m) => m.id))
-      const current = port.model(paired.chatId)
+      if (channel.choose) {
+        return channel.choose(
+          paired.peer,
+          `Model: ${models.find((m) => m.id === current)?.name ?? current}\nPick one:`,
+          models.map((m) => ({ label: `${m.id === current ? '✓ ' : ''}${m.name}`, value: `model:${m.id}` }))
+        )
+      }
       return reply(`Model: ${current}\n\n${models.map((m, i) => `${i + 1}. ${m.name}${m.id === current ? ' (current)' : ''}`).join('\n')}\n\nSend /model <number or name> to switch.`)
     }
-    const models = await port.models()
-    const shown = this.shownModels.get(key)
     const n = /^\d+$/.test(arg) ? Number(arg) : 0
-    const pick = n ? (shown?.[n - 1] ? models.find((m) => m.id === shown[n - 1]) : models[n - 1]) : models.find((m) => m.id.toLowerCase() === arg.toLowerCase() || m.name.toLowerCase() === arg.toLowerCase()) ?? models.find((m) => m.name.toLowerCase().includes(arg.toLowerCase()))
+    const q = arg.toLowerCase()
+    const pick = n ? models[n - 1] : (models.find((m) => m.id.toLowerCase() === q || m.name.toLowerCase() === q) ?? models.find((m) => m.name.toLowerCase().includes(q)))
     if (!pick) return reply(`No model matches "${arg}". Send /model to see the list.`)
-    if (!paired.chatId) return reply(`Your next message starts a chat; send /model ${arg} after it to switch. (New chats use ${port.model(undefined)}.)`)
-    port.setModel(paired.chatId, pick.id)
-    return reply(`This chat now uses ${pick.name}.`)
+    this.pickModel(paired, pick.id)
+    return reply(paired.chatId ? `This chat now uses ${pick.name}.` : `Your next chat starts with ${pick.name}.`)
   }
 
   stop(): void {

@@ -1,6 +1,9 @@
 import { appendFileSync, mkdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { app, dialog, Notification } from 'electron'
+import { randomUUID } from 'node:crypto'
+import { app, dialog, nativeImage, Notification } from 'electron'
+import type { ChatEvent } from '@shared/types'
+import { readDocument } from './attachments/read'
 import { PROTOCOL } from '@shared/constants'
 import { analytics } from './analytics'
 import { auth, PROFILE_FRESH_MS } from './auth'
@@ -155,9 +158,34 @@ if (!app.requestSingleInstanceLock()) {
     startRoutines()
     startApprovalNotices((id) => chatService.get(id)?.title ?? '')
     channelHub.start({
-      ask: async (chatId, text, via) => {
+      ask: async (chatId, text, via, options) => {
         const skill = await chatService.slashSkill(text)
-        return chatService.ask(chatId && chatService.get(chatId) ? chatId : null, text, { via: { plugin: via, remote: true }, remote: true, ...(skill ? { skill } : {}) })
+        const existing = chatId && chatService.get(chatId) ? chatId : null
+        return chatService.ask(existing, text, {
+          via: { plugin: via, remote: true },
+          remote: true,
+          ...(skill ? { skill } : {}),
+          // A model picked with /model before the chat existed; an existing chat keeps its own.
+          ...(!existing && options?.model ? { model: options.model } : {}),
+          ...(options?.attachments?.length ? { attachments: options.attachments } : {})
+        })
+      },
+      watch: (chatId, listener) => {
+        const forward = (event: ChatEvent): void => {
+          if ('chatId' in event && event.chatId === chatId) listener(event)
+        }
+        chatService.on('event', forward)
+        return () => chatService.off('event', forward)
+      },
+      attach: async (file) => {
+        if (file.kind === 'document') return readDocument(file.name, file.mimeType, file.bytes)
+        const image = nativeImage.createFromBuffer(Buffer.from(file.bytes))
+        if (image.isEmpty()) return null
+        const { width, height } = image.getSize()
+        // Phone photos are big: the model gets at most 1600 pixels on the long side, as from the chat box.
+        const scaled = Math.max(width, height) > 1600 ? image.resize(width >= height ? { width: 1600 } : { height: 1600 }) : image
+        const jpeg = scaled.toJPEG(85)
+        return { id: randomUUID(), kind: 'image', name: file.name, mimeType: 'image/jpeg', size: jpeg.length, dataUrl: `data:image/jpeg;base64,${jpeg.toString('base64')}` }
       },
       busy: (chatId) => chatService.isRunning(chatId),
       queue: (chatId, text) => chatService.queue(chatId, text),
