@@ -24,6 +24,10 @@ export interface BridgeDeps {
   post(message: Record<string, unknown>): void
   callTool(name: string, args: Record<string, unknown>): Promise<unknown>
   readResource(uri: string): Promise<unknown>
+  listTools(): Promise<unknown>
+  listResources(): Promise<unknown>
+  /** The app asked to be closed (ui/notifications/request-teardown). */
+  close(): void
   openLink(url: string): void
   /** ui/message: text the app writes in the chat as the user. */
   message(text: string): void
@@ -97,11 +101,14 @@ export class McpAppBridge {
             serverTools: {},
             serverResources: {},
             logging: {},
+            message: { text: {} },
+            updateModelContext: { text: {}, structuredContent: {} },
             sandbox: { csp: this.csp }
           },
           hostContext: {
             ...this.context,
-            toolInfo: { tool: { name: this.app.tool } },
+            // The SDK checks this against MCP's Tool shape, so inputSchema has to be there.
+            toolInfo: { tool: this.app.toolDef ?? { name: this.app.tool, inputSchema: { type: 'object' } } },
             availableDisplayModes: ['inline', 'fullscreen'],
             platform: 'desktop'
           }
@@ -114,8 +121,12 @@ export class McpAppBridge {
         if (!name) throw Object.assign(new Error('name is required'), { code: -32602 })
         return await this.deps.callTool(name, (params.arguments as Record<string, unknown>) ?? {})
       }
+      case 'tools/list':
+        return await this.deps.listTools()
       case 'resources/read':
         return await this.deps.readResource(String(params.uri ?? ''))
+      case 'resources/list':
+        return await this.deps.listResources()
       case 'ui/open-link': {
         const url = String(params.url ?? '')
         if (!/^https?:\/\//i.test(url)) throw new Error('Invalid URL')
@@ -153,6 +164,8 @@ export class McpAppBridge {
     } else if (method === 'ui/notifications/size-changed') {
       const n = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : undefined)
       this.deps.resized(n(params.width), n(params.height))
+    } else if (method === 'ui/notifications/request-teardown') {
+      this.deps.close()
     } else if (method === 'notifications/message') {
       this.deps.log?.(String(params.level ?? 'info'), params.data)
     }

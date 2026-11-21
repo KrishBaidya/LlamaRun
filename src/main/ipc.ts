@@ -318,6 +318,8 @@ export function registerIpc(): void {
   handle('mcpApps:resource', (_e, server, uri) => mcp.appResource(String(server), String(uri)))
   handle('mcpApps:callTool', (_e, server, name, args) => mcp.appCallTool(String(server), String(name), args && typeof args === 'object' ? (args as Record<string, unknown>) : {}))
   handle('mcpApps:readResource', (_e, server, uri) => mcp.appReadResource(String(server), String(uri)))
+  handle('mcpApps:listTools', (_e, server) => mcp.appListTools(String(server)))
+  handle('mcpApps:listResources', (_e, server) => mcp.appListResources(String(server)))
   handle('mcpApps:message', (_e, chatId, _server, text) => {
     const id = String(chatId)
     const message = String(text ?? '').trim()

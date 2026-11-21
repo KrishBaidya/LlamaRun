@@ -26,6 +26,8 @@ interface Connection {
   tools: McpToolInfo[]
   /** Each tool's MCP Apps metadata, app-only tools included. */
   ui?: Map<string, McpAppToolMeta>
+  /** Every tool's definition as the server listed it, for apps (toolInfo, tools/list). */
+  defs?: Map<string, AppToolDef>
   /** The server's prompts, offered as /server:prompt commands like Claude Code's /mcp__server__prompt. */
   prompts?: McpPrompt[]
 }
@@ -67,6 +69,8 @@ export interface McpToolResult {
   /** The tool has an MCP App: shown with the result. */
   app?: McpAppRef
 }
+
+type AppToolDef = NonNullable<McpAppRef['toolDef']> & { _meta?: Record<string, unknown> }
 
 /** Most characters of an app's arguments and structured result kept in the chat file. */
 const MAX_APP_DATA = 200_000
@@ -170,7 +174,13 @@ class McpManager extends EventEmitter<{ changed: [McpServerStatus[]] }> {
     if (!uri) return { content, isError: Boolean(result.isError) }
     // The view gets the arguments and the full result, structuredContent included (the model only sees content).
     const appResult = { content, isError: Boolean(result.isError), ...(result.structuredContent !== undefined && fits(result.structuredContent) ? { structuredContent: result.structuredContent } : {}) }
-    const app: McpAppRef = { server: conn.config.name, uri, tool: name, args: fits(args) ? args : {}, result: fits(appResult) ? appResult : { content: [], isError: appResult.isError } }
+    const def = conn.defs?.get(name)
+    const app: McpAppRef = {
+      server: conn.config.name,
+      uri,
+      tool: name,
+      ...(def ? { toolDef: { name: def.name, ...(def.title ? { title: def.title } : {}), ...(def.description ? { description: def.description } : {}), inputSchema: def.inputSchema } } : {}),
+      args: fits(args) ? args : {}, result: fits(appResult) ? appResult : { content: [], isError: appResult.isError } }
     return { content, isError: Boolean(result.isError), app }
   }
 
@@ -210,6 +220,17 @@ class McpManager extends EventEmitter<{ changed: [McpServerStatus[]] }> {
     if (!meta.visibility.includes('app')) throw new Error(`${name} is not available to apps`)
     const result = await conn.client.callTool({ name, arguments: args })
     return { content: (result.content as unknown[]) ?? [], isError: Boolean(result.isError), ...(result.structuredContent !== undefined ? { structuredContent: result.structuredContent } : {}) }
+  }
+
+  /** tools/list for a server's own app: the tools open to apps. */
+  appListTools(server: string): { tools: AppToolDef[] } {
+    const conn = this.appConnection(server)
+    return { tools: [...(conn.defs?.values() ?? [])].filter((d) => conn.ui?.get(d.name)?.visibility.includes('app')) }
+  }
+
+  /** resources/list for a server's own app. */
+  async appListResources(server: string): Promise<unknown> {
+    return this.appConnection(server).client.listResources()
   }
 
   /** resources/read for a server's own app. */
@@ -268,6 +289,7 @@ class McpManager extends EventEmitter<{ changed: [McpServerStatus[]] }> {
     let status: McpServerStatus
     let tools: McpToolInfo[] = []
     const ui = new Map<string, McpAppToolMeta>()
+    const defs = new Map<string, AppToolDef>()
     let prompts: McpPrompt[] = []
     const stderr = new StderrTail()
     try {
@@ -313,7 +335,17 @@ class McpManager extends EventEmitter<{ changed: [McpServerStatus[]] }> {
         }
       }
       const listed = await client.listTools()
-      for (const t of listed.tools) ui.set(t.name, toolUiMeta(t._meta))
+      for (const t of listed.tools) {
+        ui.set(t.name, toolUiMeta(t._meta))
+        const schema = (t.inputSchema ?? {}) as Record<string, unknown>
+        defs.set(t.name, {
+          name: t.name,
+          ...(t.title ? { title: t.title } : {}),
+          ...(t.description ? { description: t.description } : {}),
+          inputSchema: { ...schema, type: 'object' },
+          ...(t._meta ? { _meta: t._meta as Record<string, unknown> } : {})
+        })
+      }
       // Tools only the server's own app may call are kept from the model.
       tools = listed.tools
         .filter((t) => ui.get(t.name)!.visibility.includes('model'))
@@ -359,6 +391,7 @@ class McpManager extends EventEmitter<{ changed: [McpServerStatus[]] }> {
     conn.status = status
     conn.tools = tools
     conn.ui = ui
+    conn.defs = defs
     conn.prompts = prompts
     if (status.state === 'connected') conn.client = client
     this.emitChanged()

@@ -36,6 +36,9 @@ describe('the host bridge', () => {
       post: (m) => void sent.push(m),
       callTool: vi.fn(async (name: string) => ({ content: [{ type: 'text', text: `${name} ran` }] })),
       readResource: vi.fn(async () => ({ contents: [] })),
+      listTools: vi.fn(async () => ({ tools: [] })),
+      listResources: vi.fn(async () => ({ resources: [] })),
+      close: vi.fn(),
       openLink: vi.fn(),
       message: vi.fn(),
       setContext: vi.fn(),
@@ -51,7 +54,7 @@ describe('the host bridge', () => {
     await bridge.handle({ jsonrpc: '2.0', id: 1, method: 'ui/initialize', params: { appCapabilities: { availableDisplayModes: ['inline'] } } })
     const init = sent[0] as { id: number; result: { hostContext: { theme: string; toolInfo: { tool: { name: string } } }; hostCapabilities: { sandbox: unknown } } }
     expect(init.id).toBe(1)
-    expect(init.result.hostContext).toMatchObject({ theme: 'dark', displayMode: 'inline', toolInfo: { tool: { name: 'get_weather' } } })
+    expect(init.result.hostContext).toMatchObject({ theme: 'dark', displayMode: 'inline', toolInfo: { tool: { name: 'get_weather', inputSchema: { type: 'object' } } } })
     expect(init.result.hostCapabilities.sandbox).toEqual({ csp: { connectDomains: ['https://api.weather.com'] } })
     expect(sent).toHaveLength(1) // nothing else before "initialized"
     await bridge.handle({ jsonrpc: '2.0', method: 'ui/notifications/initialized' })

@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode 
 import { AlertCircle, AppWindow, Loader2, PanelRightOpen, X } from 'lucide-react'
 import type { McpAppRef, McpAppResource } from '@shared/types'
 import { appCsp } from '@shared/mcpApps'
+import { TitleBar } from '@/components/TitleBar'
 import { Button } from '@/components/ui/button'
 import { api } from '@/hooks/use-llamarun'
 import { McpAppBridge, type DisplayMode, type HostContext } from '@shared/mcpAppBridge'
@@ -53,7 +54,19 @@ function themeVariables(): Record<string, string> {
 }
 
 /** One running view of an app. */
-function AppFrame({ app: given, mode, onMode, className }: { app: McpAppRef; mode: DisplayMode; onMode: (m: DisplayMode) => void; className?: string }) {
+function AppFrame({
+  app: given,
+  mode,
+  onMode,
+  onClose,
+  className
+}: {
+  app: McpAppRef
+  mode: DisplayMode
+  onMode: (m: DisplayMode) => void
+  onClose?: () => void
+  className?: string
+}) {
   const { chatId } = useAppPanel()
   // The chat hands over a new object on every update; the view restarts only when the call itself differs.
   const key = JSON.stringify([given.server, given.uri, given.tool, given.args, given.result])
@@ -61,6 +74,8 @@ function AppFrame({ app: given, mode, onMode, className }: { app: McpAppRef; mod
   useEffect(() => setApp(given), [key]) // eslint-disable-line react-hooks/exhaustive-deps
   const onModeRef = useRef(onMode)
   onModeRef.current = onMode
+  const onCloseRef = useRef(onClose ?? (() => undefined))
+  onCloseRef.current = onClose ?? (() => undefined)
   const frame = useRef<HTMLIFrameElement>(null)
   const bridge = useRef<McpAppBridge | null>(null)
   const [resource, setResource] = useState<McpAppResource | null>(null)
@@ -95,6 +110,9 @@ function AppFrame({ app: given, mode, onMode, className }: { app: McpAppRef; mod
       post,
       callTool: (name, args) => api.mcpApps.callTool(app.server, name, args),
       readResource: (uri) => api.mcpApps.readResource(app.server, uri),
+      listTools: () => api.mcpApps.listTools(app.server),
+      listResources: () => api.mcpApps.listResources(app.server),
+      close: () => onCloseRef.current(),
       openLink: (url) => void api.app.openExternal(url),
       message: (text) => chatId && void api.mcpApps.message(chatId, app.server, text),
       setContext: (text) => chatId && void api.mcpApps.setContext(chatId, app.server, text),
@@ -188,15 +206,16 @@ export function McpAppSidePanel() {
   const { app } = panel.open
   return (
     <aside className="flex w-[min(48vw,720px)] min-w-80 shrink-0 flex-col border-s border-border bg-background">
-      <div className="flex h-10 items-center gap-1.5 border-b border-border px-3 text-xs">
-        <AppWindow className="size-3.5 text-muted-foreground" />
+      {/* A title bar like the chat's, so the window's own buttons don't cover the close button. */}
+      <TitleBar className="border-b border-border text-xs">
+        <AppWindow className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="min-w-0 truncate font-medium">{app.server}</span>
         <span className="min-w-0 truncate text-muted-foreground">{app.tool}</span>
-        <Button variant="ghost" size="icon-sm" className="ms-auto" title="Close" aria-label="Close app" onClick={() => panel.show(null)}>
+        <Button variant="ghost" size="icon-sm" className="no-drag ms-auto shrink-0" title="Close app" aria-label="Close app" onClick={() => panel.show(null)}>
           <X className="size-3.5" />
         </Button>
-      </div>
-      <AppFrame app={app} mode="fullscreen" onMode={(m) => m === 'inline' && panel.show(null)} className="min-h-0 flex-1" />
+      </TitleBar>
+      <AppFrame app={app} mode="fullscreen" onMode={(m) => m === 'inline' && panel.show(null)} onClose={() => panel.show(null)} className="min-h-0 flex-1" />
     </aside>
   )
 }

@@ -178,6 +178,8 @@ export interface McpAppRef {
   server: string
   uri: string
   tool: string
+  /** The tool's definition, which the view gets as toolInfo (apps check its inputSchema). */
+  toolDef?: { name: string; title?: string; description?: string; inputSchema: Record<string, unknown> }
   args: Record<string, unknown>
   result?: { content: unknown[]; structuredContent?: unknown; isError?: boolean }
 }

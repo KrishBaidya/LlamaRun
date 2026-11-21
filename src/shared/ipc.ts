@@ -204,6 +204,8 @@ export interface InvokeChannels {
   'mcpApps:resource': (server: string, uri: string) => McpAppResource
   'mcpApps:callTool': (server: string, name: string, args: Record<string, unknown>) => { content: unknown[]; structuredContent?: unknown; isError?: boolean }
   'mcpApps:readResource': (server: string, uri: string) => unknown
+  'mcpApps:listTools': (server: string) => unknown
+  'mcpApps:listResources': (server: string) => unknown
   'mcpApps:message': (chatId: string, server: string, text: string) => void
   'mcpApps:setContext': (chatId: string, server: string, text: string) => void
   'mcp:readmeUrl': (id: string) => string
@@ -399,6 +401,8 @@ export const INVOKE_CHANNELS = [
   'mcpApps:resource',
   'mcpApps:callTool',
   'mcpApps:readResource',
+  'mcpApps:listTools',
+  'mcpApps:listResources',
   'mcpApps:message',
   'mcpApps:setContext',
   'mcp:readmeUrl',
