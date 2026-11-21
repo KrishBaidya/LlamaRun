@@ -206,10 +206,14 @@ class StreamedReply {
   private sending: Promise<void> = Promise.resolve()
   private done = false
 
+  private readonly max: number
+
   constructor(
     private readonly channel: Channel & Required<Pick<Channel, 'draft' | 'edit'>>,
     private readonly peer: string
-  ) {}
+  ) {
+    this.max = Math.min(DRAFT_MAX, channel.maxMessage ?? DRAFT_MAX)
+  }
 
   add(text: string): void {
     this.text += text
@@ -224,7 +228,7 @@ class StreamedReply {
 
   /** The text of the message being written now (earlier messages are full). */
   private current(): string {
-    const parts = chunks(this.text || ' ', DRAFT_MAX)
+    const parts = chunks(this.text || ' ', this.max)
     return parts[parts.length - 1]
   }
 
@@ -238,7 +242,7 @@ class StreamedReply {
 
   private async flush(): Promise<void> {
     if (this.done) return
-    const parts = chunks(this.text || ' ', DRAFT_MAX)
+    const parts = chunks(this.text || ' ', this.max)
     // Parts that filled up: each keeps its own message with its full text.
     for (let i = this.completed; i < parts.length - 1; i++) {
       if (this.ids[i]) await this.channel.edit(this.peer, this.ids[i], parts[i], false)
@@ -260,7 +264,7 @@ class StreamedReply {
     this.timer = null
     await this.sending.catch(() => {})
     this.done = true
-    const parts = chunks(content, DRAFT_MAX)
+    const parts = chunks(content, this.max)
     for (let i = 0; i < parts.length; i++) {
       if (this.ids[i]) await this.channel.edit(this.peer, this.ids[i], parts[i], true)
       else if (this.channel.sendFormatted) await this.channel.sendFormatted(this.peer, parts[i])
@@ -420,6 +424,7 @@ class ChannelHub extends EventEmitter<{ changed: [ChannelStatus[]] }> {
       const count = typeof confirmed === 'number' ? confirmed : sent.length
       const cut = sent.length < list.length ? ` (${list.length - sent.length} left out: Telegram's menu was full)` : ''
       this.log(`${id} menu for ${who}: sent ${sent.length}, ${typeof confirmed === 'number' ? `${LABEL[id]} has ${confirmed}` : 'not checked'}`)
+      if (peer === null && !channel.personalMenus) this.menuInfo.set(id, `Slash commands: ${count}, confirmed by ${LABEL[id]}. Skills, MCP prompts and plugin commands are under /run (only people you allowed see them).`)
       if (peer !== null) this.menuInfo.set(id, `Menu: ${count} commands for ${who}${typeof confirmed === 'number' ? `, confirmed by ${LABEL[id]}` : ''}${cut} (${new Date().toLocaleTimeString()}). If it looks old in the app, close and reopen the chat with the bot.`)
       if (this.errors.get(id)?.startsWith('Menu:')) this.errors.delete(id)
       this.emit('changed', this.status())
@@ -442,7 +447,8 @@ class ChannelHub extends EventEmitter<{ changed: [ChannelStatus[]] }> {
     for (const id of only ? [only] : IDS) {
       if (!this.live.has(id)) continue
       await this.sendMenu(id, null, BOT_COMMANDS)
-      for (const p of this.record(id).paired) await this.sendMenu(id, p.peer, list)
+      // Apps without per-person menus (Discord) reach skills through /run's suggestions instead.
+      if (this.live.get(id)?.personalMenus) for (const p of this.record(id).paired) await this.sendMenu(id, p.peer, list)
     }
   }
 
@@ -482,7 +488,7 @@ class ChannelHub extends EventEmitter<{ changed: [ChannelStatus[]] }> {
     this.save()
     const channel = this.live.get(id)
     if (channel) {
-      await this.sendMenu(id, peerId, menuCommands(this.port?.commands() ?? []))
+      if (channel.personalMenus) await this.sendMenu(id, peerId, menuCommands(this.port?.commands() ?? []))
       await channel.send(peerId, `You're in. ${HELP}`).catch(() => {})
     }
     return this.status()
@@ -539,8 +545,25 @@ class ChannelHub extends EventEmitter<{ changed: [ChannelStatus[]] }> {
         if (typeof answer === 'object') approvals.reply(approvalId, answer.text)
         else approvals.answer(approvalId, answer)
       },
-      choice: (peer, value) => void this.onChoice(id, peer, value)
+      choice: (peer, value) => void this.onChoice(id, peer, value),
+      complete: (peer, option, value) => this.complete(id, peer, option, value)
     }
+  }
+
+  /** Slash command suggestions (Discord): models for /model, skills and commands for /run; nothing for strangers. */
+  async complete(id: ChannelId, peer: string, option: string, value: string): Promise<{ name: string; value: string }[]> {
+    if (!this.port || !this.record(id).paired.some((p) => p.peer === peer)) return []
+    const q = value.trim().toLowerCase().replace(/^\//, '')
+    if (option === 'name') {
+      const models = await this.port.models()
+      return models.filter((m) => !q || m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q)).slice(0, 25).map((m) => ({ name: m.name, value: m.id }))
+    }
+    const kinds: Record<string, string> = { plugin: 'Plugin', mcp: 'MCP', skill: 'Skill' }
+    return this.port
+      .commands()
+      .filter((c) => kinds[c.kind] && (!q || c.name.toLowerCase().includes(q) || c.description.toLowerCase().includes(q)))
+      .slice(0, 25)
+      .map((c) => ({ name: `/${c.name} · ${kinds[c.kind]}${c.description ? `: ${c.description}` : ''}`, value: `/${c.name}` }))
   }
 
   /** Someone new: a request for the user at the PC, and one reply telling them so. */
@@ -589,7 +612,7 @@ class ChannelHub extends EventEmitter<{ changed: [ChannelStatus[]] }> {
     if (!paired) return this.request(id, channel, from, raw)
     const port = this.port
     // A menu that failed to arrive earlier gets another try.
-    void this.sendMenu(id, from.peer, menuCommands(port.commands()))
+    if (channel.personalMenus) void this.sendMenu(id, from.peer, menuCommands(port.commands()))
     const text = fromMenu(raw, port.commands())
     const command = /^\/([a-z]+)(?:@\w+)?(?:\s+([\s\S]*))?$/i.exec(text.trim())
     const name = command?.[1].toLowerCase()

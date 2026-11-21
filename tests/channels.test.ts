@@ -82,14 +82,48 @@ describe('Telegram', () => {
 })
 
 describe('Discord', () => {
-  it('passes on direct messages only', () => {
-    const dc = new DiscordChannel(vi.fn(async () => new Response(null, { status: 204 })) as unknown as typeof fetch)
+  const calls: { method: string; path: string; body: unknown }[] = []
+  const http = vi.fn(async (url: string, init?: RequestInit) => {
+    const path = String(url).replace('https://discord.com/api/v10', '')
+    if (String(url).startsWith('https://cdn.discordapp.com')) return new Response(new Uint8Array([7, 8]))
+    calls.push({ method: init?.method ?? 'GET', path, body: init?.body && typeof init.body === 'string' ? JSON.parse(init.body) : undefined })
+    if (path === '/applications/@me') return new Response(JSON.stringify({ id: 'app1' }))
+    if (path.endsWith('/commands')) return new Response(JSON.stringify([1, 2, 3]))
+    if (path.endsWith('/messages') && init?.method === 'POST') return new Response(JSON.stringify({ id: 'msg1' }))
+    return new Response(null, { status: 204 })
+  }) as unknown as typeof fetch
+
+  it('passes on direct messages with their files, ignoring servers and bots', async () => {
+    const dc = new DiscordChannel(http)
     const events = { message: vi.fn(), answer: vi.fn() }
-    dc.dispatch({ op: 0, t: 'MESSAGE_CREATE', d: { channel_id: 'dm1', content: 'hi', author: { username: 'krish' } } }, events)
-    dc.dispatch({ op: 0, t: 'MESSAGE_CREATE', d: { channel_id: 'g', guild_id: 'x', content: 'server msg', author: { username: 'k' } } }, events)
-    dc.dispatch({ op: 0, t: 'MESSAGE_CREATE', d: { channel_id: 'dm1', content: 'echo', author: { username: 'bot', bot: true } } }, events)
-    expect(events.message).toHaveBeenCalledTimes(1)
-    expect(events.message).toHaveBeenCalledWith({ peer: 'dm1', name: 'krish', username: 'krish' }, 'hi')
+    await dc.dispatch({ op: 0, t: 'MESSAGE_CREATE', d: { id: 'm1', channel_id: 'dm1', content: 'hi', author: { username: 'krish' } } }, events)
+    await dc.dispatch({ op: 0, t: 'MESSAGE_CREATE', d: { channel_id: 'g', guild_id: 'x', content: 'server msg', author: { username: 'k' } } }, events)
+    await dc.dispatch({ op: 0, t: 'MESSAGE_CREATE', d: { channel_id: 'dm1', content: 'echo', author: { username: 'bot', bot: true } } }, events)
+    await dc.dispatch({ op: 0, t: 'MESSAGE_CREATE', d: { id: 'm2', channel_id: 'dm1', content: '', author: { username: 'krish' }, attachments: [{ url: 'https://cdn.discordapp.com/a.png', filename: 'a.png', content_type: 'image/png', size: 2 }] } }, events)
+    expect(events.message).toHaveBeenCalledTimes(2)
+    expect(events.message).toHaveBeenNthCalledWith(1, { peer: 'dm1', name: 'krish', username: 'krish' }, 'hi', { messageId: 'm1' })
+    expect(events.message.mock.calls[1][2].files[0]).toMatchObject({ kind: 'image', name: 'a.png' })
+  })
+
+  it('turns slash commands into messages and suggests only what the hub allows', async () => {
+    const dc = new DiscordChannel(http)
+    const complete = vi.fn(async () => [{ name: '/li-post · Skill', value: '/li-post' }])
+    const events = { message: vi.fn(), answer: vi.fn(), complete }
+    await dc.dispatch({ op: 0, t: 'INTERACTION_CREATE', d: { id: 'i1', token: 't', type: 2, channel_id: 'dm1', user: { username: 'krish' }, data: { name: 'run', options: [{ name: 'command', value: '/li-post' }, { name: 'text', value: 'about launches' }] } } }, events)
+    expect(events.message).toHaveBeenCalledWith({ peer: 'dm1', name: 'krish', username: 'krish' }, '/li-post about launches')
+    expect(calls.at(-1)).toMatchObject({ path: '/interactions/i1/t/callback', body: { type: 4 } })
+    await dc.dispatch({ op: 0, t: 'INTERACTION_CREATE', d: { id: 'i2', token: 't', type: 4, channel_id: 'dm1', user: { username: 'krish' }, data: { name: 'run', options: [{ name: 'command', value: 'li', focused: true }] } } }, events)
+    expect(complete).toHaveBeenCalledWith('dm1', 'command', 'li')
+    expect(calls.at(-1)!.body).toEqual({ type: 8, data: { choices: [{ name: '/li-post · Skill', value: '/li-post' }] } })
+  })
+
+  it('registers the bot commands plus /run as direct-message slash commands', async () => {
+    const dc = new DiscordChannel(http)
+    await dc.setCommands([{ command: 'new', description: 'Start a fresh chat' }, { command: 'model', description: 'Model' }], null)
+    const put = calls.find((c) => c.method === 'PUT')!
+    expect(put.path).toBe('/applications/app1/commands')
+    expect((put.body as { name: string }[]).map((c) => c.name)).toEqual(['new', 'model', 'run'])
+    expect(await dc.setCommands([], '42')).toBeUndefined()
   })
 })
 
@@ -162,6 +196,7 @@ describe('the channel hub', () => {
   it('makes strangers wait for the user at the PC, and lets the user allow them', async () => {
     channelHub.factory = () => ({
       id: 'telegram',
+      personalMenus: true,
       start: async (_t, e) => ((events = e), { botName: '@my_bot' }),
       stop: () => undefined,
       send: async (peer, text) => void sent.push({ peer, text }),
@@ -270,6 +305,12 @@ describe('the channel hub', () => {
     await channelHub.onMessage('telegram', me, '/new')
     expect(sent.at(-1)!.text).toBe('Started a new chat.')
     expect(port.ask).not.toHaveBeenCalled()
+  })
+
+  it('suggests models and commands to allowed people only', async () => {
+    expect(await channelHub.complete('telegram', '42', 'command', 'li')).toEqual([{ name: '/li-post · Skill: Write a post', value: '/li-post' }])
+    expect((await channelHub.complete('telegram', '42', 'name', 'pro')).map((c) => c.value)).toEqual(['gemini-pro'])
+    expect(await channelHub.complete('telegram', 'stranger', 'command', '')).toEqual([])
   })
 
   it('ignores blocked people, and caps how many strangers can wait', async () => {

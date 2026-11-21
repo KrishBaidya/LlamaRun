@@ -14,7 +14,7 @@ import { Page, PageHeader, SettingRow } from '../components'
 const HOW: Record<ChannelStatus['id'], string> = {
   telegram: 'In Telegram, message @BotFather, send /newbot and follow the steps. It gives you a token: paste it here.',
   discord:
-    'In the Discord Developer Portal, create an application, add a bot, turn on the Message Content intent and copy the bot token. Invite it to a server you share so you can message it directly.'
+    'In the Discord Developer Portal, create an application, add a bot, turn on the Message Content intent and copy the bot token (turning Public Bot off is safer). Discord only lets you message a bot you share a server with: under OAuth2 > URL Generator tick "bot", open the link and add it to your own server. Then message it directly; your skills and commands are under /run.'
 }
 
 const who = (p: { name: string; username?: string; peer: string }): string => `${p.name}${p.username ? ` (@${p.username})` : ''}`

@@ -43,10 +43,16 @@ export interface ChannelEvents {
   answer: (approvalId: string, answer: ApprovalAnswer | { text: string }) => void
   /** A button from `choose` was pressed. */
   choice?: (peer: string, value: string) => void
+  /** Suggestions while someone types a slash command's option (Discord): only allowed people get any. */
+  complete?: (peer: string, option: string, value: string) => Promise<{ name: string; value: string }[]>
 }
 
 export interface Channel {
   id: ChannelId
+  /** Longest message the app takes (default 3500). */
+  maxMessage?: number
+  /** The app has a / menu per person (Telegram), so allowed people's menus can list their skills. */
+  personalMenus?: boolean
   /** Starts listening with the bot token; resolves once connected (or throws). */
   start(token: string, events: ChannelEvents): Promise<{ botName: string }>
   stop(): void

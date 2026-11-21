@@ -44,6 +44,7 @@ const IMAGE_TYPES: Record<string, string> = { '.png': 'image/png', '.jpg': 'imag
 
 export class TelegramChannel implements Channel {
   readonly id = 'telegram' as const
+  readonly personalMenus = true
   private token = ''
   private offset = 0
   private running = false
