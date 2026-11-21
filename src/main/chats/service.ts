@@ -555,7 +555,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
   }
 
   private async compactNow(chat: Chat, model: string, instructions: string | undefined, manual: boolean, signal: AbortSignal): Promise<void> {
-    const split = splitForCompaction(chat.messages, settings.get('compactKeepTurns') ?? 4, chat.compaction)
+    const split = splitForCompaction(chat.messages, 4, chat.compaction)
     if (!split) throw new Error('Nothing to compact yet: the conversation is still short.')
     const info = await contextFor(model)
     const system = systemFor(undefined, false, false, false, chat.id)

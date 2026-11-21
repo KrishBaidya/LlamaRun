@@ -46,7 +46,6 @@ export interface Settings {
   /** Compact when the conversation fills this share (percent) of the model's window. */
   autoCompactPercent: number
   /** Most recent user turns kept word for word when compacting. */
-  compactKeepTurns: number
   /** Per-model overrides, by model id. */
   modelContext: Record<string, ModelContextOverride>
   /** The model may operate apps on this PC (computer use, through Cua Driver). */

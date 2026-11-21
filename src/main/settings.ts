@@ -28,7 +28,6 @@ export const DEFAULT_SETTINGS: Settings = {
   reviewMinToolCalls: 6,
   autoCompact: true,
   autoCompactPercent: 80,
-  compactKeepTurns: 4,
   modelContext: {},
   computerUse: false,
   computerScreenshots: true,

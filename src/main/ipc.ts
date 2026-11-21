@@ -131,7 +131,6 @@ export function registerIpc(): void {
       'reviewMinToolCalls',
       'autoCompact',
       'autoCompactPercent',
-      'compactKeepTurns',
       'modelContext',
       'computerUse',
       'computerScreenshots',
