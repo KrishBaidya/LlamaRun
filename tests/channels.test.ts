@@ -108,14 +108,18 @@ describe('Discord', () => {
 
   it('turns slash commands into messages and suggests only what the hub allows', async () => {
     const dc = new DiscordChannel(http)
-    const complete = vi.fn(async () => [{ name: '/li-post · Skill', value: '/li-post' }])
+    const complete = vi.fn(async () => [{ name: 'li-post: Write a post', value: 'li-post' }])
     const events = { message: vi.fn(), answer: vi.fn(), complete }
-    await dc.dispatch({ op: 0, t: 'INTERACTION_CREATE', d: { id: 'i1', token: 't', type: 2, channel_id: 'dm1', user: { username: 'krish' }, data: { name: 'run', options: [{ name: 'command', value: '/li-post' }, { name: 'text', value: 'about launches' }] } } }, events)
+    // A pack command runs the skill picked in its option, with the text after it.
+    await dc.dispatch({ op: 0, t: 'INTERACTION_CREATE', d: { id: 'i1', token: 't', type: 2, channel_id: 'dm1', user: { username: 'krish' }, data: { name: 'li', options: [{ name: 'skill', value: 'li-post' }, { name: 'text', value: 'about launches' }] } } }, events)
     expect(events.message).toHaveBeenCalledWith({ peer: 'dm1', name: 'krish', username: 'krish' }, '/li-post about launches')
     expect(calls.at(-1)).toMatchObject({ path: '/interactions/i1/t/callback', body: { type: 4 } })
-    await dc.dispatch({ op: 0, t: 'INTERACTION_CREATE', d: { id: 'i2', token: 't', type: 4, channel_id: 'dm1', user: { username: 'krish' }, data: { name: 'run', options: [{ name: 'command', value: 'li', focused: true }] } } }, events)
-    expect(complete).toHaveBeenCalledWith('dm1', 'command', 'li')
-    expect(calls.at(-1)!.body).toEqual({ type: 8, data: { choices: [{ name: '/li-post · Skill', value: '/li-post' }] } })
+    // A lone skill is its own command.
+    await dc.dispatch({ op: 0, t: 'INTERACTION_CREATE', d: { id: 'i4', token: 't', type: 2, channel_id: 'dm1', user: { username: 'krish' }, data: { name: 'humanizer', options: [{ name: 'text', value: 'fix this' }] } } }, events)
+    expect(events.message).toHaveBeenLastCalledWith({ peer: 'dm1', name: 'krish', username: 'krish' }, '/humanizer fix this')
+    await dc.dispatch({ op: 0, t: 'INTERACTION_CREATE', d: { id: 'i2', token: 't', type: 4, channel_id: 'dm1', user: { username: 'krish' }, data: { name: 'li', options: [{ name: 'skill', value: 'po', focused: true }] } } }, events)
+    expect(complete).toHaveBeenCalledWith('dm1', 'skill:li', 'po')
+    expect(calls.at(-1)!.body).toEqual({ type: 8, data: { choices: [{ name: 'li-post: Write a post', value: 'li-post' }] } })
   })
 
   it('answers a slash command used in a server privately and carries on in direct messages', async () => {
@@ -129,12 +133,24 @@ describe('Discord', () => {
     expect(events.message).toHaveBeenCalledWith({ peer: 'dm9', name: 'krish', username: 'krish' }, '/status')
   })
 
-  it('registers the bot commands plus /run as slash commands', async () => {
+  it('registers every command as its own slash command, packs with a skill option', async () => {
     const dc = new DiscordChannel(http)
-    await dc.setCommands([{ command: 'new', description: 'Start a fresh chat' }, { command: 'model', description: 'Model' }], null)
+    await dc.setCommands(
+      [
+        { command: 'new', description: 'Start a fresh chat' },
+        { command: 'model', description: 'Model' },
+        { command: 'humanizer', description: 'Rewrite text', takesText: true },
+        { command: 'li', description: '2 skills', pack: ['li-post', 'li-dm'], takesText: true }
+      ],
+      null
+    )
     const put = calls.find((c) => c.method === 'PUT')!
     expect(put.path).toBe('/applications/app1/commands')
-    expect((put.body as { name: string }[]).map((c) => c.name)).toEqual(['new', 'model', 'run'])
+    const body = put.body as { name: string; options?: { name: string; autocomplete?: boolean }[] }[]
+    expect(body.map((c) => c.name)).toEqual(['new', 'model', 'humanizer', 'li'])
+    expect(body[2].options!.map((o) => o.name)).toEqual(['text'])
+    expect(body[3].options!.map((o) => o.name)).toEqual(['skill', 'text'])
+    expect(body[3].options![0].autocomplete).toBe(true)
     expect(await dc.setCommands([], '42')).toBeUndefined()
   })
 })
@@ -156,11 +172,12 @@ describe('the bot menu', () => {
   it('folds skill packs into one entry, and has smaller versions for when Telegram says it is too much', () => {
     const skill = (name: string): SlashCommand => ({ name, description: `${name} does a long and detailed thing for you`, kind: 'skill', plugin: 'Skill' })
     const menu = menuCommands(['li-post', 'li-dm', 'seo', 'seo-audit', 'humanizer'].map(skill))
-    expect(menu.slice(BOT_COMMANDS.length)).toEqual([
+    expect(menu.slice(BOT_COMMANDS.length).map(({ command, description }) => ({ command, description }))).toEqual([
       { command: 'li', description: '2 skills: li-post, li-dm' },
       { command: 'seo', description: '2 skills: seo, seo-audit' },
       { command: 'humanizer', description: 'humanizer does a long and detailed thing for you' }
     ])
+    expect(menu.find((c) => c.command === 'li')!.pack).toEqual(['li-post', 'li-dm'])
     const attempts = menuAttempts(menu)
     expect(attempts[0]).toBe(menu)
     expect(attempts.at(-1)!.length).toBeLessThanOrEqual(25)
@@ -321,6 +338,7 @@ describe('the channel hub', () => {
 
   it('suggests models and commands to allowed people only', async () => {
     expect(await channelHub.complete('telegram', '42', 'command', 'li')).toEqual([{ name: '/li-post · Skill: Write a post', value: '/li-post' }])
+    expect(await channelHub.complete('telegram', '42', 'skill:li', '')).toEqual([])
     expect((await channelHub.complete('telegram', '42', 'name', 'pro')).map((c) => c.value)).toEqual(['gemini-pro'])
     expect(await channelHub.complete('telegram', 'stranger', 'command', '')).toEqual([])
   })

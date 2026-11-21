@@ -242,7 +242,7 @@ export class TelegramChannel implements Channel {
       await this.call('deleteMyCommands', { scope })
       return 0
     }
-    await this.call('setMyCommands', { commands, scope })
+    await this.call('setMyCommands', { commands: commands.map((c) => ({ command: c.command, description: c.description })), scope })
     if (peer !== null) await this.call('setChatMenuButton', { chat_id: Number(peer), menu_button: { type: 'commands' } }).catch(() => {})
     const now = await this.call<BotCommand[]>('getMyCommands', { scope })
     return now.length

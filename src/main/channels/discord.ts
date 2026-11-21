@@ -7,9 +7,10 @@ import { approvalButtons, approvalText, chunks, type BotCommand, type Channel, t
  * Discord through the user's own bot application: direct messages over the
  * Gateway (a WebSocket the PC opens, so nothing reaches in), replies, button
  * presses and slash commands over the REST API. Replies stream by editing one
- * message; Discord shows Markdown itself. Slash commands are global (Discord
- * has no per-person menus), so skills, MCP prompts and plugin commands sit
- * behind /run, whose suggestions only allowed people get. A slash command
+ * message; Discord shows Markdown itself. Slash commands list the bot's own
+ * commands, each skill, MCP prompt and plugin command, and each skill pack as
+ * one command whose skill option suggests its skills (Discord has one list for
+ * everyone; only allowed people can run anything or get suggestions). A slash command
  * used in a server answers privately and carries on in the person's direct
  * messages, so nothing of the chat shows in the server. Needs the Message
  * Content intent turned on for the bot in the Developer Portal.
@@ -143,14 +144,17 @@ export class DiscordChannel implements Channel {
     const data = (d.data ?? {}) as { custom_id?: string; name?: string; options?: { name: string; value: unknown; focused?: boolean }[] }
     if (d.type === AUTOCOMPLETE) {
       const focused = data.options?.find((o) => o.focused)
-      const choices = focused && events.complete ? await events.complete(peer, focused.name, String(focused.value ?? '')).catch(() => []) : []
+      // A pack's skill option is completed from that pack.
+      const option = focused?.name === 'skill' ? `skill:${String(data.name)}` : (focused?.name ?? '')
+      const choices = focused && events.complete ? await events.complete(peer, option, String(focused.value ?? '')).catch(() => []) : []
       await this.callback(d, { type: 8, data: { choices: choices.slice(0, 25).map((c) => ({ name: c.name.slice(0, 100), value: c.value.slice(0, 100) })) } })
       return
     }
     if (d.type === COMMAND) {
       const opt = (name: string): string => String(data.options?.find((o) => o.name === name)?.value ?? '').trim()
-      // /run <command> <text> runs a skill, MCP prompt or plugin command; the bot's own commands take their argument as is.
-      const text = data.name === 'run' ? `${opt('command').startsWith('/') ? opt('command') : `/${opt('command')}`} ${opt('text')}`.trim() : `/${data.name}${opt('name') ? ` ${opt('name')}` : ''}`
+      // A pack runs the skill picked in its option; everything else is its own /command, with its words after it.
+      const command = opt('skill') ? `/${opt('skill')}` : `/${data.name}`
+      const text = [command, opt('name'), opt('text')].filter(Boolean).join(' ')
       if (inServer) await this.callback(d, { type: 4, data: { content: `Answering in our direct messages: https://discord.com/channels/@me/${peer}`, flags: 64 } })
       else await this.callback(d, { type: 4, data: { content: `> ${text}`.slice(0, 2000) } })
       if (inServer) await this.rest('POST', `/channels/${peer}/messages`, { content: `> ${text}`.slice(0, 2000), allowed_mentions: { parse: [] } }).catch(() => {})
@@ -279,31 +283,28 @@ export class DiscordChannel implements Channel {
 
   /**
    * Slash commands, for everyone (peer null; Discord has no per-person
-   * commands): the bot's own, /model with model suggestions, and /run whose
-   * suggestions list skills, MCP prompts and plugin commands, to allowed people only.
+   * commands): the bot's own (/model suggests models), each skill, MCP prompt
+   * and plugin command with an optional text, and each skill pack with a
+   * skill option that suggests its skills. Suggestions go to allowed people only.
    */
   async setCommands(commands: BotCommand[], peer: string | null): Promise<number | void> {
     if (peer !== null) return
     const app = await this.rest<{ id: string }>('GET', '/applications/@me')
     // Usable in servers, in direct messages with the bot and in group chats; answers always go to direct messages.
     const dmOnly = { contexts: [0, 1, 2], integration_types: [0] }
-    const body = [
-      ...commands.map((c) => ({
-        name: c.command,
-        description: c.description.slice(0, 100),
-        ...dmOnly,
-        ...(c.command === 'model' ? { options: [{ type: TEXT_OPTION, name: 'name', description: 'The model to switch to', required: false, autocomplete: true }] } : {})
-      })),
-      {
-        name: 'run',
-        description: 'Run a skill, MCP prompt or plugin command',
-        ...dmOnly,
-        options: [
-          { type: TEXT_OPTION, name: 'command', description: 'Start typing to see your skills and commands', required: true, autocomplete: true },
-          { type: TEXT_OPTION, name: 'text', description: 'What you want it to do', required: false }
-        ]
-      }
-    ]
+    const text = { type: TEXT_OPTION, name: 'text', description: 'What you want it to do', required: false }
+    const body = commands.slice(0, 100).map((c) => ({
+      name: c.command,
+      description: c.description.slice(0, 100) || c.command,
+      ...dmOnly,
+      ...(c.command === 'model'
+        ? { options: [{ type: TEXT_OPTION, name: 'name', description: 'The model to switch to', required: false, autocomplete: true }] }
+        : c.pack
+          ? { options: [{ type: TEXT_OPTION, name: 'skill', description: `One of the ${c.pack.length} skills`, required: true, autocomplete: true }, text] }
+          : c.takesText
+            ? { options: [text] }
+            : {})
+    }))
     const saved = await this.rest<unknown[]>('PUT', `/applications/${app.id}/commands`, body)
     return Array.isArray(saved) ? saved.length : body.length
   }

@@ -33,6 +33,10 @@ export interface MessageExtra {
 export interface BotCommand {
   command: string
   description: string
+  /** A skill pack: the skills it opens (apps with options pick one of them). */
+  pack?: string[]
+  /** A skill, MCP prompt or plugin command: words after it are what it works on. */
+  takesText?: boolean
 }
 
 /** What a channel tells the bridge. */

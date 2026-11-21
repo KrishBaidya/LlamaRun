@@ -127,17 +127,17 @@ const menuName = (name: string): string =>
 export function menuCommands(commands: SlashCommand[], descriptionMax = 60): BotCommand[] {
   const seen = new Set(BOT_COMMANDS.map((c) => c.command))
   const out = [...BOT_COMMANDS]
-  const add = (command: string, text: string): void => {
+  const add = (command: string, text: string, extra: Pick<BotCommand, 'pack' | 'takesText'> = {}): void => {
     if (!command || seen.has(command) || out.length >= 100) return
     seen.add(command)
     const description = text.replace(/\s+/g, ' ').trim() || command
-    out.push({ command, description: description.length > descriptionMax ? `${description.slice(0, descriptionMax - 1)}…` : description })
+    out.push({ command, description: description.length > descriptionMax ? `${description.slice(0, descriptionMax - 1)}…` : description, ...extra })
   }
-  for (const kind of ['plugin', 'mcp'] as const) for (const c of commands.filter((x) => x.kind === kind)) add(menuName(c.name), c.description || c.name)
+  for (const kind of ['plugin', 'mcp'] as const) for (const c of commands.filter((x) => x.kind === kind)) add(menuName(c.name), c.description || c.name, { takesText: true })
   // Skill packs (li-*, seo-*) are one entry each, opening buttons for their skills, as on the Skills page.
   for (const entry of skillMenu(commands)) {
-    if (entry.pack) add(entry.key, `${entry.pack.length} skills: ${entry.pack.map((s) => s.name).join(', ')}`)
-    else add(menuName(entry.skill.name), entry.skill.description || entry.skill.name)
+    if (entry.pack) add(entry.key, `${entry.pack.length} skills: ${entry.pack.map((s) => s.name).join(', ')}`, { pack: entry.pack.map((s) => s.name), takesText: true })
+    else add(menuName(entry.skill.name), entry.skill.description || entry.skill.name, { takesText: true })
   }
   return out
 }
@@ -165,7 +165,7 @@ export function skillMenu(commands: SlashCommand[]): SkillEntry[] {
 
 /** Smaller and smaller versions of a menu, for when Telegram says it's too much. */
 export function menuAttempts(list: BotCommand[]): BotCommand[][] {
-  const shorten = (max: number) => (c: BotCommand): BotCommand => ({ command: c.command, description: c.description.length > max ? `${c.description.slice(0, max - 1)}…` : c.description })
+  const shorten = (max: number) => (c: BotCommand): BotCommand => ({ ...c, description: c.description.length > max ? `${c.description.slice(0, max - 1)}…` : c.description })
   return [list, list.map(shorten(30)), list.slice(0, 50).map(shorten(30)), list.slice(0, 25).map(shorten(25))]
 }
 
@@ -425,7 +425,7 @@ class ChannelHub extends EventEmitter<{ changed: [ChannelStatus[]] }> {
       const count = typeof confirmed === 'number' ? confirmed : sent.length
       const cut = sent.length < list.length ? ` (${list.length - sent.length} left out: Telegram's menu was full)` : ''
       this.log(`${id} menu for ${who}: sent ${sent.length}, ${typeof confirmed === 'number' ? `${LABEL[id]} has ${confirmed}` : 'not checked'}`)
-      if (peer === null && !channel.personalMenus) this.menuInfo.set(id, `Slash commands: ${count}, confirmed by ${LABEL[id]}. Skills, MCP prompts and plugin commands are under /run (only people you allowed see them).`)
+      if (peer === null && !channel.personalMenus) this.menuInfo.set(id, `Slash commands: ${count}, confirmed by ${LABEL[id]}${sent.length < list.length ? ` (${list.length - sent.length} left out: the menu was full)` : ''}. Skill packs like /seo suggest their skills as you type. Everyone in a server with the bot sees the names; only people you allowed can use them.`)
       if (peer !== null) this.menuInfo.set(id, `Menu: ${count} commands for ${who}${typeof confirmed === 'number' ? `, confirmed by ${LABEL[id]}` : ''}${cut} (${new Date().toLocaleTimeString()}). If it looks old in the app, close and reopen the chat with the bot.`)
       if (this.errors.get(id)?.startsWith('Menu:')) this.errors.delete(id)
       this.emit('changed', this.status())
@@ -447,7 +447,9 @@ class ChannelHub extends EventEmitter<{ changed: [ChannelStatus[]] }> {
     const list = menuCommands(this.port?.commands() ?? [])
     for (const id of only ? [only] : IDS) {
       if (!this.live.has(id)) continue
-      await this.sendMenu(id, null, BOT_COMMANDS)
+      // Apps with one menu for everyone (Discord) list it all there; per-person apps (Telegram) only the bot's own.
+      const channel = this.live.get(id)!
+      await this.sendMenu(id, null, channel.personalMenus ? BOT_COMMANDS : list)
       // Apps without per-person menus (Discord) reach skills through /run's suggestions instead.
       if (this.live.get(id)?.personalMenus) for (const p of this.record(id).paired) await this.sendMenu(id, p.peer, list)
     }
@@ -555,6 +557,14 @@ class ChannelHub extends EventEmitter<{ changed: [ChannelStatus[]] }> {
   async complete(id: ChannelId, peer: string, option: string, value: string): Promise<{ name: string; value: string }[]> {
     if (!this.port || !this.record(id).paired.some((p) => p.peer === peer)) return []
     const q = value.trim().toLowerCase().replace(/^\//, '')
+    // A pack's skill option (/seo skill:…): its own skills.
+    if (option.startsWith('skill:')) {
+      const pack = skillMenu(this.port.commands()).find((e) => e.pack && e.key === option.slice('skill:'.length))?.pack ?? []
+      return pack
+        .filter((s) => !q || s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q))
+        .slice(0, 25)
+        .map((s) => ({ name: `${s.name}${s.description ? `: ${s.description}` : ''}`, value: s.name }))
+    }
     if (option === 'name') {
       const models = await this.port.models()
       return models.filter((m) => !q || m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q)).slice(0, 25).map((m) => ({ name: m.name, value: m.id }))
