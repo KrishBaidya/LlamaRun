@@ -1,6 +1,9 @@
 import { appendFileSync, mkdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { app, dialog } from 'electron'
+import { randomUUID } from 'node:crypto'
+import { app, dialog, nativeImage, Notification } from 'electron'
+import type { ChatEvent } from '@shared/types'
+import { readDocument } from './attachments/read'
 import { PROTOCOL } from '@shared/constants'
 import { analytics } from './analytics'
 import { auth, PROFILE_FRESH_MS } from './auth'
@@ -20,6 +23,13 @@ import { createTray } from './tray'
 import { openOnboarding } from './windows/onboarding'
 import { attachContextMenu } from './windows/contextMenu'
 import { createOverlay, markQuitting, showOverlay } from './windows/overlay'
+import { stopAll as stopProcesses } from './assistant/processes'
+import { describeDays, describeUsage, usageStore } from './usage'
+import { modelCatalog } from './llm'
+import { openSettings } from './windows/settings'
+import { startApprovalNotices } from './notify'
+import { channelHub } from './channels'
+import { chatService, chatTools } from './chats/service'
 
 // ---------------------------------------------------------------- crash log
 
@@ -126,6 +136,9 @@ if (!app.requestSingleInstanceLock()) {
     if (shuttingDown) return
     shuttingDown = true
     e.preventDefault()
+    stopProcesses()
+    channelHub.stop()
+    usageStore.flush()
     // Give plugins their on_unload, close MCP servers, stop the computer-use driver and flush analytics before exiting.
     void Promise.allSettled([pluginHost.stop(), mcp.stop(), closeDriver(), analytics.shutdown()]).finally(() => app.quit())
   })
@@ -143,6 +156,58 @@ if (!app.requestSingleInstanceLock()) {
     void pluginHost.start()
     void installBundledPlugins()
     startRoutines()
+    startApprovalNotices((id) => chatService.get(id)?.title ?? '')
+    channelHub.start({
+      ask: async (chatId, text, via, options) => {
+        const skill = await chatService.slashSkill(text)
+        const existing = chatId && chatService.get(chatId) ? chatId : null
+        return chatService.ask(existing, text, {
+          via: { plugin: via, remote: true },
+          remote: true,
+          ...(skill ? { skill } : {}),
+          // A model picked with /model before the chat existed; an existing chat keeps its own.
+          ...(!existing && options?.model ? { model: options.model } : {}),
+          ...(options?.attachments?.length ? { attachments: options.attachments } : {})
+        })
+      },
+      watch: (chatId, listener) => {
+        const forward = (event: ChatEvent): void => {
+          if ('chatId' in event && event.chatId === chatId) listener(event)
+        }
+        chatService.on('event', forward)
+        return () => chatService.off('event', forward)
+      },
+      attach: async (file) => {
+        if (file.kind === 'document') return readDocument(file.name, file.mimeType, file.bytes)
+        const image = nativeImage.createFromBuffer(Buffer.from(file.bytes))
+        if (image.isEmpty()) return null
+        const { width, height } = image.getSize()
+        // Phone photos are big: the model gets at most 1600 pixels on the long side, as from the chat box.
+        const scaled = Math.max(width, height) > 1600 ? image.resize(width >= height ? { width: 1600 } : { height: 1600 }) : image
+        const jpeg = scaled.toJPEG(85)
+        return { id: randomUUID(), kind: 'image', name: file.name, mimeType: 'image/jpeg', size: jpeg.length, dataUrl: `data:image/jpeg;base64,${jpeg.toString('base64')}` }
+      },
+      busy: (chatId) => chatService.isRunning(chatId),
+      queue: (chatId, text) => chatService.queue(chatId, text),
+      stop: (chatId) => chatService.cancel(chatId),
+      compact: (chatId) => chatService.compact(chatId),
+      usage: (chatId) => {
+        const chat = chatId ? chatService.get(chatId) : null
+        return [describeUsage(chat ? usageStore.forChat(chat.id) : undefined), describeDays(usageStore.days(30))].filter(Boolean).join('\n\n')
+      },
+      model: (chatId) => (chatId ? chatService.get(chatId)?.model : undefined) || settings.get('selectedModel'),
+      setModel: (chatId, model) => chatService.setModel(chatId, model),
+      models: async () => (await modelCatalog()).groups.flatMap((g) => g.models.map((m) => ({ id: m.id, name: m.name || m.id }))),
+      commands: () => chatService.commands(),
+      pluginCommand: (chatId, text) => chatService.pluginCommand(chatId && chatService.get(chatId) ? chatId : null, text),
+      tools: () => (chatTools({ shell: true })?.tools ?? []).map((t) => ({ name: t.name, server: t.server })),
+      requestNotice: (channel, name) => {
+        if (!Notification.isSupported()) return
+        const notice = new Notification({ title: `${name} wants to use your ${channel} bot`, body: 'Click to allow or block them in Settings > Channels.' })
+        notice.on('click', () => void openSettings('/channels'))
+        notice.show()
+      }
+    })
     if (settings.get('computerUse')) warmDriver()
     settings.on('changed', (_all, patch) => {
       if (patch.computerUse) warmDriver()

@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { FoldVertical, MessageSquare } from 'lucide-react'
-import type { ChatAttachment, ThinkingChoice } from '@shared/types'
+import type { ChatAttachment, ChatSetup, ThinkingChoice } from '@shared/types'
+import { PlanToggle } from '@/components/chat/PlanToggle'
+import { McpAppFullScreen, McpAppPanelProvider, McpAppSidePanel } from '@/components/chat/McpApp'
+import { ProjectPicker } from '@/components/chat/ProjectPicker'
 import { Composer, type ComposerHandle } from '@/components/chat/Composer'
 import { ContextRing } from '@/components/chat/ContextRing'
 import { MessageList } from '@/components/chat/MessageList'
 import { ModelPicker } from '@/components/chat/ModelPicker'
+import { QueuedMessages } from '@/components/chat/QueuedMessages'
 import { ThinkingPicker } from '@/components/chat/ThinkingPicker'
+import { PluginStatusItems } from '@/components/plugins/surfaces'
 import { TitleBar } from '@/components/TitleBar'
 import { Button } from '@/components/ui/button'
 import { Toaster } from '@/components/ui/sonner'
@@ -25,6 +30,7 @@ export function ChatApp() {
   const [chatId, setChatId] = useState<string | null>(initialChatId)
   const [draftModel, setDraftModel] = useState('')
   const [draftThinking, setDraftThinking] = useState<ThinkingChoice | undefined>()
+  const [draftSetup, setDraftSetup] = useState<ChatSetup>({})
   const composer = useRef<ComposerHandle>(null)
 
   const select = useCallback((id: string | null) => {
@@ -33,7 +39,7 @@ export function ChatApp() {
     requestAnimationFrame(() => composer.current?.focus())
   }, [])
 
-  const { chat, busy, compacting, approval, send, compact, stop, retry, resume, error } = useChat(chatId, select)
+  const { chat, busy, compacting, approval, send, compact, stop, retry, resume, error, queued, queue, steer, unqueue } = useChat(chatId, select)
 
   useEffect(() => {
     if (settings) setDraftModel((m) => m || settings.selectedModel)
@@ -66,10 +72,21 @@ export function ChatApp() {
     if (chat) void api.chats.setThinking(chat.id, t ?? null)
     else setDraftThinking(t)
   }
+  const plan = chat ? !!chat.plan : !!draftSetup.plan
+  const setPlan = (p: boolean): void => {
+    if (chat) void api.chats.setPlan(chat.id, p)
+    else setDraftSetup((s) => ({ ...s, plan: p }))
+  }
+  const project = chat ? chat.project : draftSetup.project
+  const setProject = (folder: string | undefined): void => {
+    if (chat) void api.chats.setProject(chat.id, folder ?? null)
+    else setDraftSetup((s) => ({ ...s, project: folder }))
+  }
+  const recentProjects = [...new Set((chats ?? []).map((c) => c.project).filter((p): p is string => !!p))]
   const hasThread = !!chat?.messages.length
   const onSend = (text: string, attachments: ChatAttachment[]): Promise<unknown> | void => {
     if (/^\/new\s*$/i.test(text)) return select(null)
-    return send(text, model, attachments, chat ? undefined : draftThinking)
+    return send(text, model, attachments, chat ? undefined : draftThinking, chat ? undefined : draftSetup)
   }
   const last = chat?.messages[chat.messages.length - 1]
   const version = `${chat?.id}:${chat?.messages.length}:${last?.status}:${chat?.compaction?.createdAt ?? 0}`
@@ -83,18 +100,30 @@ export function ChatApp() {
       placeholder={hasThread ? 'Reply…' : 'Ask anything…'}
       onSend={onSend}
       onStop={stop}
+      onQueue={chat ? queue : undefined}
+      plugins
+      chatId={chat?.id ?? null}
+      above={<QueuedMessages items={queued} busy={busy} onSteer={steer} onRemove={unqueue} />}
       toolbar={
         <>
           <ModelPicker value={model} onChange={setModel} />
           <ThinkingPicker model={model} value={thinking} onChange={setThinking} />
+          <ProjectPicker value={project} recent={recentProjects} onChange={setProject} />
+          <PlanToggle value={plan} onChange={setPlan} />
         </>
       }
-      status={<ContextRing chatId={hasThread ? chat!.id : null} model={model} version={version} onCompact={() => void compact()} />}
+      status={
+        <>
+          <PluginStatusItems />
+          <ContextRing chatId={hasThread ? chat!.id : null} model={model} version={version} onCompact={() => void compact()} />
+        </>
+      }
     />
   )
 
   return (
     <TooltipProvider>
+      <McpAppPanelProvider chatId={hasThread ? chat!.id : null}>
       <div className="flex h-full">
         <ChatSidebar chats={chats} activeId={chatId} onSelect={select} onNew={() => select(null)} />
         <main className="flex min-w-0 flex-1 flex-col">
@@ -116,16 +145,18 @@ export function ChatApp() {
 
           {hasThread ? (
             <>
-              <MessageList
-                chatId={chat!.id}
-                messages={chat!.messages}
-                busy={busy}
-                onRetry={retry}
-                onContinue={resume}
-                compaction={chat!.compaction}
-                compacting={compacting}
-                approval={approval}
-              />
+              <McpAppFullScreen>
+                <MessageList
+                  chatId={chat!.id}
+                  messages={chat!.messages}
+                  busy={busy}
+                  onRetry={retry}
+                  onContinue={resume}
+                  compaction={chat!.compaction}
+                  compacting={compacting}
+                  approval={approval}
+                />
+              </McpAppFullScreen>
               <div className="px-5 pb-5">
                 {error && <p className="mx-auto mb-2 max-w-3xl px-2 text-xs text-destructive">{error}</p>}
                 {composerEl}
@@ -144,7 +175,9 @@ export function ChatApp() {
             </div>
           )}
         </main>
+        <McpAppSidePanel />
       </div>
+      </McpAppPanelProvider>
       <Toaster position="bottom-right" />
     </TooltipProvider>
   )

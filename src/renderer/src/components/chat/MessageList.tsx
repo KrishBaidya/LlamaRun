@@ -1,12 +1,16 @@
 import { Fragment, memo, useEffect, useRef, useState } from 'react'
-import { AlertCircle, Blocks, Bot, Brain, Check, ChevronDown, Copy, FoldVertical, Loader2, MessageCircleQuestion, Mic, Play, RotateCcw, ShieldQuestion, Sparkles, Wand2, Wrench } from 'lucide-react'
+import { AlertCircle, Blocks, Bot, Brain, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, FoldVertical, Loader2, MessageCircleQuestion, Mic, Pencil, Play, RotateCcw, ShieldQuestion, Sparkles, Wand2, Wrench } from 'lucide-react'
 import type { ApprovalAnswer, ApprovalRequest, ChatCompaction, ChatMessage, ToolPart } from '@shared/types'
 import { Markdown } from '@/components/markdown'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { api, useProfile } from '@/hooks/use-llamarun'
 import { cn } from '@/lib/utils'
+import { PluginButtons, PluginToolCardBody, usePluginToolCard } from '@/components/plugins/surfaces'
 import { AttachmentTile } from './attachments'
+import { McpAppInline } from './McpApp'
 import { modelName, useModelCatalog } from './ModelPicker'
 
 function CopyButton({ text }: { text: string }) {
@@ -27,8 +31,77 @@ function CopyButton({ text }: { text: string }) {
   )
 }
 
-function UserMessage({ message }: { message: ChatMessage }) {
+/** Editing a sent message: the chat forks there and the model replies again; the old branch stays (‹ 1/2 ›). */
+function EditBox({ message, changesAfter, onSave, onCancel }: { message: ChatMessage; changesAfter: boolean; onSave: (text: string, undo: boolean) => void; onCancel: () => void }) {
+  const [text, setText] = useState(message.content)
+  const [undo, setUndo] = useState(false)
+  return (
+    <div className="flex w-full max-w-[80%] flex-col gap-2 rounded-2xl border bg-card p-2">
+      <Textarea
+        autoFocus
+        value={text}
+        rows={Math.min(10, Math.max(2, text.split('\n').length))}
+        className="resize-none border-0 bg-transparent shadow-none focus-visible:ring-0"
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') onCancel()
+          if (e.key === 'Enter' && !e.shiftKey && text.trim()) {
+            e.preventDefault()
+            onSave(text, undo)
+          }
+        }}
+      />
+      <div className="flex items-center gap-2">
+        {changesAfter && (
+          <label className="flex items-center gap-1.5 text-2xs text-muted-foreground">
+            <Checkbox checked={undo} onCheckedChange={(v) => setUndo(v === true)} />
+            Also undo the file changes made after this message
+          </label>
+        )}
+        <span className="ms-auto flex gap-1.5">
+          <Button size="sm" variant="ghost" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button size="sm" disabled={!text.trim() || text === message.content} onClick={() => onSave(text, undo)}>
+            Send
+          </Button>
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function UserMessage({
+  message,
+  chatId,
+  busy,
+  changesAfter
+}: {
+  message: ChatMessage
+  chatId?: string
+  busy?: boolean
+  /** A later reply changed files the edit could undo. */
+  changesAfter?: boolean
+}) {
   const attachments = message.attachments ?? []
+  const [editing, setEditing] = useState(false)
+  const versions = message.versions?.length ?? 0
+  const shown = message.version ?? versions - 1
+  const switchTo = (i: number): void => void (chatId && api.chats.switchVersion(chatId, message.id, i))
+  if (editing && chatId)
+    return (
+      <div className="flex flex-col items-end">
+        <EditBox
+          message={message}
+          changesAfter={!!changesAfter}
+          onCancel={() => setEditing(false)}
+          onSave={(text, undo) => {
+            setEditing(false)
+            void api.chats.edit(chatId, message.id, text, undo)
+          }}
+        />
+      </div>
+    )
   return (
     <div className="group flex flex-col items-end gap-1">
       {attachments.length > 0 && (
@@ -40,7 +113,15 @@ function UserMessage({ message }: { message: ChatMessage }) {
       )}
       {message.content && (
         <div className="relative flex max-w-[80%] items-start">
-          <span className="absolute top-1 -left-9 opacity-0 transition-opacity group-hover:opacity-100">
+          <span className="absolute top-1 right-full me-1 flex opacity-0 transition-opacity group-hover:opacity-100">
+            {chatId && (
+              <PluginButtons where="message" context={() => ({ chatId, messageId: message.id, messageText: message.content, role: 'user' })} />
+            )}
+            {chatId && !message.via && (
+              <Button variant="ghost" size="icon-sm" title="Edit and send again" disabled={busy} onClick={() => setEditing(true)}>
+                <Pencil className="size-3.5" />
+              </Button>
+            )}
             <CopyButton text={message.content} />
           </span>
           <div className="rounded-2xl bg-message px-3.5 py-2 whitespace-pre-wrap" data-selectable>
@@ -51,6 +132,22 @@ function UserMessage({ message }: { message: ChatMessage }) {
       {message.skill && (
         <span className="inline-flex items-center gap-1 pe-1 text-2xs text-muted-foreground">
           <Sparkles className="size-3" /> Ran the {message.skill.name} skill
+        </span>
+      )}
+      {versions > 1 && (
+        <span className="inline-flex items-center gap-0.5 text-2xs text-muted-foreground">
+          <Button variant="ghost" size="icon-sm" className="size-5" title="Previous version" disabled={busy || shown <= 0} onClick={() => switchTo(shown - 1)}>
+            <ChevronLeft className="size-3" />
+          </Button>
+          {shown + 1}/{versions}
+          <Button variant="ghost" size="icon-sm" className="size-5" title="Next version" disabled={busy || shown >= versions - 1} onClick={() => switchTo(shown + 1)}>
+            <ChevronRight className="size-3" />
+          </Button>
+        </span>
+      )}
+      {message.hook && (
+        <span className="inline-flex items-center gap-1 pe-1 text-2xs text-muted-foreground">
+          <Bot className="size-3" /> Sent by your {message.hook} hook
         </span>
       )}
       {message.via && (
@@ -158,12 +255,25 @@ function argHint(args: ToolPart['args']): string {
 }
 
 /** One tool call in a reply, where it happened: name and status, with its input and result a click away. */
-/** The model's thinking between tool calls: its first line (Gemini titles each thought), the rest on click. */
+/** Latest heading from a thinking block (Gemini titles each thought section with **Heading**), falling back to the first line. */
+export function thinkingTitle(text: string): string {
+  const lines = text.trim().split('\n')
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim()
+    const bold = line.match(/^\*\*([^*]+)\*\*$/)
+    if (bold) return bold[1].trim()
+    const heading = line.match(/^#{1,6}\s+(.+?)\s*#*$/)
+    if (heading) return heading[1].replace(/\*\*/g, '').trim()
+  }
+  return (lines[0] ?? '').replace(/^#{1,6}\s+/, '').replace(/\*\*/g, '').trim()
+}
+
+/** The model's thinking between tool calls: its latest heading, the rest on click. */
 function ThinkingNote({ text }: { text: string }) {
   const [open, setOpen] = useState(false)
   const trimmed = text.trim()
   if (!trimmed) return null
-  const title = trimmed.split('\n')[0].replace(/\*\*/g, '').trim()
+  const title = thinkingTitle(trimmed)
   return (
     <div className="w-full max-w-full text-xs text-muted-foreground">
       <button type="button" className="flex w-full min-w-0 items-center gap-1.5 text-left hover:text-foreground" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
@@ -178,6 +288,8 @@ function ThinkingNote({ text }: { text: string }) {
 
 function ToolCard({ part }: { part: ToolPart }) {
   const [open, setOpen] = useState(false)
+  // The plugin that offers the tool may draw its card (SDK 1.6); the details stay a click away.
+  const drawn = usePluginToolCard(part)
   const hint = argHint(part.args)
   const hasArgs = part.args && Object.keys(part.args).length > 0
   return (
@@ -202,6 +314,11 @@ function ToolCard({ part }: { part: ToolPart }) {
         {hint && <span className="min-w-0 truncate opacity-80">{hint}</span>}
         <ChevronDown className={cn('ms-auto size-3 shrink-0 transition-transform', open && 'rotate-180')} />
       </button>
+      {drawn && !open && (
+        <div className="border-t border-border/70">
+          <PluginToolCardBody html={drawn} />
+        </div>
+      )}
       {open && (
         <div className="flex flex-col gap-1.5 border-t border-border/70 px-2 py-1.5">
           {hasArgs && (
@@ -209,9 +326,25 @@ function ToolCard({ part }: { part: ToolPart }) {
               {JSON.stringify(part.args, null, 2)}
             </pre>
           )}
+          {part.steps && part.steps.length > 0 && (
+            <ol className="flex flex-col gap-0.5 border-s border-border ps-2 text-muted-foreground">
+              {part.steps.map((step, i) => (
+                <li key={i} className="flex min-w-0 items-center gap-1.5">
+                  {step.status === 'error' ? <AlertCircle className="size-3 shrink-0 text-destructive" /> : <Wrench className="size-3 shrink-0" />}
+                  <span className="shrink-0 font-medium text-foreground">{step.name}</span>
+                  {step.hint && <span className="min-w-0 truncate opacity-80">{step.hint}</span>}
+                </li>
+              ))}
+            </ol>
+          )}
           <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono">
             {part.result ?? (part.status === 'running' ? 'Running…' : '')}
           </pre>
+        </div>
+      )}
+      {part.app && part.status !== 'running' && (
+        <div className="border-t border-border/70 p-1.5">
+          <McpAppInline id={part.id} app={part.app} />
         </div>
       )}
     </div>
@@ -273,6 +406,10 @@ const AssistantMessage = memo(function AssistantMessage({
               )
             ) : p.type === 'thinking' ? (
               <ThinkingNote key={i} text={p.text} />
+            ) : p.type === 'steer' ? (
+              <div key={i} className="ms-auto max-w-[80%] rounded-2xl bg-message/70 px-3 py-1.5 text-xs whitespace-pre-wrap" title="Sent while the reply was working">
+                {p.text}
+              </div>
             ) : p.text.trim() ? (
               <Markdown key={i} text={p.text} />
             ) : null
@@ -321,6 +458,9 @@ const AssistantMessage = memo(function AssistantMessage({
             <Button variant="ghost" size="icon-sm" title="Regenerate" onClick={onRetry}>
               <RotateCcw className="size-3.5" />
             </Button>
+          )}
+          {chatId && message.content && (
+            <PluginButtons where="message" context={() => ({ chatId, messageId: message.id, messageText: message.content, role: 'assistant' })} />
           )}
           {message.model && !message.from && (
             <span className="ms-1 inline-flex items-center gap-1">
@@ -585,7 +725,7 @@ export function MessageList({
         {messages.map((m, i) => (
           <Fragment key={m.id}>
             {m.role === 'user' ? (
-              <UserMessage message={m} />
+              <UserMessage message={m} chatId={chatId} busy={busy} changesAfter={messages.slice(i + 1).some((n) => n.changedFiles?.length && !n.undoneFiles)} />
             ) : (
               <AssistantMessage chatId={chatId} message={m} isLast={i === messages.length - 1} busy={busy} onRetry={onRetry} onContinue={onContinue} />
             )}

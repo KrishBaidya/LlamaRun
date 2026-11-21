@@ -52,7 +52,8 @@ class ChatStore extends EventEmitter<{ changed: [] }> {
           updatedAt: c.updatedAt,
           messageCount: c.messages.length,
           preview: (last?.content ?? '').slice(0, 120),
-          generating: isGenerating(c.id)
+          generating: isGenerating(c.id),
+          ...(c.project ? { project: c.project } : {})
         }
       })
   }

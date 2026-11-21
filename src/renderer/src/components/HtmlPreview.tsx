@@ -18,7 +18,7 @@ function viewportHeight(width: number): number {
  * cannot reach the app). It reports its content height so the frame grows to
  * fit the whole page, the way Claude shows its inline widgets.
  */
-function PreviewFrame({ html, fill, className }: { html: string; fill?: boolean; className?: string }) {
+export function PreviewFrame({ html, fill, className }: { html: string; fill?: boolean; className?: string }) {
   const [height, setHeight] = useState(MIN_HEIGHT * 2)
   const frame = useRef<HTMLIFrameElement>(null)
   const id = useId()

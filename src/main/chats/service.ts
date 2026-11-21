@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { resolveThinking } from '@shared/thinking'
-import type { Chat, ChatAttachment, ChatEvent, ChatMessage, ChatSummary, ContextUsage, ModelContextInfo, ModelInfo, SlashCommand, ThinkingChoice } from '@shared/types'
+import type { Chat, ChatAttachment, ChatEvent, ChatSetup, HookEvent, QueuedMessage, ChatMessage, ChatSummary, ContextUsage, ModelContextInfo, ModelInfo, SlashCommand, ThinkingChoice } from '@shared/types'
 import { analytics } from '../analytics'
 import { approvals } from '../assistant/approval'
-import { builtinInstructions, builtinTools, callBuiltinTool, installNote, isBuiltinTool } from '../assistant/builtins'
+import { builtinInstructions, builtinTools, callBuiltinTool, commandEnv, installNote, isBuiltinTool } from '../assistant/builtins'
 import { RUN_CODE, RUN_CODE_TOOL, runCode } from '../assistant/codeMode'
 import { changedFiles, forgetChanges, undoChanges } from '../assistant/fileChanges'
 import { documentBlock } from '../attachments/read'
@@ -20,17 +20,29 @@ import {
   type ToolBridge,
   type ToolPause
 } from '../llm'
+import { toolResultToText } from '../llm/types'
 import { isCloudModel } from '../llm/models'
 import { mcp } from '../mcp/manager'
 import { pluginHost } from '../plugins/host'
 import { settings } from '../settings'
 import { memoryStore } from '../memory/store'
-import { skillStore } from '../skills/store'
+import { skillStore, skillWorkspace } from '../skills/store'
 import { reviewTask } from './review'
 import { joinRound } from '../llm/toolRun'
+import { describeDays, describeUsage, usageStore } from '../usage'
+import { editMessage, switchVersion } from './branches'
+import { projectInstructions, validProject } from '../assistant/project'
+import { createCommandHooks } from '../assistant/hooks'
+import { appContext } from '../mcp/appContext'
+import { appTools } from '../mcp/appTools'
+import { BUNDLE_INSTALL, bundleInstallTool, runBundleInstall } from '../plugins/bundleTool'
+import { allowedTools } from '../assistant/planMode'
+import { AGENT_RUN, agentRunTool, runSubagent } from './subagent'
+import * as notify from '../notify'
+import { stopChat as stopChatProcesses } from '../assistant/processes'
 import { COMPACT_SYSTEM, compactionRequest, splitForCompaction, SUMMARY_INTRO, transcriptOf, visibleMessages } from './compact'
 import { contextWindowFor, estimateParts, estimateTokens, usageOf } from './context'
-import { appendText, appendThinking, finishTool, recalledReplies, replaceText, replyForModel, textOf, toolPart } from './parts'
+import { appendText, appendThinking, finishTool, recallLimits, replaceText, replyForModel, textOf, toolPart } from './parts'
 import { chatStore, titleFrom } from './store'
 
 const FLUSH_MS = 16
@@ -43,6 +55,8 @@ export interface TurnOptions {
   tools?: boolean
   /** A scheduled run nobody is watching: no computer use, and it can't schedule more routines. */
   routine?: boolean
+  /** From a messaging app: the user isn't at the PC, so no computer use. */
+  remote?: boolean
 }
 
 export interface SendOptions {
@@ -57,7 +71,20 @@ export interface SendOptions {
   skill?: ChatMessage['skill']
   /** A new chat created for this message thinks this hard (chosen in the chat box before it existed). */
   thinking?: ThinkingChoice
+  /** A new chat's agent and plan mode, chosen before it existed. */
+  setup?: ChatSetup
+  /** Sent by a hook (a Stop hook's feedback): shown as such, but runs like a typed message. */
+  hook?: HookEvent
+  /** Typed by the user in a messaging app: their own message, so it runs like a typed one (without computer use). */
+  remote?: boolean
 }
+
+/** The user's own message: typed here, or in a messaging app (not sent by a plugin). */
+const typedBy = (m: ChatMessage): boolean => !m.via || m.via.remote === true
+const capitalize = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1)
+
+// The user's hooks.json runs on the plugin host's hook events, ahead of plugins' hooks.
+pluginHost.addBuiltinHooks(createCommandHooks(commandEnv))
 
 /** Most images one message may carry. */
 export const MAX_IMAGES = 6
@@ -66,7 +93,9 @@ export const MAX_IMAGES = 6
 export const BUILTIN_COMMANDS: SlashCommand[] = [
   { name: 'compact', description: 'Summarise older messages to free up context', kind: 'builtin', plugin: 'Llama Run', args: '[what to focus on]' },
   { name: 'new', description: 'Start a new chat', kind: 'builtin', plugin: 'Llama Run' },
-  { name: 'learn', description: 'Save what worked in this chat as a skill', kind: 'builtin', plugin: 'Llama Run', args: '[what to focus on]' }
+  { name: 'learn', description: 'Save what worked in this chat as a skill', kind: 'builtin', plugin: 'Llama Run', args: '[what to focus on]' },
+  { name: 'usage', description: 'Tokens this chat has used, and the last 30 days by model', kind: 'builtin', plugin: 'Llama Run' },
+  { name: 'export', description: 'Save this chat as Markdown or a web page', kind: 'builtin', plugin: 'Llama Run' }
 ]
 
 /** What /learn asks the model (Hermes' /learn): turn this chat's working procedure into a skill. */
@@ -91,7 +120,16 @@ export interface ChatToolOptions {
   routine?: boolean
   /** Offer the computer_* tools (computer use is on and the user typed this turn). */
   computer?: { screenshots: boolean }
+  /** The turn's model and thinking, for agent_run's children. Without a model, agent_run isn't offered. */
+  model?: string
+  thinking?: ThinkingChoice
+  signal?: AbortSignal
+  /** Plan mode: read-only tools only, and agent_run's helpers stay read-only. */
+  plan?: boolean
+  /** The chat's project folder. */
+  project?: string
 }
+
 
 /**
  * The tools a chat turn offers: Llama Run's own (memory, skills, for typed
@@ -99,28 +137,65 @@ export interface ChatToolOptions {
  * the MCP servers' and the plugins'.
  */
 export function chatTools(options: ChatToolOptions = {}): ToolBridge | undefined {
-  const own = [...builtinTools(options), ...(options.computer ? computer.tools() : []), ...(options.shell ? [RUN_CODE_TOOL] : [])]
+  const own = [
+    ...builtinTools(options),
+    ...(options.computer ? computer.tools() : []),
+    ...(options.shell ? [RUN_CODE_TOOL] : []),
+    ...(options.shell && options.model ? [agentRunTool()] : []),
+    // Tools the MCP Apps open in this chat offer (the user's own messages only).
+    ...(options.shell ? appTools.toolsFor(options.chatId) : []),
+    // Installing Claude Code plugins into Llama Run itself, with an approval card.
+    ...(options.shell && !options.routine ? [bundleInstallTool] : [])
+  ]
   const ownNames = new Set(own.map((t) => t.name))
   const mcpTools = mcp.tools().filter((t) => !isBuiltinTool(t.name) && !ownNames.has(t.name))
   const pluginTools = pluginHost.modelTools(new Set([...own, ...mcpTools].map((t) => t.name)))
   if (!own.length && !mcpTools.length && !pluginTools.length) return undefined
   const fromPlugins = new Set(pluginTools.map((t) => t.name))
-  const tools = [...own, ...mcpTools, ...pluginTools]
+  const tools = allowedTools([...own, ...mcpTools, ...pluginTools], options)
+  if (!tools.length) return undefined
+  const offered = new Set(tools.map((t) => t.name))
+  // Tool-call hooks (the user's hooks.json and plugins') wrap every call, including those from scripts and sub-agents.
+  const watched = Boolean(options.chatId) && pluginHost.hasToolHooks()
+  const hooked: ToolBridge['call'] = async (name, args) => {
+    if (!watched) return call(name, args)
+    const scope = { chatId: options.chatId!, cwd: options.project ?? skillWorkspace() }
+    const pre = await pluginHost.beforeToolCall(name, args, scope)
+    if (pre.blocked) return { content: [{ type: 'text', text: `${capitalize(pre.by ?? 'a hook')} blocked ${name}: ${pre.reason}` }], isError: true }
+    const result = await call(name, args)
+    const notes = await pluginHost.afterToolCall(name, args, toolResultToText(result), Boolean(result.isError), scope)
+    return notes.length ? { ...result, content: [...result.content, { type: 'text', text: `\n[hook] ${notes.join('\n')}` }] } : result
+  }
   const call: ToolBridge['call'] = (name, args) =>
-    isBuiltinTool(name)
-      ? callBuiltinTool(name, args, { chatId: options.chatId, messageId: options.messageId })
+    !offered.has(name)
+      ? Promise.resolve({ content: [{ type: 'text', text: `${name} is not available in this chat${options.plan ? ' while plan mode is on' : ''}.` }], isError: true })
+      : isBuiltinTool(name)
+      ? callBuiltinTool(name, args, { chatId: options.chatId, messageId: options.messageId, project: options.project, signal: options.signal })
       : options.computer && isComputerTool(name)
         ? computer.call(name, args, { chatId: options.chatId, screenshots: options.computer.screenshots })
         : fromPlugins.has(name)
           ? pluginHost.callModelTool(name, args)
           : name === RUN_CODE
-            ? runCode(args, { tools: tools.filter((t) => t.name !== RUN_CODE), call }, { chatId: options.chatId })
-            : mcp.callTool(name, args)
+            ? runCode(args, { tools: tools.filter((t) => t.name !== RUN_CODE), call: hooked }, { chatId: options.chatId, project: options.project })
+            : name === BUNDLE_INSTALL
+              ? runBundleInstall(args, options.chatId, { addMcpServer: (s) => mcp.saveServer(s), removeMcpServer: (n) => mcp.remove(n) }, options.signal)
+              : options.chatId && appTools.has(options.chatId, name)
+              ? appTools.call(options.chatId, name, args, options.signal)
+              : name === AGENT_RUN && options.model
+              ? runSubagent(args, {
+                  bridge: { tools: tools.filter((t) => t.name !== AGENT_RUN), call: hooked, sequential: (n) => isComputerTool(n) || n === RUN_CODE },
+                  model: options.model,
+                  thinking: options.thinking,
+                  signal: options.signal,
+                  generate,
+                  readOnly: options.plan
+                })
+              : mcp.callTool(name, args)
   return {
     tools,
     // One desktop, one action at a time; other tools in the same step run together. A script may drive the desktop too.
     sequential: (name) => isComputerTool(name) || name === RUN_CODE,
-    call
+    call: hooked
   }
 }
 
@@ -139,7 +214,8 @@ const promptSnapshots = new Map<string, string>()
 export function systemFor(turn?: string, shell = false, computerOn = false, install = false, chatId?: string): string | undefined {
   let base = chatId ? promptSnapshots.get(chatId) : undefined
   if (base === undefined) {
-    base = builtinInstructions({ shell })
+    const project = chatId ? chatStore.get(chatId)?.project : undefined
+    base = [builtinInstructions({ shell }), projectInstructions(validProject(project))].filter(Boolean).join('\n\n')
     if (chatId) promptSnapshots.set(chatId, base)
   }
   const parts = [base, pluginHost.contextText(), computerOn ? computerInstructions() : '', install ? installNote() : '', turn?.trim()].filter(Boolean)
@@ -171,11 +247,11 @@ function userContent(m: ChatMessage): string {
  */
 export function historyFor(messages: ChatMessage[], compaction?: Chat['compaction']): HistoryMessage[] {
   const visible = visibleMessages(messages, compaction)
-  const recall = recalledReplies(visible.messages)
+  const recall = recallLimits(visible.messages)
   const turns = visible.messages
     .filter((m) => m.role === 'user' || m.status === 'done')
     .map((m): HistoryMessage => {
-      if (m.role !== 'user') return { role: m.role, content: replyForModel(m, recall.has(m.id)) }
+      if (m.role !== 'user') return { role: m.role, content: replyForModel(m, recall.get(m.id) ?? false) }
       const images = (m.attachments ?? []).map(imageOf).filter((i): i is HistoryImage => !!i)
       return { role: 'user', content: userContent(m) || 'See the attached image.', ...(images.length ? { images } : {}) }
     })
@@ -216,7 +292,7 @@ export async function contextFor(model: string): Promise<ModelContextInfo> {
  * or cloud (the server takes them inside tool results).
  */
 export function computerFor(typed: boolean, info: ModelInfo | undefined, turn?: TurnOptions): ChatToolOptions['computer'] {
-  if (!typed || turn?.tools === false || turn?.routine || !settings.get('computerUse')) return undefined
+  if (!typed || turn?.tools === false || turn?.routine || turn?.remote || !settings.get('computerUse')) return undefined
   const vision = Boolean(info?.capabilities?.includes('vision'))
   return { screenshots: settings.get('computerScreenshots') !== false && vision }
 }
@@ -228,6 +304,8 @@ export function computerFor(typed: boolean, info: ModelInfo | undefined, turn?: 
  */
 class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSummary[]] }> {
   private running = new Map<string, AbortController>()
+  /** Messages typed while a reply ran, per chat (see queue). */
+  private queued = new Map<string, QueuedMessage[]>()
   /** Replies stopped at the tool-round cap, per chat: the message and where it stopped. */
   private paused = new Map<string, { messageId: string; pause: ToolPause; turn?: TurnOptions }>()
 
@@ -275,12 +353,36 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     this.emit('event', { type: 'chat', chat })
   }
 
+  /** The folder the chat works in; its instruction file joins the prompt from the next turn. */
+  setProject(id: string, folder: string | null): void {
+    const chat = chatStore.get(id)
+    if (!chat) return
+    const valid = validProject(folder)
+    if (valid) chat.project = valid
+    else delete chat.project
+    refreshPrompt(id)
+    chatStore.save(chat)
+    this.emit('event', { type: 'chat', chat })
+    this.emit('changed', this.list())
+  }
+
+  setPlan(id: string, plan: boolean): void {
+    const chat = chatStore.get(id)
+    if (!chat) return
+    if (plan) chat.plan = true
+    else delete chat.plan
+    chatStore.save(chat, false)
+    this.emit('event', { type: 'chat', chat })
+  }
+
   delete(id: string): void {
     this.cancel(id)
     this.paused.delete(id)
     chatStore.delete(id)
     refreshPrompt(id)
     forgetChanges(id)
+    stopChatProcesses(id)
+    usageStore.forgetChat(id)
   }
 
   cancel(id: string): void {
@@ -339,12 +441,24 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     return this.running.has(id)
   }
 
-  async send(chatId: string | null, text: string, model?: string, attachments?: ChatAttachment[], thinking?: ThinkingChoice): Promise<string> {
+  async send(chatId: string | null, text: string, model?: string, attachments?: ChatAttachment[], thinking?: ThinkingChoice, setup?: ChatSetup): Promise<string> {
     const compact = !attachments?.length ? /^\/compact(?:\s+([\s\S]*))?$/i.exec(text.trim()) : null
     if (compact) {
       if (!chatId || !chatStore.get(chatId)?.messages.length) throw new Error('Nothing to compact yet')
       await this.compact(chatId, compact[1], true)
       return chatId
+    }
+    if (!attachments?.length && /^\/export\s*$/i.test(text.trim())) {
+      if (!chatId || !chatStore.get(chatId)?.messages.length) throw new Error('Nothing to export yet')
+      const { exportChat } = await import('./exportFile')
+      const path = await exportChat(chatId)
+      if (path) this.post(chatId, `Saved this chat to ${path}`, 'Llama Run')
+      return chatId
+    }
+    if (!attachments?.length && /^\/usage\s*$/i.test(text.trim())) {
+      const chat = chatId ? chatStore.get(chatId) : undefined
+      const report = [describeUsage(chat ? usageStore.forChat(chat.id) : undefined), describeDays(usageStore.days(30))].filter(Boolean).join('\n\n')
+      return this.post(chatId, report, 'Llama Run').chatId
     }
     const learn = !attachments?.length ? /^\/learn(?:\s+([\s\S]*))?$/i.exec(text.trim()) : null
     if (learn) {
@@ -356,13 +470,25 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
       analytics.track('plugin_command_used')
       return this.runCommand(chatId, text, command, model)
     }
+    const skill = await this.slashSkill(text)
+    if (skill) return this.start(chatId, text.trim(), { model, attachments, thinking, setup, skill }).chatId
+    return this.start(chatId, text, { model, attachments, thinking, setup }).chatId
+  }
+
+  /** A skill or an MCP server's prompt run as /command: what the model gets instead of the typed text. Null for anything else. */
+  async slashSkill(text: string): Promise<ChatMessage['skill'] | null> {
     const invoked = skillStore.matchCommand(text)
     if (invoked) {
       analytics.track('skill_invoked', { via: 'slash' })
-      const instructions = skillStore.invoke(invoked.skill, invoked.args)
-      return this.start(chatId, text.trim(), { model, attachments, thinking, skill: { name: invoked.skill.name, instructions } }).chatId
+      return { name: invoked.skill.name, instructions: skillStore.invoke(invoked.skill, invoked.args) }
     }
-    return this.start(chatId, text, { model, attachments, thinking }).chatId
+    // An MCP server's prompt run as /server:prompt: the model gets the prompt's text.
+    const prompt = /^\/[\w.-]+:[\w.-]+/.test(text.trim()) ? await mcp.runPrompt(text) : null
+    if (prompt) {
+      analytics.track('mcp_prompt_used')
+      return { name: prompt.name, instructions: prompt.text }
+    }
+    return null
   }
 
   /** Opens an "Install with AI" chat: the model reads the README and installs it, asking before each command. */
@@ -378,7 +504,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
    */
   commands(): SlashCommand[] {
     const seen = new Set<string>()
-    return [...BUILTIN_COMMANDS, ...pluginHost.commands(), ...skillStore.commands()].filter((c) => !seen.has(c.name) && !!seen.add(c.name))
+    return [...BUILTIN_COMMANDS, ...pluginHost.commands(), ...skillStore.commands(), ...mcp.commands()].filter((c) => !seen.has(c.name) && !!seen.add(c.name))
   }
 
   /**
@@ -398,6 +524,30 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
   }
 
   /** A typed "/command args" a plugin registered: the plugin answers instead of a model. */
+  /** A plugin's /command, waiting for its reply (for the phone bots); null when no plugin has it. */
+  async pluginCommand(chatId: string | null, text: string): Promise<{ chatId: string; reply: string | null } | null> {
+    const command = pluginHost.matchCommand(text)
+    if (!command) return null
+    const chat = (chatId ? chatStore.get(chatId) : undefined) ?? this.create()
+    const user: ChatMessage = { id: randomUUID(), role: 'user', content: text.trim(), status: 'done', createdAt: Date.now() }
+    if (!chat.messages.length) chat.title = titleFrom(text)
+    chat.messages.push(user)
+    chatStore.save(chat)
+    this.emit('event', { type: 'chat', chat })
+    const args = text.trim().slice(command.name.length + 1).trim()
+    const name = pluginHost.pluginName(command.plugin)
+    analytics.track('plugin_command_used')
+    try {
+      const reply = await pluginHost.runCommand(command.plugin, command.name, args, chat.id)
+      if (reply) this.post(chat.id, reply, name)
+      return { chatId: chat.id, reply }
+    } catch (err) {
+      const message = `/${command.name} failed: ${(err as Error).message}`
+      this.post(chat.id, `**${message}**`, name)
+      return { chatId: chat.id, reply: message }
+    }
+  }
+
   private runCommand(chatId: string | null, text: string, command: { plugin: string; name: string }, model?: string): string {
     const chat = (chatId ? chatStore.get(chatId) : undefined) ?? this.create(model)
     const user: ChatMessage = { id: randomUUID(), role: 'user', content: text.trim(), status: 'done', createdAt: Date.now() }
@@ -425,7 +575,8 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     const computerOn = settings.get('computerUse') ? { screenshots: false } : undefined
     const tools = chatTools({ shell: true, computer: computerOn })?.tools ?? []
     const parts = estimateParts(historyFor(chat?.messages ?? [], chat?.compaction), systemFor(undefined, true, Boolean(computerOn), false, chat?.id), tools)
-    return usageOf(info, parts.conversation + parts.instructions + parts.tools, parts)
+    const spent = chat ? usageStore.forChat(chat.id) : undefined
+    return { ...usageOf(info, parts.conversation + parts.instructions + parts.tools, parts), ...(spent ? { spent } : {}) }
   }
 
   /** Summarises the chat's older messages now (the /compact command and the menu item). */
@@ -445,7 +596,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
   }
 
   private async compactNow(chat: Chat, model: string, instructions: string | undefined, manual: boolean, signal: AbortSignal): Promise<void> {
-    const split = splitForCompaction(chat.messages, settings.get('compactKeepTurns') ?? 4, chat.compaction)
+    const split = splitForCompaction(chat.messages, 4, chat.compaction)
     if (!split) throw new Error('Nothing to compact yet: the conversation is still short.')
     const info = await contextFor(model)
     const system = systemFor(undefined, false, false, false, chat.id)
@@ -515,6 +666,8 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     const chat = existing || this.create(options.model, options.ephemeral)
     if (this.running.has(chat.id)) throw new Error('Wait for the current response to finish, or stop it first.')
     if (!existing && options.thinking) chat.thinking = options.thinking
+    if (!existing && options.setup?.plan) chat.plan = true
+    if (!existing && validProject(options.setup?.project)) chat.project = options.setup!.project
     if (!chat.model) chat.model = settings.get('selectedModel')
     // A plugin may pick the model per message; typed messages use the chat's model.
     if (existing && options.via && options.model) chat.model = options.model
@@ -524,11 +677,12 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     if (options.via) user.via = options.via
     if (attachments.length) user.attachments = attachments
     if (options.skill) user.skill = options.skill
+    if (options.hook) user.hook = options.hook
     if (!chat.messages.length) chat.title = titleFrom(content || attachments[0].name)
     chat.messages.push(user)
     chatStore.save(chat)
     this.emit('event', { type: 'chat', chat })
-    return { chatId: chat.id, done: this.run(chat, user, undefined, options.turn, !options.via) }
+    return { chatId: chat.id, done: this.run(chat, user, undefined, options.remote ? { ...options.turn, remote: true } : options.turn, !options.via || options.remote === true) }
   }
 
   retry(chatId: string): void {
@@ -542,7 +696,124 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     user.prompt = undefined
     chatStore.save(chat)
     this.emit('event', { type: 'chat', chat })
-    void this.run(chat, user, undefined, undefined, !user.via)
+    void this.run(chat, user, undefined, undefined, typedBy(user))
+  }
+
+  /**
+   * A message typed while the chat's reply is running, like Claude Code's
+   * queued messages: it waits and is sent when the reply ends. When nothing is
+   * running it is simply sent.
+   */
+  queue(chatId: string, text: string): void {
+    const value = text.trim()
+    if (!value) return
+    if (!this.running.has(chatId)) {
+      void this.send(chatId, value)
+      return
+    }
+    this.setQueue(chatId, [...(this.queued.get(chatId) ?? []), { id: randomUUID(), text: value }])
+  }
+
+  /** "Send now": the queued message goes into the running reply's next tool round (Codex's steer). */
+  steer(chatId: string, id: string): void {
+    const items = this.queued.get(chatId) ?? []
+    if (!this.running.has(chatId)) {
+      const item = items.find((i) => i.id === id)
+      this.setQueue(chatId, items.filter((i) => i.id !== id))
+      if (item) void this.send(chatId, item.text)
+      return
+    }
+    this.setQueue(chatId, items.map((i) => (i.id === id ? { ...i, steer: true } : i)))
+  }
+
+  unqueue(chatId: string, id: string): void {
+    this.setQueue(chatId, (this.queued.get(chatId) ?? []).filter((i) => i.id !== id))
+  }
+
+  queuedFor(chatId: string): QueuedMessage[] {
+    return this.queued.get(chatId) ?? []
+  }
+
+  private setQueue(chatId: string, items: QueuedMessage[]): void {
+    if (items.length) this.queued.set(chatId, items)
+    else this.queued.delete(chatId)
+    this.emit('event', { type: 'queue', chatId, items })
+  }
+
+  /** The steered messages, taken for the next tool round. */
+  private takeSteer(chatId: string): string[] {
+    const items = this.queued.get(chatId) ?? []
+    const steer = items.filter((i) => i.steer)
+    if (steer.length) this.setQueue(chatId, items.filter((i) => !i.steer))
+    return steer.map((i) => i.text)
+  }
+
+  /**
+   * Stop hooks after a reply (the user's hooks.json and plugins' on_stop): one
+   * that answers sends its text back as the next message, so the model carries
+   * on (up to 3 times in a row, like Claude Code's stop_hook_active guard).
+   * Otherwise anything queued is sent.
+   */
+  private async stopHooks(chat: Chat, user: ChatMessage): Promise<void> {
+    if (pluginHost.hasStopHooks()) {
+      let streak = 0
+      for (let i = chat.messages.length - 2; i >= 0 && chat.messages[i].role === 'user' && chat.messages[i].hook === 'Stop'; i -= 2) streak++
+      const reply = chat.messages[chat.messages.length - 1]
+      const outcome = await pluginHost.replyStopped({ chatId: chat.id, cwd: validProject(chat.project) ?? skillWorkspace() }, reply?.role === 'assistant' ? reply.content : '', Boolean(user.hook)).catch(() => null)
+      if (outcome && streak < 3 && !this.running.has(chat.id)) {
+        this.start(chat.id, outcome.text, { hook: 'Stop' })
+        return
+      }
+    }
+    this.sendQueued(chat.id)
+  }
+
+  /** After a reply: what was queued goes as the next message (all of it at once). A stopped reply keeps the queue. */
+  private sendQueued(chatId: string): void {
+    const items = this.queued.get(chatId)
+    if (!items?.length || this.running.has(chatId)) return
+    this.setQueue(chatId, [])
+    void this.send(chatId, items.map((i) => i.text).join('\n\n')).catch(() => {})
+  }
+
+  /**
+   * Edits one of the user's messages and replies again from there; the old
+   * text and its replies stay as a version to switch back to. With undoFiles,
+   * the files the dropped replies changed are put back first.
+   */
+  edit(chatId: string, messageId: string, text: string, undoFiles = false): void {
+    const chat = chatStore.get(chatId)
+    if (!chat) return
+    if (this.running.has(chatId)) throw new Error('Wait for the reply to finish, or stop it, before editing')
+    if (!text.trim()) throw new Error('The message is empty')
+    const { messages, dropped } = editMessage(chat.messages, messageId, text.trim())
+    if (undoFiles) for (const m of dropped) if (m.changedFiles?.length && !m.undoneFiles) this.undoFiles(chatId, m.id)
+    this.dropPause(chat)
+    this.forgetCompactionPast(chat, messages)
+    chat.messages = messages
+    const user = messages[messages.length - 1]
+    chatStore.save(chat)
+    this.emit('event', { type: 'chat', chat })
+    void this.run(chat, user, undefined, undefined, typedBy(user))
+  }
+
+  /** Shows another version of an edited message with the replies it had. */
+  switchVersion(chatId: string, messageId: string, index: number): void {
+    const chat = chatStore.get(chatId)
+    if (!chat) return
+    if (this.running.has(chatId)) throw new Error('Wait for the reply to finish, or stop it, first')
+    const messages = switchVersion(chat.messages, messageId, index)
+    if (messages === chat.messages) return
+    this.dropPause(chat)
+    this.forgetCompactionPast(chat, messages)
+    chat.messages = messages
+    chatStore.save(chat)
+    this.emit('event', { type: 'chat', chat })
+  }
+
+  /** A summary that covers messages no longer in the chat no longer applies. */
+  private forgetCompactionPast(chat: Chat, messages: ChatMessage[]): void {
+    if (chat.compaction && !messages.some((m) => m.id === chat.compaction!.throughMessageId)) delete chat.compaction
   }
 
   /**
@@ -564,7 +835,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
     assistant.toolLimit = undefined
     assistant.note = undefined
     assistant.status = 'streaming'
-    return this.run(chat, user, { assistant, pause: paused.pause }, paused.turn, !user.via)
+    return this.run(chat, user, { assistant, pause: paused.pause }, paused.turn, typedBy(user))
   }
 
   /** A new message or retry makes a paused run stale. */
@@ -632,11 +903,22 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
 
       // A continued reply already went through the before-hooks.
       const before = resume
-        ? { cancel: false, cancelled_by: undefined, input_text: user.prompt ?? user.content, model: resume.pause.model }
-        : await pluginHost.beforeTextGeneration(user.content, chat.model)
+        ? { cancel: false, cancelled_by: undefined, reason: undefined, input_text: user.prompt ?? user.content, model: resume.pause.model }
+        : await pluginHost.beforeTextGeneration(
+            user.content,
+            chat.model,
+            // The user's own messages go through prompt and session-start hooks too.
+            typed && !turn?.routine
+              ? { chatId: chat.id, cwd: validProject(chat.project) ?? skillWorkspace(), newChat: chat.messages.filter((m) => m.role === 'user').length === 1 }
+              : undefined
+          )
       if (before.cancel) {
         assistant.status = 'cancelled'
-        assistant.note = before.cancelled_by ? `Cancelled by ${before.cancelled_by}` : 'Cancelled by a plugin'
+        assistant.note = before.reason
+          ? `${capitalize(before.cancelled_by ?? 'a hook')} stopped this message: ${before.reason}`
+          : before.cancelled_by
+            ? `Cancelled by ${before.cancelled_by}`
+            : 'Cancelled by a plugin'
         chat.messages.push(assistant)
         this.emit('event', { type: 'message', chatId: chat.id, message: { ...assistant } })
         return { ...assistant }
@@ -651,10 +933,13 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
       const context = contextWindowFor(model, info, settings.all)
       const shell = typed
       const install = typed && wantsShell(chat, user.prompt ?? user.content)
-      const computerOn = computerFor(typed, info, turn)
+      const computerOn = computerFor(typed && !user.via?.remote, info, turn)
       maxRounds = computerOn ? Math.min(500, Math.max(MAX_TOOL_ROUNDS, settings.get('computerMaxSteps') || 0)) : MAX_TOOL_ROUNDS
       if (!resume) await this.autoCompact(chat, model, context, controller.signal, shell, computerOn)
       if (controller.signal.aborted) throw new Error('Stopped')
+
+      // What session-start and prompt hooks added.
+      const hookContext = 'context' in before ? (before.context ?? '') : ''
 
       if (resume) emitUpdate()
       else {
@@ -662,15 +947,19 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
         this.emit('event', { type: 'message', chatId: chat.id, message: { ...assistant } })
       }
 
+      // The chat's choice, else the model's default from Model settings, else low for computer-use steps.
+      const turnThinking = resolveThinking(info, { chat: chat.thinking, modelDefault: settings.get('modelContext')?.[model]?.thinking, computerOn: Boolean(computerOn) })
       const text = await generate(historyFor(chat.messages.slice(0, -1), chat.compaction), {
         model,
         signal: controller.signal,
-        tools: turn?.tools === false ? undefined : chatTools({ shell, chatId: chat.id, messageId: assistant.id, computer: computerOn, routine: turn?.routine }),
-        system: systemFor(turn?.system, shell, Boolean(computerOn), install, chat.id),
+        tools:
+          turn?.tools === false
+            ? undefined
+            : chatTools({ shell, chatId: chat.id, messageId: assistant.id, computer: computerOn, routine: turn?.routine, model, thinking: turnThinking, signal: controller.signal, plan: chat.plan, project: validProject(chat.project) }),
+        system: systemFor([turn?.system, hookContext, appContext.text(chat.id)].filter(Boolean).join('\n\n') || undefined, shell, Boolean(computerOn), install, chat.id),
         maxToolRounds: maxRounds,
         vision: Boolean(info?.capabilities?.includes('vision')),
-        // The chat's choice, else the model's default from Model settings, else low for computer-use steps.
-        thinking: resolveThinking(info, { chat: chat.thinking, modelDefault: settings.get('modelContext')?.[model]?.thinking, computerOn: Boolean(computerOn) }),
+        thinking: turnThinking,
         // Compaction keeps the history inside the window; this cut is the safety net.
         historyChars: Math.floor(context.tokens * 4 * 0.9),
         contextTokens: context.tokens,
@@ -678,9 +967,20 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
         onPause: (p) => {
           pause = p
         },
+        steer: () => {
+          const notes = this.takeSteer(chat.id)
+          if (!notes.length) return undefined
+          flush()
+          for (const text of notes) {
+            parts.push({ type: 'steer', text })
+            this.emit('event', { type: 'steer', chatId: chat.id, messageId: assistant.id, text })
+          }
+          return notes.join('\n\n')
+        },
         onUsage: (u) => {
           usage.inputTokens += u.inputTokens
           usage.outputTokens += u.outputTokens
+          usageStore.record(chat.ephemeral ? undefined : chat.id, model, u)
         },
         onThinking: (t) => {
           // Sent in the order it happened: text waiting to go out goes first.
@@ -760,10 +1060,16 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
       if (changed.length) assistant.changedFiles = changed
       emitUpdate()
       chatStore.save(chat)
+      // Told only when they're elsewhere; routines notify on their own.
+      if (typed && !turn?.routine && toolCalls > 0 && !pause && !controller.signal.aborted) notify.replyFinished(chat.id, chat.title, assistant.status, assistant.content, assistant.error)
       trackGeneration(assistant, { startedAt, firstTokenAt, toolCalls, usage, paused: !!pause, via: user.via ? 'plugin' : typed ? 'typed' : 'app', resumed: !!resume })
       // A long task that finished: propose what's worth keeping, without holding up the reply.
       const reviewing = settings.get('reviewAfterTasks') !== false && (settings.get('skillsEnabled') !== false || settings.get('memoryEnabled') !== false)
       if (reviewing && typed && !pause && assistant.status === 'done' && toolCalls >= (settings.get('reviewMinToolCalls') || 6)) void this.review(chat, assistant, assistant.model || chat.model)
+      // Steers the reply never got to (it answered without another tool round) go as the next message, with the rest.
+      if (this.queued.get(chat.id)?.length) this.setQueue(chat.id, (this.queued.get(chat.id) ?? []).map((i) => ({ id: i.id, text: i.text })))
+      if (assistant.status === 'done' && typed && !pause && !turn?.routine) void this.stopHooks(chat, user)
+      else if (assistant.status !== 'cancelled' && !pause) setImmediate(() => this.sendQueued(chat.id))
     }
     return { ...assistant }
   }

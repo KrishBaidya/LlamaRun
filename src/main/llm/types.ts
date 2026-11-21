@@ -101,12 +101,17 @@ export interface GenerateOptions {
   /** The model can see images: tool results' images (screenshots) are sent along. */
   vision?: boolean
   /** Ollama: token counts for each request of the turn (one per tool round), as Ollama reports them. */
-  onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void
+  onUsage?: (usage: { inputTokens: number; outputTokens: number; cachedInputTokens?: number; reasoningTokens?: number }) => void
   /**
    * How hard a thinking model thinks (see resolveThinking): a level for cloud
    * models, `off`/`on` for Ollama's `think`. Absent: the model's own default.
    */
   thinking?: ThinkingChoice
+  /**
+   * Between tool rounds: what the user sent to this reply while it worked,
+   * added to the conversation as their message before the next request.
+   */
+  steer?: () => string | undefined
 }
 
 /** Maximum model -> tool -> model round trips before pausing (or forcing an answer). */

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { ApprovalRequest, Chat, ChatAttachment, ChatEvent, ChatMessage, ChatSummary, MessagePart, ThinkingChoice, ToolPart } from '@shared/types'
+import type { ApprovalRequest, Chat, ChatAttachment, ChatEvent, ChatMessage, ChatSetup, ChatSummary, MessagePart, QueuedMessage, ThinkingChoice, ToolPart } from '@shared/types'
 import { api } from './use-llamarun'
 
 /** Streamed text goes onto the last text part, or starts a new one after a tool call (mirrors chats/parts.ts). */
@@ -60,8 +60,14 @@ function applyEvent(chat: Chat, e: ChatEvent): Chat {
         ...chat,
         messages: chat.messages.map((m) => (m.id === e.messageId ? { ...m, parts: withTool(m.parts, e.part) } : m))
       }
+    case 'steer':
+      return {
+        ...chat,
+        messages: chat.messages.map((m) => (m.id === e.messageId ? { ...m, parts: [...(m.parts ?? []), { type: 'steer', text: e.text }] } : m))
+      }
     case 'status':
     case 'approval':
+    case 'queue':
       return chat
   }
 }
@@ -75,7 +81,7 @@ export interface UseChat {
   /** The older messages are being summarised (auto-compact or /compact). */
   compacting: boolean
   /** `thinking` applies when this message starts a new chat (an existing chat keeps its own). */
-  send: (text: string, model?: string, attachments?: ChatAttachment[], thinking?: ThinkingChoice) => Promise<string | null>
+  send: (text: string, model?: string, attachments?: ChatAttachment[], thinking?: ThinkingChoice, setup?: ChatSetup) => Promise<string | null>
   /** Summarises older messages now. */
   compact: (instructions?: string) => Promise<void>
   /** The model is waiting for the user to allow a command or script. */
@@ -85,6 +91,11 @@ export interface UseChat {
   /** Resumes a reply that stopped at the tool-round cap. */
   resume: () => void
   error: string | null
+  /** Messages typed while the reply runs (sent when it ends, or into it with steer). */
+  queued: QueuedMessage[]
+  queue: (text: string) => void
+  steer: (id: string) => void
+  unqueue: (id: string) => void
 }
 
 /**
@@ -97,6 +108,7 @@ export function useChat(chatId: string | null, onCreated?: (id: string) => void)
   const [error, setError] = useState<string | null>(null)
   const [compacting, setCompacting] = useState(false)
   const [approval, setApproval] = useState<ApprovalRequest | null>(null)
+  const [queued, setQueued] = useState<QueuedMessage[]>([])
   const idRef = useRef(chatId)
   /** Id of a chat this hook just created by sending; switching to it keeps the pending state. */
   const createdRef = useRef<string | null>(null)
@@ -106,7 +118,9 @@ export function useChat(chatId: string | null, onCreated?: (id: string) => void)
     setError(null)
     setCompacting(false)
     setApproval(null)
+    setQueued([])
     if (chatId) void api.chats.pendingApproval(chatId).then(setApproval)
+    if (chatId) void api.chats.queued(chatId).then(setQueued)
     // A new chat (null) never starts out waiting; only the chat this hook just created keeps the flag.
     if (!chatId || chatId !== createdRef.current) setAwaitingReply(false)
     createdRef.current = null
@@ -127,6 +141,7 @@ export function useChat(chatId: string | null, onCreated?: (id: string) => void)
         if (eventChatId(e) !== idRef.current) return
         if (e.type === 'status') setCompacting(e.status === 'compacting')
         if (e.type === 'approval') setApproval(e.request)
+        if (e.type === 'queue') setQueued(e.items)
         if (e.type === 'message' && e.message.role === 'assistant') setAwaitingReply(false)
         setChat((c) => (c ? applyEvent(c, e) : e.type === 'chat' ? e.chat : c))
       }),
@@ -146,12 +161,12 @@ export function useChat(chatId: string | null, onCreated?: (id: string) => void)
   }, [awaitingReply, last?.role])
 
   const send = useCallback(
-    async (text: string, model?: string, attachments?: ChatAttachment[], thinking?: ThinkingChoice) => {
+    async (text: string, model?: string, attachments?: ChatAttachment[], thinking?: ThinkingChoice, setup?: ChatSetup) => {
       setError(null)
       try {
         // /compact runs before replying to anything, so there is no reply to wait for.
         setAwaitingReply(!/^\/compact\b/i.test(text))
-        const id = await api.chats.send(idRef.current, text, model, attachments?.length ? attachments : undefined, thinking)
+        const id = await api.chats.send(idRef.current, text, model, attachments?.length ? attachments : undefined, thinking, setup)
         if (id !== idRef.current) {
           idRef.current = id
           createdRef.current = id
@@ -192,7 +207,17 @@ export function useChat(chatId: string | null, onCreated?: (id: string) => void)
     }
   }, [])
 
-  return { chat, busy: streaming || waiting || compacting, compacting, approval, send, compact, stop, retry, resume, error }
+  const queue = useCallback((text: string) => {
+    if (idRef.current) void api.chats.queue(idRef.current, text)
+  }, [])
+  const steer = useCallback((id: string) => {
+    if (idRef.current) void api.chats.steer(idRef.current, id)
+  }, [])
+  const unqueue = useCallback((id: string) => {
+    if (idRef.current) void api.chats.unqueue(idRef.current, id)
+  }, [])
+
+  return { chat, busy: streaming || waiting || compacting, compacting, approval, send, compact, stop, retry, resume, error, queued, queue, steer, unqueue }
 }
 
 export function useChatList(): ChatSummary[] | null {

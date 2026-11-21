@@ -18,12 +18,12 @@ class RoutineStore extends EventEmitter<{ changed: [Routine[]] }> {
     return this.list().find((r) => r.id === id || r.id.startsWith(id))
   }
 
-  add(prompt: string, when: string, model?: string): Routine {
+  add(prompt: string, when: string, model?: string, quiet = false): Routine {
     const text = prompt.trim()
     if (!text) throw new Error('A routine needs a prompt')
     const next = parseWhen(when).next(new Date())
     if (next === null) throw new Error(`"${when}" is in the past`)
-    const routine: Routine = { id: randomUUID().slice(0, 8), prompt: text, when: when.trim(), next, createdAt: Date.now(), ...(model ? { model } : {}) }
+    const routine: Routine = { id: randomUUID().slice(0, 8), prompt: text, when: when.trim(), next, createdAt: Date.now(), ...(model ? { model } : {}), ...(quiet ? { quiet: true } : {}) }
     this.items = [...this.list(), routine]
     this.save()
     return routine
@@ -79,5 +79,5 @@ export function describeRoutine(r: Routine): string {
   const at = (t: number): string => new Date(t).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
   const state = r.paused ? 'paused' : r.next ? `next ${at(r.next)}` : 'done'
   const last = r.lastRun ? `; last ran ${at(r.lastRun)} (${r.lastStatus ?? 'done'})` : ''
-  return `${r.id}: "${r.prompt}" (${r.when}; ${state}${last})`
+  return `${r.id}: "${r.prompt}" (${r.when}${r.quiet ? '; quiet' : ''}; ${state}${last})`
 }

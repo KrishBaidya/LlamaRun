@@ -11,6 +11,8 @@ import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const PLUGINS = ['plugin_creator', 'edith']
+/** Bundled plugins whose source lives in this repository (plugins/<id>). */
+const LOCAL_PLUGINS = ['usage_insights', 'lsp_diagnostics']
 const SKIP = new Set(['__pycache__', '.deps', '.git', '.venv', 'node_modules', 'tests', '.pytest_cache'])
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -28,4 +30,8 @@ for (const id of PLUGINS) {
   }
   cpSync(src, join(out, id), { recursive: true, filter: (p) => !SKIP.has(basename(p)) })
   console.log(`[bundle-plugins] ${id}: staged`)
+}
+for (const id of LOCAL_PLUGINS) {
+  cpSync(join(root, 'plugins', id), join(out, id), { recursive: true, filter: (p) => !SKIP.has(basename(p)) })
+  console.log(`[bundle-plugins] ${id}: staged from plugins/`)
 }

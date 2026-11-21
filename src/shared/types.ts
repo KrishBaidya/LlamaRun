@@ -35,6 +35,12 @@ export interface Settings {
   commandRules: CommandRule[]
   /** After a reply with many tool calls, a cheap model proposes a skill or memories to keep (shown under the reply). */
   reviewAfterTasks: boolean
+  /** A Windows notification when a reply that used tools finishes, or a chat needs an approval, while Llama Run isn't focused. */
+  notifyWhenDone: boolean
+  /** Windows: commands the model runs can change files only in the workspace and the chat's folder (low integrity). */
+  commandSandbox: boolean
+  /** MCP servers whose apps show without asking first ("Always allow"). */
+  mcpAppsTrusted: string[]
   /** Tool calls a reply needs before it's reviewed. */
   reviewMinToolCalls: number
   /** Summarise older messages when a chat gets close to the model's context window. */
@@ -42,7 +48,6 @@ export interface Settings {
   /** Compact when the conversation fills this share (percent) of the model's window. */
   autoCompactPercent: number
   /** Most recent user turns kept word for word when compacting. */
-  compactKeepTurns: number
   /** Per-model overrides, by model id. */
   modelContext: Record<string, ModelContextOverride>
   /** The model may operate apps on this PC (computer use, through Cua Driver). */
@@ -101,6 +106,26 @@ export interface ContextUsage extends ModelContextInfo {
   used: number
   percent: number
   breakdown?: ContextBreakdown
+  /** What the chat has used so far, as providers counted it. */
+  spent?: TokenUsage
+}
+
+/** Tokens counted by the provider, summed over requests. */
+export interface TokenUsage {
+  inputTokens: number
+  outputTokens: number
+  /** Input tokens read from the provider's prompt cache (cheaper). */
+  cachedInputTokens: number
+  /** Output tokens a thinking model spent thinking. */
+  reasoningTokens: number
+  requests: number
+}
+
+/** One day's usage per model. */
+export interface UsageDay {
+  /** YYYY-MM-DD, local time. */
+  day: string
+  models: Record<string, TokenUsage>
 }
 
 /** Older messages of a chat replaced, for the model, by a summary. */
@@ -140,6 +165,49 @@ export interface ToolPart {
   status: 'running' | 'done' | 'error'
   /** The result as text, cut to a few KB for storage; images are left out. */
   result?: string
+  /** agent_run: the tool calls the agent made, in order. */
+  steps?: ToolStep[]
+  /** An MCP App: the tool's own interface, shown with its result. */
+  app?: McpAppRef
+}
+
+/**
+ * A tool call whose server ships an interface for it (the MCP Apps extension,
+ * io.modelcontextprotocol/ui): the ui:// resource to show and what the view
+ * needs, the call's arguments and result.
+ */
+export interface McpAppRef {
+  server: string
+  uri: string
+  tool: string
+  /** The tool's definition, which the view gets as toolInfo (apps check its inputSchema). */
+  toolDef?: { name: string; title?: string; description?: string; inputSchema: Record<string, unknown> }
+  args: Record<string, unknown>
+  result?: { content: unknown[]; structuredContent?: unknown; isError?: boolean }
+}
+
+/** Origins an MCP App may use, from its resource's _meta.ui.csp. */
+export interface McpAppCsp {
+  connectDomains?: string[]
+  resourceDomains?: string[]
+  frameDomains?: string[]
+  baseUriDomains?: string[]
+}
+
+/** An MCP App's interface, read from its server (resources/read on the ui:// URI). */
+export interface McpAppResource {
+  html: string
+  csp: McpAppCsp
+  /** Browser features it asked for (camera, microphone, geolocation, clipboardWrite). */
+  permissions: string[]
+  prefersBorder?: boolean
+}
+
+export interface ToolStep {
+  name: string
+  status: 'done' | 'error'
+  /** A short hint of what the call was about. */
+  hint?: string
 }
 
 /** What the model thought on the way (a thinking model's summary of its reasoning), shown in place; never sent back to it. */
@@ -148,8 +216,22 @@ export interface ThinkingPart {
   text: string
 }
 
+/** Something the user sent to a reply while it was working (a steer), shown where the model got it. */
+export interface SteerPart {
+  type: 'steer'
+  text: string
+}
+
 /** An assistant reply in the order it happened: text, tool, text, tool, ... */
-export type MessagePart = TextPart | ToolPart | ThinkingPart
+export type MessagePart = TextPart | ToolPart | ThinkingPart | SteerPart
+
+/** A message typed while a reply was running: sent when it ends, or (steer) into its next tool round. */
+export interface QueuedMessage {
+  id: string
+  text: string
+  /** Waiting to go into the running reply's next tool round. */
+  steer?: boolean
+}
 
 /** A file sent with a message. Images go to vision models; documents are read as text. */
 export interface ChatAttachment {
@@ -197,7 +279,7 @@ export interface ChatMessage {
   /** How many files "Undo file changes" put back. */
   undoneFiles?: number
   /** User messages sent by a plugin (e.g. a voice assistant) rather than typed. */
-  via?: { plugin: string; voice?: boolean }
+  via?: { plugin: string; voice?: boolean; remote?: boolean }
   /** Assistant messages: stopped at the tool-round cap and can be continued. */
   toolLimit?: boolean
   /** Images and documents sent with it (or posted by a plugin). */
@@ -206,7 +288,82 @@ export interface ChatMessage {
   from?: { plugin: string }
   /** User messages that ran a skill as a /command: the model gets its instructions instead of the typed text. */
   skill?: { name: string; instructions: string }
+  /** User messages a hook sent (a Stop hook's feedback), not typed. */
+  hook?: HookEvent
+  /** User messages that were edited: every version, each with the replies that followed it (‹ 1/2 ›). */
+  versions?: MessageVersion[]
+  /** Which of `versions` is showing. */
+  version?: number
   createdAt: number
+}
+
+/** A messaging app's connection, as Settings > Channels shows it. */
+export interface ChannelStatus {
+  id: 'telegram' | 'discord'
+  label: string
+  /** A bot token is saved. */
+  configured: boolean
+  connected: boolean
+  botName?: string
+  /** People allowed to use the bot. */
+  paired: { peer: string; name: string; username?: string }[]
+  /** People who messaged the bot and are waiting for the user to allow or block them (for an hour). */
+  pending: { peer: string; name: string; username?: string; text: string; at: number }[]
+  /** People the bot ignores. */
+  blocked: { peer: string; name: string; username?: string }[]
+  error?: string
+  /** What the bot's / menu last did: how many commands, for whom, confirmed or not. */
+  menu?: string
+  /** Links that help set it up: add the bot to a server, open a chat with it. */
+  links?: { label: string; url: string }[]
+  deliverRoutines: boolean
+}
+
+/** What a Claude Code plugin would add, shown before installing. */
+export interface BundlePreview {
+  name: string
+  description: string
+  version?: string
+  skills: string[]
+  /** Slash commands (installed as /command skills). */
+  commands: string[]
+  /** Agent files (installed as skills). */
+  agents: string[]
+  /** "Event (matcher): command" for each hook. */
+  hooks: string[]
+  /** "name: command" for each MCP server. */
+  mcpServers: string[]
+}
+
+/** An installed Claude Code plugin and what it added, so it can be removed. */
+export interface BundleInfo {
+  name: string
+  description: string
+  root: string
+  installedAt: number
+  skills: string[]
+  mcpServers: string[]
+}
+
+export type HookEvent = 'SessionStart' | 'UserPromptSubmit' | 'PreToolUse' | 'PostToolUse' | 'Stop'
+
+export interface HookHandler {
+  type: 'command'
+  command: string
+  /** Seconds before it's stopped (default 60). */
+  timeout?: number
+}
+
+/** Claude Code's hooks format: per event, groups of commands with an optional tool-name matcher. */
+export type HookConfig = Partial<Record<HookEvent, { matcher?: string; hooks: HookHandler[] }[]>>
+
+/** One version of an edited user message and the messages that followed it then. */
+export interface MessageVersion {
+  content: string
+  attachments?: ChatAttachment[]
+  skill?: { name: string; instructions: string }
+  createdAt: number
+  tail: ChatMessage[]
 }
 
 export interface Chat {
@@ -224,11 +381,23 @@ export interface Chat {
   installer?: boolean
   /** How hard the model thinks in this chat, chosen in the chat box. Absent: the model's default from Model settings. */
   thinking?: ThinkingChoice
+  /** Plan mode: the model only reads and looks things up; nothing on the PC changes until it's turned off. */
+  plan?: boolean
+  /** The folder this chat works in (see Project). */
+  project?: string
+}
+
+/** Chosen in the chat box before a chat exists; goes with its first message. */
+export interface ChatSetup {
+  plan?: boolean
+  project?: string
 }
 
 export interface ChatSummary {
   id: string
   title: string
+  /** Its project folder, for grouping in the sidebar. */
+  project?: string
   model: string
   updatedAt: number
   messageCount: number
@@ -238,6 +407,8 @@ export interface ChatSummary {
 
 /** Streaming updates for one chat, broadcast to every window showing it. */
 export type ChatEvent =
+  | { type: 'queue'; chatId: string; items: QueuedMessage[] }
+  | { type: 'steer'; chatId: string; messageId: string; text: string }
   | { type: 'message'; chatId: string; message: ChatMessage }
   | { type: 'delta'; chatId: string; messageId: string; text: string }
   /** More of the model's thinking, streamed like `delta`. */
@@ -391,6 +562,8 @@ export interface Routine {
   /** The chat its runs go into, made by the first run. */
   chatId?: string
   model?: string
+  /** A run notifies only when it calls notify_user (OpenClaw's heartbeat): "tell me if X changes" stays silent otherwise. */
+  quiet?: boolean
 }
 
 /** What the review after a long task proposes keeping. */
@@ -415,7 +588,7 @@ export interface MemoryItem {
 
 /** An installed skill: a folder with a SKILL.md the model can load and scripts it can run. */
 /** shared: ~/.agents/skills (every agent); claude: ~/.claude/skills; app: Llama Run's old private folder. */
-export type SkillLocation = 'shared' | 'claude' | 'app'
+export type SkillLocation = 'shared' | 'claude' | 'app' | 'plugin'
 
 export interface SkillInfo {
   /** Folder name inside the Skills directory. */
@@ -427,6 +600,8 @@ export interface SkillInfo {
   trusted: boolean
   folder: string
   location: SkillLocation
+  /** The plugin it comes with (location "plugin"); it goes when the plugin is turned off or removed. */
+  plugin?: string
   /** Where it was installed from (a link, ZIP or folder), if known. */
   source?: string
   /** The /command that runs it from the chat box. */
@@ -451,7 +626,7 @@ export interface SkillInfo {
 export interface SlashCommand {
   name: string
   description: string
-  kind: 'builtin' | 'plugin' | 'skill'
+  kind: 'builtin' | 'plugin' | 'skill' | 'mcp'
   /** Who provides it: 'Llama Run', a plugin's name, or where a skill comes from. */
   plugin: string
   /** Text after the name, e.g. "[focus]". */
@@ -474,7 +649,8 @@ export interface McpServerConfig {
 
 export interface McpServerStatus {
   name: string
-  state: 'connecting' | 'connected' | 'error' | 'disconnected'
+  /** signin: it needs the user to sign in (error says what to do). */
+  state: 'connecting' | 'connected' | 'error' | 'disconnected' | 'signin'
   error?: string
   toolCount: number
 }
@@ -539,7 +715,56 @@ export type PluginPermission =
   | 'context'
   | 'appearance'
   | 'commands'
+  | 'usage'
+  | 'renderers'
+  | 'buttons'
+  | 'statusbar'
+  | 'pages'
+  | 'attachments'
   | 'unrestricted'
+
+/** Where a plugin's button sits (SDK 1.6). */
+export type PluginButtonPlace = 'message' | 'composer' | 'sidebar'
+
+/** Everything running plugins added to the chat window and Settings (SDK 1.6). */
+export interface PluginSurfaces {
+  /** Fenced code blocks in replies with this language are drawn by the plugin. */
+  renderers: { plugin: string; pluginName: string; language: string; label: string }[]
+  buttons: { plugin: string; pluginName: string; id: string; where: PluginButtonPlace; label: string; icon?: string; tooltip?: string }[]
+  statusItems: { plugin: string; pluginName: string; id: string; text: string; icon?: string; tooltip?: string; clickable: boolean }[]
+  /** Entries in the chat box's attach menu. */
+  attachSources: { plugin: string; pluginName: string; id: string; label: string; icon?: string }[]
+  settingsPages: { plugin: string; pluginName: string; id: string; title: string; icon?: string }[]
+  /** Tools whose calls the plugin that offers them draws itself. `server` is the plugin's name, as on tool parts. */
+  toolCards: { plugin: string; server: string; tool: string }[]
+}
+
+/** What a plugin's button gets when it is clicked. */
+export interface PluginButtonContext {
+  chatId: string | null
+  messageId?: string
+  messageText?: string
+  role?: 'user' | 'assistant'
+  /** Composer buttons: what is typed in the chat box. */
+  draft?: string
+}
+
+/** A tool call, as a plugin's tool card sees it. */
+export interface PluginToolCall {
+  args: Record<string, unknown>
+  result?: string
+  status: 'running' | 'done' | 'error'
+}
+
+/** A file an attachment source returned, turned into an attachment by the chat box. */
+export interface PluginAttachmentFile {
+  name: string
+  mimeType: string
+  /** Text files. */
+  text?: string
+  /** Anything else, base64. */
+  data?: string
+}
 
 export interface PermissionInfo {
   id: PluginPermission

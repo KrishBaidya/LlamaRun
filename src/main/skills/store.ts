@@ -136,11 +136,19 @@ export function cut(text: string, limit = MAX_READ_CHARS): string {
 
 /** Installed skills: Skills/<id>/SKILL.md, read fresh each time (they are small and few). */
 class SkillStore extends EventEmitter<{ changed: [SkillInfo[]] }> {
+  /** The skills/ folders of turned-on plugins (set by the plugin host). */
+  private pluginRoots: () => { dir: string; plugin: string }[] = () => []
+
+  setPluginRoots(roots: () => { dir: string; plugin: string }[]): void {
+    this.pluginRoots = roots
+  }
+
   list(): SkillInfo[] {
     const disabled = settings.get('skillsDisabled') ?? {}
     const trusted = settings.get('skillsTrusted') ?? {}
     const skills = new Map<string, SkillInfo>()
-    for (const { dir, location } of skillRoots()) {
+    const roots: { dir: string; location: SkillLocation; plugin?: string }[] = [...skillRoots(), ...this.pluginRoots().map((r) => ({ dir: r.dir, location: 'plugin' as const, plugin: r.plugin }))]
+    for (const { dir, location, plugin } of roots) {
       if (!existsSync(dir)) continue
       for (const id of readdirSync(dir)) {
         const folder = join(dir, id)
@@ -162,6 +170,7 @@ class SkillStore extends EventEmitter<{ changed: [SkillInfo[]] }> {
           trusted: !!trusted[id],
           folder,
           location,
+          ...(plugin ? { plugin } : {}),
           source: meta.source,
           installedAt: meta.installedAt,
           requirementsError: meta.requirementsError,
@@ -181,14 +190,14 @@ class SkillStore extends EventEmitter<{ changed: [SkillInfo[]] }> {
 
   /** Skills the user can run from the chat box, as Claude Code lists them in its / menu. */
   commands(): SlashCommand[] {
-    const from: Record<SkillLocation, string> = { shared: 'Skill', claude: 'Skill · Claude Code', app: 'Skill' }
+    const from: Record<SkillLocation, string> = { shared: 'Skill', claude: 'Skill · Claude Code', app: 'Skill', plugin: 'Skill' }
     return this.active()
       .filter((s) => s.userInvocable)
       .map((s) => ({
         name: s.command,
         description: s.description,
         kind: 'skill' as const,
-        plugin: from[s.location],
+        plugin: s.plugin ? `Skill · ${s.plugin}` : from[s.location],
         ...(s.argumentHint ? { args: s.argumentHint } : {})
       }))
   }
@@ -359,6 +368,7 @@ class SkillStore extends EventEmitter<{ changed: [SkillInfo[]] }> {
     const skill = this.list().find((s) => s.id === id)
     if (!skill) return
     if (skill.location === 'claude') throw new Error(`${skill.name} belongs to Claude Code. Turn it off here, or remove it from ${skill.folder}.`)
+    if (skill.location === 'plugin') throw new Error(`${skill.name} comes with the ${skill.plugin} plugin. Turn it off here, or turn the plugin off.`)
     const root = skillRoots().find((r) => r.location === skill.location)!.dir
     const folder = resolve(skill.folder)
     if (!folder.startsWith(resolve(root) + sep)) throw new Error('Not a skill folder')

@@ -39,7 +39,7 @@ from typing import Any, Callable, Dict, List, Optional  # noqa: E402
 
 import llamarun  # noqa: E402
 from llamarun import _rpc, _sandbox, app, chats, events, settings, tools, ui  # noqa: E402
-from llamarun.types import TextGenerationContext, TextGenerationResult  # noqa: E402
+from llamarun.types import SessionContext, StopContext, TextGenerationContext, TextGenerationResult, ToolCallContext, ToolCallResult  # noqa: E402
 
 IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 REQUIRED_FIELDS = ("name", "description", "version", "author", "sdk_version")
@@ -207,6 +207,10 @@ def check_sdk_version(wanted: str, host: str = llamarun.__version__) -> None:
 HOOKS = {
     "before_text_generation": "on_before_text_generation",
     "after_text_generation": "on_after_text_generation",
+    "before_tool_call": "on_before_tool_call",
+    "after_tool_call": "on_after_tool_call",
+    "session_start": "on_session_start",
+    "stop": "on_stop",
 }
 
 
@@ -380,6 +384,55 @@ class PluginRunner:
             return None
         return asdict(returned)
 
+    def before_tool_call(self, tool: str, arguments: dict, chat_id: str) -> Optional[dict]:
+        if self.instance is None:
+            return None
+        ctx = ToolCallContext(tool=tool, arguments=dict(arguments or {}), chat_id=chat_id)
+        try:
+            returned = self.instance.on_before_tool_call(ctx)
+        except Exception:
+            self._report("on_before_tool_call")
+            return None
+        if returned is None:
+            return None
+        if not isinstance(returned, ToolCallContext):
+            self._log("warning", f"on_before_tool_call returned {type(returned).__name__}; ignored")
+            return None
+        return {"block": bool(returned.block), "reason": str(returned.reason or "")}
+
+    def session_start(self, chat_id: str, cwd: str) -> Optional[str]:
+        if self.instance is None:
+            return None
+        try:
+            returned = self.instance.on_session_start(SessionContext(chat_id=chat_id, cwd=cwd))
+        except Exception:
+            self._report("on_session_start")
+            return None
+        return None if returned is None else str(returned)[:10000]
+
+    def stop(self, chat_id: str, cwd: str, response_text: str, again: bool) -> Optional[str]:
+        if self.instance is None:
+            return None
+        try:
+            returned = self.instance.on_stop(StopContext(chat_id=chat_id, cwd=cwd, response_text=response_text, again=again))
+        except Exception:
+            self._report("on_stop")
+            return None
+        return None if returned is None else str(returned)[:10000]
+
+    def after_tool_call(self, tool: str, arguments: dict, result: str, chat_id: str, is_error: bool) -> Optional[str]:
+        if self.instance is None:
+            return None
+        call = ToolCallResult(tool=tool, arguments=dict(arguments or {}), result=result, chat_id=chat_id, is_error=is_error)
+        try:
+            returned = self.instance.on_after_tool_call(call)
+        except Exception:
+            self._report("on_after_tool_call")
+            return None
+        if returned is None:
+            return None
+        return str(returned)[:10000]
+
     def custom(self, action: str) -> bool:
         if self.instance is None:
             raise RpcError(f"{self.name} is not loaded")
@@ -423,6 +476,14 @@ class PluginRunner:
         except Exception as exc:
             self._report(f"tool {name}")
             return {"content": [{"type": "text", "text": f"{name} failed: {exc}"}], "isError": True}
+
+    def surface(self, what: str, handler: Callable[[dict], Any], params: dict) -> Any:
+        """Run a chat-window surface's callback (a renderer, a button), logging what fails."""
+        try:
+            return handler(params)
+        except Exception as exc:
+            self._report(what)
+            raise RpcError(f"{what} failed: {exc}") from exc
 
     def ui_event(self, params: dict) -> Any:
         try:
@@ -498,12 +559,24 @@ def main(argv: Optional[List[str]] = None) -> int:
         "events.after_text_generation": lambda p: runner.after_text_generation(
             p["input_text"], p["response_text"], p.get("model", "")
         ),
+        "events.before_tool_call": lambda p: runner.before_tool_call(str(p.get("tool", "")), p.get("arguments") or {}, str(p.get("chat_id", ""))),
+        "events.after_tool_call": lambda p: runner.after_tool_call(
+            str(p.get("tool", "")), p.get("arguments") or {}, str(p.get("result", "")), str(p.get("chat_id", "")), bool(p.get("is_error"))
+        ),
+        "events.session_start": lambda p: runner.session_start(str(p.get("chat_id", "")), str(p.get("cwd", ""))),
+        "events.stop": lambda p: runner.stop(str(p.get("chat_id", "")), str(p.get("cwd", "")), str(p.get("response_text", "")), bool(p.get("again"))),
         "events.custom": lambda p: runner.custom(p["action"]),
         "events.deliver": lambda p: events._deliver(p["topic"], p.get("data"), p.get("source", "")),
         "services.call": lambda p: runner.call_service(p["method"], p.get("args") or [], p.get("kwargs") or {}),
         "tools.call": lambda p: runner.call_tool(str(p.get("name", "")), p.get("arguments") or {}),
         "settings.changed": lambda p: list(settings._apply(p.get("values") or {})),
         "ui.event": runner.ui_event,
+        # SDK 1.6: code blocks, buttons, tool cards, status items and attach-menu entries.
+        "ui.render_block": lambda p: runner.surface("code block renderer", ui._render_block, p),
+        "ui.render_card": lambda p: runner.surface("tool card", ui._render_card, p),
+        "ui.button": lambda p: runner.surface("button", ui._button, p),
+        "ui.status_click": lambda p: runner.surface("status item", ui._status_click, p),
+        "ui.attach": lambda p: runner.surface("attachment source", ui._attach, p),
         # Notifications from the app: streamed chat replies and global shortcuts.
         "chats.stream": lambda p: chats._deliver(p),
         "app.shortcut": lambda p: app._shortcut_pressed(p),

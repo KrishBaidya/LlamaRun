@@ -1,5 +1,12 @@
 import type {
   AppearanceInfo,
+  McpAppResource,
+  BundleInfo,
+  BundlePreview,
+  ChannelStatus,
+  ChatSetup,
+  HookConfig,
+  QueuedMessage,
   Chat,
   ChatAttachment,
   ApprovalAnswer,
@@ -22,16 +29,21 @@ import type {
   OverlayModelMenuPayload,
   OverlayShownPayload,
   PermissionInfo,
+  PluginAttachmentFile,
+  PluginButtonContext,
   PluginDialogRequest,
   PluginInfo,
   PluginInspection,
   PluginPermission,
   PluginRuntimeStatus,
   PluginSettingsView,
+  PluginSurfaces,
+  PluginToolCall,
   Settings,
   SkillInfo,
   SlashCommand,
   ThinkingChoice,
+  UiNode,
   UserProfile
 } from './types'
 
@@ -64,10 +76,29 @@ export interface InvokeChannels {
   /** How hard the model thinks in this chat; null goes back to the model's default. */
   'chats:setThinking': (id: string, thinking: ThinkingChoice | null) => void
   /** Sends a user message; creates the chat when chatId is null. Returns the chat id. */
-  'chats:send': (chatId: string | null, text: string, model?: string, attachments?: ChatAttachment[], thinking?: ThinkingChoice) => string
+  'chats:send': (chatId: string | null, text: string, model?: string, attachments?: ChatAttachment[], thinking?: ThinkingChoice, setup?: ChatSetup) => string
+  /** The agent a chat runs as; null for none. */
+  /** Plan mode on or off for a chat. */
+  'chats:setPlan': (id: string, plan: boolean) => void
+  /** The folder a chat works in; null for none. */
+  'chats:setProject': (id: string, folder: string | null) => void
+  /** Asks for a folder; its path, or null if cancelled. */
+  'chats:pickFolder': () => string | null
   'chats:cancel': (chatId: string) => void
   /** Re-runs the last user message (after an error or to get a new answer). */
   'chats:retry': (chatId: string) => void
+  /** Save the chat as Markdown or a self-contained HTML page; the path, or null if cancelled. */
+  'chats:export': (chatId: string) => string | null
+  /** A message typed while the reply runs: sent when it ends. */
+  'chats:queue': (chatId: string, text: string) => void
+  /** Send a queued message into the running reply now. */
+  'chats:steer': (chatId: string, id: string) => void
+  'chats:unqueue': (chatId: string, id: string) => void
+  'chats:queued': (chatId: string) => QueuedMessage[]
+  /** Edit one of the user's messages: the chat forks there and replies again; the old branch is kept. */
+  'chats:edit': (chatId: string, messageId: string, text: string, undoFiles?: boolean) => void
+  /** Show another version of an edited message, with its replies. */
+  'chats:switchVersion': (chatId: string, messageId: string, index: number) => void
   /** Resumes a reply that stopped at the tool-round cap, from where it stopped. */
   'chats:continue': (chatId: string) => void
   /** Answers the model's request to run a command or script in this chat. */
@@ -92,8 +123,28 @@ export interface InvokeChannels {
 
   'memory:list': () => MemoryItem[]
   /** Scheduled prompts. */
+  'channels:status': () => ChannelStatus[]
+  /** Connects a bot with the token the user pasted; throws if it doesn't work. */
+  'channels:connect': (id: 'telegram' | 'discord', token: string) => ChannelStatus[]
+  'channels:disconnect': (id: 'telegram' | 'discord') => ChannelStatus[]
+  'channels:approve': (id: 'telegram' | 'discord', peer: string) => ChannelStatus[]
+  'channels:block': (id: 'telegram' | 'discord', peer: string) => ChannelStatus[]
+  'channels:unpair': (id: 'telegram' | 'discord', peer: string) => ChannelStatus[]
+  'channels:setDeliver': (on: boolean) => ChannelStatus[]
+  /** Reads a Claude Code plugin (a link or folder) and says what it would add; nothing is installed yet. */
+  'bundles:inspect': (input: string) => { token: string; preview: BundlePreview }
+  'bundles:install': (token: string) => BundleInfo[]
+  'bundles:cancel': (token: string) => void
+  'bundles:list': () => BundleInfo[]
+  'bundles:remove': (name: string) => BundleInfo[]
+  'hooks:get': () => HookConfig
+  /** Saves the hooks (Claude Code's format); throws saying what's wrong. */
+  'hooks:save': (config: HookConfig) => HookConfig
+  /** Claude Code's own hooks from ~/.claude/settings.json, or null. */
+  'hooks:claudeCode': () => HookConfig | null
   'routines:list': () => Routine[]
-  'routines:add': (prompt: string, when: string) => Routine[]
+  'routines:add': (prompt: string, when: string, quiet?: boolean) => Routine[]
+  'routines:setQuiet': (id: string, quiet: boolean) => Routine[]
   'routines:act': (id: string, action: 'pause' | 'resume' | 'remove' | 'run') => Routine[]
   'memory:add': (text: string) => MemoryItem[]
   'memory:update': (id: string, text: string) => MemoryItem[]
@@ -145,9 +196,21 @@ export interface InvokeChannels {
   'mcp:tools': () => McpToolInfo[]
   'mcp:saveServer': (server: McpServerConfig) => void
   'mcp:remove': (name: string) => void
+  'mcp:signIn': (name: string) => void
+  'mcp:signOut': (name: string) => void
   'mcp:directory': (query: McpDirectoryQuery) => McpDirectoryPage
   'mcp:clearDirectoryCache': () => void
   'mcp:directoryServer': (id: string) => McpDirectoryServer
+  'mcpApps:resource': (server: string, uri: string) => McpAppResource
+  'mcpApps:callTool': (server: string, name: string, args: Record<string, unknown>) => { content: unknown[]; structuredContent?: unknown; isError?: boolean }
+  'mcpApps:readResource': (server: string, uri: string) => unknown
+  'mcpApps:listTools': (server: string) => unknown
+  'mcpApps:listResources': (server: string) => unknown
+  'mcpApps:message': (chatId: string, server: string, text: string) => void
+  'mcpApps:setContext': (chatId: string, server: string, text: string) => void
+  'mcpApps:registerTools': (chatId: string, viewId: string, server: string, tools: unknown) => void
+  'mcpApps:unregisterTools': (viewId: string) => void
+  'mcpApps:appToolResult': (requestId: string, result: unknown) => void
   'mcp:readmeUrl': (id: string) => string
   'mcp:configFromDirectory': (server: McpDirectoryServer) => McpServerConfig
 
@@ -167,6 +230,21 @@ export interface InvokeChannels {
   'plugins:openFolder': () => void
   'plugins:openDataFolder': (id: string) => void
   'plugins:runAction': (id: string, action: string) => void
+  /** What running plugins added to the chat window and Settings (SDK 1.6). */
+  'plugins:surfaces': () => PluginSurfaces
+  /** HTML for a fenced code block a plugin draws, or null when no plugin draws its language. */
+  'plugins:renderBlock': (language: string, code: string) => string | null
+  /** A plugin's button was clicked; composer buttons may return text for the chat box. */
+  'plugins:clickButton': (plugin: string, id: string, context: PluginButtonContext) => string | null
+  'plugins:clickStatus': (plugin: string, id: string) => void
+  /** HTML for a tool call's card, from the plugin that offers the tool, or null for the usual card. */
+  'plugins:renderToolCard': (server: string, tool: string, call: PluginToolCall) => string | null
+  /** Files from a plugin's attach-menu entry. */
+  'plugins:attach': (plugin: string, id: string, chatId: string | null) => PluginAttachmentFile[]
+  /** A plugin's Settings page: its current tree. */
+  'plugins:page': (plugin: string, id: string) => UiNode | null
+  /** A callback in a plugin's Settings page. */
+  'plugins:pageEvent': (plugin: string, id: string, event: string, payload: unknown, handler?: string) => unknown
 
   'hud:get': () => HudSnapshot
   'hud:click': (key: string) => void
@@ -192,12 +270,17 @@ export interface EventChannels {
   'plugins:changed': PluginInfo[]
   /** A plugin's settings form or values changed (payload: plugin id). */
   'plugins:settingsChanged': string
+  'plugins:surfaces': PluginSurfaces
+  'plugins:pageTree': { plugin: string; id: string; tree: UiNode }
   'hud:state': HudSnapshot
   'settings:navigate': string
   'memory:changed': MemoryItem[]
   'routines:changed': Routine[]
+  'channels:changed': ChannelStatus[]
   'skills:changed': SkillInfo[]
   'commands:changed': SlashCommand[]
+  /** The model calls a tool an open MCP App offers; the chat window passes it to the app. */
+  'mcpApps:callAppTool': { requestId: string; viewId: string; name: string; args: Record<string, unknown> }
 }
 
 export type InvokeChannel = keyof InvokeChannels
@@ -240,8 +323,18 @@ export const INVOKE_CHANNELS = [
   'chats:setModel',
   'chats:setThinking',
   'chats:send',
+  'chats:setPlan',
+  'chats:setProject',
+  'chats:pickFolder',
   'chats:cancel',
   'chats:retry',
+  'chats:export',
+  'chats:queue',
+  'chats:steer',
+  'chats:unqueue',
+  'chats:queued',
+  'chats:edit',
+  'chats:switchVersion',
   'chats:continue',
   'chats:compact',
   'chats:answerApproval',
@@ -253,8 +346,24 @@ export const INVOKE_CHANNELS = [
   'models:context',
   'attachments:read',
   'memory:list',
+  'channels:status',
+  'channels:connect',
+  'channels:disconnect',
+  'channels:approve',
+  'channels:block',
+  'channels:unpair',
+  'channels:setDeliver',
+  'bundles:inspect',
+  'bundles:install',
+  'bundles:cancel',
+  'bundles:list',
+  'bundles:remove',
+  'hooks:get',
+  'hooks:save',
+  'hooks:claudeCode',
   'routines:list',
   'routines:add',
+  'routines:setQuiet',
   'routines:act',
   'memory:add',
   'memory:update',
@@ -289,9 +398,21 @@ export const INVOKE_CHANNELS = [
   'mcp:tools',
   'mcp:saveServer',
   'mcp:remove',
+  'mcp:signIn',
+  'mcp:signOut',
   'mcp:directory',
   'mcp:clearDirectoryCache',
   'mcp:directoryServer',
+  'mcpApps:resource',
+  'mcpApps:callTool',
+  'mcpApps:readResource',
+  'mcpApps:listTools',
+  'mcpApps:listResources',
+  'mcpApps:message',
+  'mcpApps:setContext',
+  'mcpApps:registerTools',
+  'mcpApps:unregisterTools',
+  'mcpApps:appToolResult',
   'mcp:readmeUrl',
   'mcp:configFromDirectory',
   'plugins:list',
@@ -308,6 +429,14 @@ export const INVOKE_CHANNELS = [
   'plugins:openFolder',
   'plugins:openDataFolder',
   'plugins:runAction',
+  'plugins:surfaces',
+  'plugins:renderBlock',
+  'plugins:clickButton',
+  'plugins:clickStatus',
+  'plugins:renderToolCard',
+  'plugins:attach',
+  'plugins:page',
+  'plugins:pageEvent',
   'hud:get',
   'hud:click',
   'hud:dismiss',
@@ -329,10 +458,14 @@ export const EVENT_CHANNELS = [
   'mcp:changed',
   'plugins:changed',
   'plugins:settingsChanged',
+  'plugins:surfaces',
+  'plugins:pageTree',
   'hud:state',
   'settings:navigate',
   'memory:changed',
   'skills:changed',
   'commands:changed',
-  'routines:changed'
+  'routines:changed',
+  'channels:changed',
+  'mcpApps:callAppTool'
 ] as const satisfies readonly EventChannel[]

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { Blocks, Sparkles, SquareSlash } from 'lucide-react'
+import { Blocks, Plug, Sparkles, SquareSlash } from 'lucide-react'
 import type { SlashCommand } from '@shared/types'
 import { api } from '@/hooks/use-llamarun'
 import { cn } from '@/lib/utils'
@@ -96,7 +96,7 @@ export function useSlashMenu(text: string, setText: (t: string) => void, onRun: 
   return { open, matches, active, onKeyDown, pick }
 }
 
-const KIND_ICON = { builtin: SquareSlash, plugin: Blocks, skill: Sparkles }
+const KIND_ICON = { builtin: SquareSlash, plugin: Blocks, skill: Sparkles, mcp: Plug }
 
 export function SlashMenu({ menu, className }: { menu: SlashMenuState; className?: string }) {
   const list = useRef<HTMLDivElement>(null)

@@ -1,6 +1,8 @@
 import { Notification } from 'electron'
 import type { Routine } from '@shared/types'
 import { approvals } from '../assistant/approval'
+import { takeNotices } from '../assistant/builtins'
+import { channelHub } from '../channels'
 import { chatService } from '../chats/service'
 import { iconPath } from '../paths'
 import { openChatWindow } from '../windows/chat'
@@ -47,16 +49,19 @@ export async function runRoutine(routine: Routine): Promise<void> {
     const reply = await started.done
     const status = reply.status === 'done' ? 'done' : reply.status === 'cancelled' ? 'stopped' : 'error'
     routineStore.update(routine.id, { lastStatus: status })
-    const note = new Notification({
-      title: `Routine: ${gist(routine.prompt).slice(0, 60)}`,
-      body: status === 'error' ? `Failed: ${reply.error ?? 'unknown error'}` : gist(reply.content),
-      icon: iconPath()
-    })
-    const id = chatId
-    note.on('click', () => openChatWindow(id))
-    note.show()
+    // What the run asked to say (notify_user); otherwise its reply, unless the routine is quiet. Failures always show.
+    const asked = takeNotices(chatId)
+    const body = status === 'error' ? `Failed: ${reply.error ?? 'unknown error'}` : asked.length ? asked.join(' ') : routine.quiet ? '' : gist(reply.content)
+    if (body) {
+      channelHub.deliver(`Routine "${gist(routine.prompt).slice(0, 60)}": ${body}`)
+      const note = new Notification({ title: `Routine: ${gist(routine.prompt).slice(0, 60)}`, body: body.slice(0, 250), icon: iconPath() })
+      const id = chatId
+      note.on('click', () => openChatWindow(id))
+      note.show()
+    }
   } catch {
     routineStore.update(routine.id, { lastStatus: 'error' })
+    if (chatId) takeNotices(chatId)
   } finally {
     if (chatId) approvals.unattended.delete(chatId)
     running.delete(routine.id)

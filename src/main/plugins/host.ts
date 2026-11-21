@@ -7,8 +7,12 @@ import type {
   ChatEvent,
   ChatMessage,
   McpToolInfo,
+  PluginAttachmentFile,
+  PluginButtonContext,
   PluginInfo,
   PluginPermission,
+  PluginSurfaces,
+  PluginToolCall,
   PluginRuntimeStatus,
   PluginState,
   SlashCommand,
@@ -34,13 +38,48 @@ import { closePluginDialogs, showPluginDialog } from './ui/dialogs'
 import { hudHost } from './ui/hud'
 import { closePanel, closePluginPanels, openPanel, reloadPluginPanels, renderPanel, setPanelState, setPanelTitle } from './ui/panels'
 import { pluginSettings } from './ui/settingsForms'
+import { attachmentFiles, renderedHtml, SurfaceRegistry } from './surfaces'
+import { usageStore } from '../usage'
 
 export interface BeforeGenerationResult {
   input_text: string
   model: string
   cancel: boolean
   cancelled_by: string | null
+  /** Why it was cancelled, when the canceller said. */
+  reason?: string
+  /** Context hooks added for this turn (session start and prompt hooks). */
+  context?: string
 }
+
+/** The chat a hook event belongs to. */
+export interface HookScope {
+  chatId: string
+  /** The folder the chat works in. */
+  cwd: string
+}
+
+/**
+ * Hook handlers built into Llama Run that run in-process on the plugin events,
+ * before any plugin's. The user's hooks.json (Claude Code's format) is one:
+ * UserPromptSubmit runs on before_text_generation, SessionStart on
+ * session_start, PreToolUse / PostToolUse on before / after_tool_call and Stop
+ * on stop.
+ */
+export interface BuiltinHooks {
+  /** How it is named in notes, e.g. "your hooks". */
+  label: string
+  /** Whether it has anything for an event right now, so a chat can skip the work. */
+  watches(event: 'prompt' | 'session_start' | 'tool' | 'stop'): boolean
+  onPrompt(scope: HookScope, prompt: string): Promise<{ blocked: boolean; reason: string; context: string }>
+  onSessionStart(scope: HookScope): Promise<string>
+  onBeforeToolCall(scope: HookScope, tool: string, args: Record<string, unknown>): Promise<{ blocked: boolean; reason: string }>
+  onAfterToolCall(scope: HookScope, tool: string, args: Record<string, unknown>, result: string, isError: boolean): Promise<string>
+  /** Text to send back so the model keeps going, or null to let the reply end. */
+  onStop(scope: HookScope, again: boolean): Promise<string | null>
+}
+
+type HookName = 'before_text_generation' | 'after_text_generation' | 'before_tool_call' | 'after_tool_call' | 'session_start' | 'stop'
 
 export interface AfterGenerationResult {
   input_text: string
@@ -86,6 +125,10 @@ const COMMAND_NAME = /^[a-z][a-z0-9_-]{0,31}$/
 const MAX_CONTEXT_CHARS = 4000
 const MAX_CSS_CHARS = 100_000
 const COMMAND_TIMEOUT_MS = 5 * 60_000
+/** Drawing a code block or a tool card. */
+const RENDER_TIMEOUT_MS = 30_000
+/** A click the user made: the plugin may ask them things. */
+const CLICK_TIMEOUT_MS = 5 * 60_000
 
 /** Images (data: URLs) a plugin posts with a message. */
 function postedImages(value: unknown): ChatAttachment[] {
@@ -127,12 +170,18 @@ class PluginHost extends EventEmitter<{
   status: [PluginRuntimeStatus]
   commands: [SlashCommand[]]
   css: [string]
+  /** Buttons, renderers, status items, pages and the rest changed (SDK 1.6). */
+  surfaces: [PluginSurfaces]
+  /** A plugin's Settings page drew a new tree. */
+  pageTree: [{ plugin: string; id: string; tree: UiNode }]
 }> {
   private records = new Map<string, PluginRecord>()
   private order: string[] = []
   private ready: Promise<void> | null = null
   private runtime: PluginRuntimeStatus = { state: 'stopped', pythonPath: pythonExecutable() }
   private changedTimer: NodeJS.Timeout | null = null
+  private surfacesTimer: NodeJS.Timeout | null = null
+  private readonly surfaceRegistry = new SurfaceRegistry()
   readonly broker = new Broker(() => this.peers())
 
   constructor() {
@@ -346,6 +395,89 @@ class PluginHost extends EventEmitter<{
       record.css = undefined
       this.emit('css', this.css())
     }
+    if (this.surfaceRegistry.forget(record.id)) this.surfacesChanged()
+  }
+
+  // ------------------------------------------- chat window and Settings surfaces (SDK 1.6)
+
+  /** What running plugins added to the chat window and Settings. */
+  surfaces(): PluginSurfaces {
+    return this.surfaceRegistry.snapshot(this.order, (id) => this.pluginName(id), (id) => !!this.records.get(id)?.process)
+  }
+
+  private surfacesChanged(): void {
+    if (this.surfacesTimer) return
+    this.surfacesTimer = setTimeout(() => {
+      this.surfacesTimer = null
+      this.emit('surfaces', this.surfaces())
+    }, 30)
+  }
+
+  private running(pluginId: string): PluginProcess {
+    const proc = this.records.get(pluginId)?.process
+    if (!proc?.running) throw new Error(`${this.pluginName(pluginId)} is not running`)
+    return proc
+  }
+
+  /** HTML for a fenced code block in a reply, from the plugin that draws its language. */
+  async renderBlock(language: string, code: string): Promise<string | null> {
+    const pluginId = this.surfaceRegistry.rendererFor(String(language).toLowerCase())
+    if (!pluginId) return null
+    const out = await this.running(pluginId).request('ui.render_block', { language, code: String(code) }, RENDER_TIMEOUT_MS)
+    return renderedHtml(out)
+  }
+
+  /** A plugin's button was clicked. Composer buttons may hand back text for the chat box. */
+  async clickButton(pluginId: string, id: string, context: PluginButtonContext): Promise<string | null> {
+    if (!this.surfaceRegistry.hasButton(pluginId, id)) throw new Error('That button is gone')
+    const ctx = {
+      chat_id: context?.chatId ?? null,
+      message_id: context?.messageId ?? null,
+      message_text: context?.messageText ?? null,
+      role: context?.role ?? null,
+      draft: context?.draft ?? null
+    }
+    const out = await this.running(pluginId).request('ui.button', { id, context: ctx }, CLICK_TIMEOUT_MS)
+    return typeof out === 'string' && out ? out : null
+  }
+
+  async clickStatus(pluginId: string, id: string): Promise<void> {
+    if (!this.surfaceRegistry.isClickable(pluginId, id)) return
+    await this.running(pluginId).request('ui.status_click', { id }, CLICK_TIMEOUT_MS)
+  }
+
+  /**
+   * HTML for a tool call's card, from the plugin that offers the tool (and
+   * only for its own tools: `server` must be its name and the tool one it offers).
+   */
+  async renderToolCard(server: string, tool: string, call: PluginToolCall): Promise<string | null> {
+    const record = this.order
+      .map((id) => this.records.get(id)!)
+      .find((r) => r.manifest?.name === server && r.load?.tools.some((t) => t.name === tool) && this.surfaceRegistry.hasToolCard(r.id, tool))
+    if (!record?.process?.running || !allows(this.grantsOf(record) ?? [], 'tools')) return null
+    const out = await record.process.request(
+      'ui.render_card',
+      { tool, arguments: call?.args ?? {}, result: call?.result ?? null, status: call?.status ?? 'done' },
+      RENDER_TIMEOUT_MS
+    )
+    return renderedHtml(out)
+  }
+
+  /** Files from a plugin's attach-menu entry. */
+  async attach(pluginId: string, id: string, chatId: string | null): Promise<PluginAttachmentFile[]> {
+    if (!this.surfaceRegistry.hasAttachSource(pluginId, id)) throw new Error('That attachment source is gone')
+    return attachmentFiles(await this.running(pluginId).request('ui.attach', { id, chat_id: chatId }, CLICK_TIMEOUT_MS))
+  }
+
+  pageTree(pluginId: string, id: string): UiNode | null {
+    return this.surfaceRegistry.pageTree(pluginId, id)
+  }
+
+  /** A callback from a plugin's Settings page. */
+  pageEvent(pluginId: string, id: string, event: string, payload: unknown, handler?: string): Promise<unknown> {
+    if (!this.surfaceRegistry.hasPage(pluginId, id)) return Promise.reject(new Error('That page is gone'))
+    if (event !== '$callback') return Promise.reject(new Error('invalid event name'))
+    return this.sendUiEvent(pluginId, id, event, payload, handler)
   }
 
   // ------------------------------------------------- chat context, commands, theme
@@ -680,7 +812,14 @@ class PluginHost extends EventEmitter<{
 
   // ------------------------------------------------------------------- hooks
 
-  private hookTargets(hook: 'before_text_generation' | 'after_text_generation'): PluginRecord[] {
+  private builtins: BuiltinHooks[] = []
+
+  /** Adds hooks built into Llama Run (see BuiltinHooks). */
+  addBuiltinHooks(hooks: BuiltinHooks): void {
+    if (!this.builtins.includes(hooks)) this.builtins.push(hooks)
+  }
+
+  private hookTargets(hook: HookName): PluginRecord[] {
     return this.order
       .map((id) => this.records.get(id)!)
       .filter((r) => r.process?.running && r.load?.hooks.includes(hook) && allows(this.grantsOf(r) ?? [], 'hooks'))
@@ -700,7 +839,23 @@ class PluginHost extends EventEmitter<{
     }
   }
 
-  async beforeTextGeneration(inputText: string, model: string): Promise<BeforeGenerationResult> {
+  /**
+   * Before a reply: with a scope (a message the user sent), the built-in
+   * hooks' session start (for a new chat) and prompt hooks, and plugins'
+   * on_session_start, which can add context or (prompt hooks) stop it; then
+   * each plugin's on_before_text_generation, which can change it or stop it.
+   */
+  async beforeTextGeneration(inputText: string, model: string, scope?: HookScope & { newChat?: boolean }): Promise<BeforeGenerationResult> {
+    const context: string[] = []
+    if (scope) {
+      if (scope.newChat) context.push(...(await this.sessionStart(scope)))
+      for (const b of this.builtins.filter((x) => x.watches('prompt'))) {
+        const out = await b.onPrompt(scope, inputText).catch(() => null)
+        if (out?.blocked) return { input_text: inputText, model, cancel: true, cancelled_by: b.label, reason: out.reason }
+        if (out?.context) context.push(out.context)
+      }
+    }
+    const extra = context.length ? { context: context.join('\n\n') } : {}
     let ctx = { input_text: inputText, model, cancel: false }
     for (const record of this.hookTargets('before_text_generation')) {
       try {
@@ -716,7 +871,52 @@ class PluginHost extends EventEmitter<{
         await this.hookFailed(record, 'before_text_generation', err)
       }
     }
-    return { ...ctx, cancelled_by: null }
+    return { ...ctx, cancelled_by: null, ...extra }
+  }
+
+  /** A new chat's first message: what the built-in hooks and plugins' on_session_start add. */
+  private async sessionStart(scope: HookScope): Promise<string[]> {
+    const out: string[] = []
+    for (const b of this.builtins.filter((x) => x.watches('session_start'))) {
+      const text = await b.onSessionStart(scope).catch(() => '')
+      if (text) out.push(text)
+    }
+    for (const record of this.hookTargets('session_start')) {
+      try {
+        const text = await record.process!.request<string | null>('events.session_start', { chat_id: scope.chatId, cwd: scope.cwd }, HOOK_TIMEOUT_MS)
+        if (text && String(text).trim()) out.push(String(text).trim())
+      } catch (err) {
+        await this.hookFailed(record, 'session_start', err)
+      }
+    }
+    return out
+  }
+
+  /** Whether anything watches replies ending, so a chat skips the call when nothing does. */
+  hasStopHooks(): boolean {
+    return this.builtins.some((b) => b.watches('stop')) || this.hookTargets('stop').length > 0
+  }
+
+  /**
+   * After a reply the user's message started: the built-in Stop hooks, then
+   * each plugin's on_stop. The first that answers with text sends it back as
+   * the next message, so the model keeps going. `again`: this reply already
+   * continued because of one.
+   */
+  async replyStopped(scope: HookScope, reply: string, again: boolean): Promise<{ text: string; by: string } | null> {
+    for (const b of this.builtins.filter((x) => x.watches('stop'))) {
+      const text = await b.onStop(scope, again).catch(() => null)
+      if (text !== null) return { text: text || 'Keep going.', by: b.label }
+    }
+    for (const record of this.hookTargets('stop')) {
+      try {
+        const text = await record.process!.request<string | null>('events.stop', { chat_id: scope.chatId, cwd: scope.cwd, response_text: reply, again }, HOOK_TIMEOUT_MS)
+        if (text && String(text).trim()) return { text: String(text).trim(), by: `the ${record.manifest!.name} plugin` }
+      } catch (err) {
+        await this.hookFailed(record, 'stop', err)
+      }
+    }
+    return null
   }
 
   async afterTextGeneration(inputText: string, responseText: string, model: string): Promise<AfterGenerationResult> {
@@ -730,6 +930,46 @@ class PluginHost extends EventEmitter<{
       }
     }
     return result
+  }
+
+  /** Plugins watching tool calls (SDK 1.5), so a chat skips the round trip when none are. */
+  hasToolHooks(): boolean {
+    return this.builtins.some((b) => b.watches('tool')) || this.hookTargets('before_tool_call').length > 0 || this.hookTargets('after_tool_call').length > 0
+  }
+
+  /** The built-in hooks, then each plugin's on_before_tool_call in turn; the first that blocks stops the call. `by` names who. */
+  async beforeToolCall(tool: string, args: Record<string, unknown>, scope: HookScope): Promise<{ blocked: boolean; reason: string; by?: string }> {
+    for (const b of this.builtins.filter((x) => x.watches('tool'))) {
+      const out = await b.onBeforeToolCall(scope, tool, args).catch(() => null)
+      if (out?.blocked) return { blocked: true, reason: out.reason || 'blocked', by: b.label }
+    }
+    for (const record of this.hookTargets('before_tool_call')) {
+      try {
+        const out = await record.process!.request<{ block?: boolean; reason?: string } | null>('events.before_tool_call', { tool, arguments: args, chat_id: scope.chatId }, HOOK_TIMEOUT_MS)
+        if (out?.block) return { blocked: true, reason: String(out.reason || 'blocked'), by: `the ${record.manifest!.name} plugin` }
+      } catch (err) {
+        await this.hookFailed(record, 'before_tool_call', err)
+      }
+    }
+    return { blocked: false, reason: '' }
+  }
+
+  /** What plugins' on_after_tool_call add to a result (a lint error, say), one note per plugin that said something. */
+  async afterToolCall(tool: string, args: Record<string, unknown>, result: string, isError: boolean, scope: HookScope): Promise<string[]> {
+    const notes: string[] = []
+    for (const b of this.builtins.filter((x) => x.watches('tool'))) {
+      const out = await b.onAfterToolCall(scope, tool, args, result, isError).catch(() => '')
+      if (out.trim()) notes.push(out.trim())
+    }
+    for (const record of this.hookTargets('after_tool_call')) {
+      try {
+        const out = await record.process!.request<string | null>('events.after_tool_call', { tool, arguments: args, result, is_error: isError, chat_id: scope.chatId }, HOOK_TIMEOUT_MS)
+        if (out && String(out).trim()) notes.push(`${record.manifest!.name}: ${String(out).trim()}`)
+      } catch (err) {
+        await this.hookFailed(record, 'after_tool_call', err)
+      }
+    }
+    return notes
   }
 
   // --------------------------------------------------------------- host API
@@ -871,6 +1111,7 @@ class PluginHost extends EventEmitter<{
         else record.context?.delete(String(p.key))
         return null
       },
+      'usage.list': (p) => (need('usage'), usageStore.days(Math.max(1, Math.min(90, Number(p.since_days) || 30)))),
       'memory.list': () => (need('memory'), memoryStore.list()),
       'memory.add': (p) => (need('memory'), memoryStore.add(String(p.text ?? ''), manifest.name)),
       'memory.update': (p) => (need('memory'), memoryStore.update(String(p.id ?? ''), String(p.text ?? ''), manifest.name)),
@@ -951,6 +1192,50 @@ class PluginHost extends EventEmitter<{
       'shared.delete': (p) => this.broker.sharedRequest(this.peerOf(record), 'shared.delete', p),
       'shared.keys': (p) => this.broker.sharedRequest(this.peerOf(record), 'shared.keys', p),
       'shared.watch': (p) => this.broker.sharedRequest(this.peerOf(record), 'shared.watch', p),
+      'renderers.register': (p) => {
+        need('renderers')
+        this.surfaceRegistry.addRenderer(record.id, p, (id) => this.pluginName(id))
+        this.surfacesChanged()
+        return null
+      },
+      'renderers.unregister': (p) => this.unregistered(this.surfaceRegistry.removeRenderer(record.id, p.language)),
+      'buttons.register': (p) => {
+        need('buttons')
+        this.surfaceRegistry.addButton(record.id, p)
+        this.surfacesChanged()
+        return null
+      },
+      'buttons.unregister': (p) => this.unregistered(this.surfaceRegistry.removeButton(record.id, p.id)),
+      'toolcards.register': (p) => {
+        need('tools')
+        this.surfaceRegistry.addToolCard(record.id, p.tool)
+        this.surfacesChanged()
+        return null
+      },
+      'toolcards.unregister': (p) => this.unregistered(this.surfaceRegistry.removeToolCard(record.id, p.tool)),
+      'statusbar.set': (p) => {
+        need('statusbar')
+        this.surfaceRegistry.setStatusItem(record.id, p)
+        this.surfacesChanged()
+        return null
+      },
+      'statusbar.remove': (p) => this.unregistered(this.surfaceRegistry.removeStatusItem(record.id, p.id)),
+      'attachments.register': (p) => {
+        need('attachments')
+        this.surfaceRegistry.addAttachSource(record.id, p)
+        this.surfacesChanged()
+        return null
+      },
+      'attachments.unregister': (p) => this.unregistered(this.surfaceRegistry.removeAttachSource(record.id, p.id)),
+      'pages.register': (p) => {
+        need('pages')
+        const id = this.surfaceRegistry.addPage(record.id, p)
+        this.surfacesChanged()
+        const tree = this.surfaceRegistry.pageTree(record.id, id)
+        if (tree) this.emit('pageTree', { plugin: record.id, id, tree })
+        return null
+      },
+      'pages.unregister': (p) => this.unregistered(this.surfaceRegistry.removePage(record.id, p.id)),
       'ui.dialog': (p) => showPluginDialog(plugin, p),
       'settings.register': (p) => {
         const values = pluginSettings.register(record.id, manifest.module, (p.schema as UiNode[]) ?? [])
@@ -962,6 +1247,11 @@ class PluginHost extends EventEmitter<{
         return null
       }
     }
+  }
+
+  private unregistered(removed: boolean): null {
+    if (removed) this.surfacesChanged()
+    return null
   }
 
   private onNotification(record: PluginRecord, method: string, params: Record<string, unknown>): void {
@@ -1002,7 +1292,11 @@ class PluginHost extends EventEmitter<{
         setPanelTitle(record.id, viewId, String(params.title ?? ''))
         return
       case 'ui.render':
-        renderPanel(record.id, viewId, params.tree as UiNode)
+        if (this.surfaceRegistry.renderPage(record.id, viewId, params.tree as UiNode)) {
+          this.emit('pageTree', { plugin: record.id, id: viewId, tree: params.tree as UiNode })
+        } else {
+          renderPanel(record.id, viewId, params.tree as UiNode)
+        }
         return
       case 'ui.state':
         setPanelState(record.id, viewId, (params.state as Record<string, unknown>) ?? {})
@@ -1054,11 +1348,27 @@ class PluginHost extends EventEmitter<{
     }
   }
 
+  /** The skills/ folders of turned-on plugins: their skills join the user's, like a Claude Code plugin's. */
+  skillFolders(): { dir: string; plugin: string }[] {
+    return this.order
+      .map((id) => this.records.get(id)!)
+      .filter((r) => r.manifest && !r.problem && this.enabled(r) && existsSync(join(r.folder, 'skills')))
+      .map((r) => ({ dir: join(r.folder, 'skills'), plugin: r.manifest!.name }))
+  }
+
+  private skillKey = ''
+
   private emitChanged(): void {
     if (this.changedTimer) return
     this.changedTimer = setTimeout(() => {
       this.changedTimer = null
       this.emit('changed', this.list)
+      // A plugin with skills was turned on or off: the skill list changes with it.
+      const key = this.skillFolders().map((f) => f.dir).join('|')
+      if (key !== this.skillKey) {
+        this.skillKey = key
+        skillStore.changed()
+      }
     }, 50)
   }
 
@@ -1081,3 +1391,4 @@ class PluginHost extends EventEmitter<{
 }
 
 export const pluginHost = new PluginHost()
+skillStore.setPluginRoots(() => pluginHost.skillFolders())

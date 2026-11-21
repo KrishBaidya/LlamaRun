@@ -14,6 +14,7 @@ import {
   ShieldAlert
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { ClaudePlugins } from '../ClaudePlugins'
 import type { PluginInfo, PluginInspection, PluginRuntimeStatus } from '@shared/types'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -312,6 +313,7 @@ export function PluginsPage() {
           </EmptyState>
         </TabsContent>
       </Tabs>
+      <ClaudePlugins />
     </Page>
   )
 }

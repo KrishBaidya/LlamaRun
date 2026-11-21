@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!--
+      Shows an MCP App: an interface an MCP server ships for its tool. It runs in a sandboxed
+      iframe (no allow-same-origin, so it can't reach Llama Run, its storage or its bridge).
+      This page has no policy of its own: the parent sends the app's HTML with the CSP built
+      from the origins its server declared, and the page replaces itself with that HTML, the
+      CSP first. From then on the app talks to the parent (the host) with JSON-RPC messages.
+    -->
+    <title>App</title>
+    <script>
+      ;(function () {
+        window.addEventListener('message', function (e) {
+          var data = e.data
+          if (e.source !== parent || !data || data.llamarunApp !== 'load' || typeof data.html !== 'string' || typeof data.csp !== 'string') return
+          var meta = '<meta http-equiv="Content-Security-Policy" content="' + data.csp.replace(/"/g, '&quot;') + '">'
+          var html = /<html[\s>]/i.test(data.html) ? data.html : '<!doctype html><html><head></head><body>' + data.html + '</body></html>'
+          // The policy has to come before anything that loads, so it goes first in <head>.
+          html = /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, function (m) { return m + meta }) : html.replace(/<html[^>]*>/i, function (m) { return m + '<head>' + meta + '</head>' })
+          document.open()
+          document.write(html)
+          document.close()
+        })
+        parent.postMessage({ llamarunApp: 'ready' }, '*')
+      })()
+    </script>
+  </head>
+  <body></body>
+</html>

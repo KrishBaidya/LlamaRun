@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { LoaderCircle, MoreHorizontal, Pencil, Search, Settings2, SquarePen, Trash2 } from 'lucide-react'
+import { Download, Folder, LoaderCircle, MoreHorizontal, Pencil, Search, Settings2, SquarePen, Trash2 } from 'lucide-react'
 import type { ChatSummary } from '@shared/types'
 import {
   AlertDialog,
@@ -21,6 +21,8 @@ import {
 import { api } from '@/hooks/use-llamarun'
 import { cn, relativeDay } from '@/lib/utils'
 import { TitleBar } from '@/components/TitleBar'
+import { folderName } from '@/components/chat/ProjectPicker'
+import { PluginButtons } from '@/components/plugins/surfaces'
 
 function ChatRow({
   chat,
@@ -83,6 +85,9 @@ function ChatRow({
           <DropdownMenuItem onSelect={() => setEditing(true)}>
             <Pencil /> Rename
           </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => void api.chats.export(chat.id)}>
+            <Download /> Export…
+          </DropdownMenuItem>
           <DropdownMenuItem variant="destructive" onSelect={onDelete}>
             <Trash2 /> Delete
           </DropdownMenuItem>
@@ -111,14 +116,15 @@ export function ChatSidebar({
     const filtered = (chats ?? []).filter(
       (c) => !q || c.title.toLowerCase().includes(q) || c.preview.toLowerCase().includes(q)
     )
-    const out: { label: string; chats: ChatSummary[] }[] = []
+    // Chats in a project folder are grouped under it (most recently used project first), the rest by day.
+    const out: { label: string; project?: string; chats: ChatSummary[] }[] = []
     for (const c of filtered) {
-      const label = relativeDay(c.updatedAt)
-      const group = out.find((g) => g.label === label)
+      const label = c.project ? folderName(c.project) : relativeDay(c.updatedAt)
+      const group = out.find((g) => (c.project ? g.project === c.project : !g.project && g.label === label))
       if (group) group.chats.push(c)
-      else out.push({ label, chats: [c] })
+      else out.push({ label, project: c.project, chats: [c] })
     }
-    return out
+    return [...out.filter((g) => g.project), ...out.filter((g) => !g.project)]
   }, [chats, query])
 
   return (
@@ -144,8 +150,11 @@ export function ChatSidebar({
 
       <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
         {groups.map((g) => (
-          <div key={g.label} className="mb-3">
-            <div className="px-2.5 pt-1 pb-1 text-2xs font-medium text-sidebar-muted-foreground">{g.label}</div>
+          <div key={g.project ?? g.label} className="mb-3">
+            <div className="flex items-center gap-1 px-2.5 pt-1 pb-1 text-2xs font-medium text-sidebar-muted-foreground" title={g.project}>
+              {g.project && <Folder className="size-3" />}
+              {g.label}
+            </div>
             <div className="flex flex-col gap-px">
               {g.chats.map((c) => (
                 <ChatRow
@@ -167,6 +176,7 @@ export function ChatSidebar({
       </nav>
 
       <div className="border-t border-sidebar-border p-2">
+        <PluginButtons where="sidebar" context={() => ({ chatId: activeId })} />
         <Button variant="ghost" className="w-full justify-start text-muted-foreground" onClick={() => void api.app.openSettings('/')}>
           <Settings2 /> Settings
         </Button>

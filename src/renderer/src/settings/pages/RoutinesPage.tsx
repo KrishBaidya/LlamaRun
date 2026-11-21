@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { AlarmClock, MessagesSquare, Pause, Play, Plus, Trash2, Zap } from 'lucide-react'
+import { AlarmClock, Bell, BellOff, MessagesSquare, Pause, Play, Plus, Trash2, Zap } from 'lucide-react'
 import { toast } from 'sonner'
 import type { Routine } from '@shared/types'
 import { Badge } from '@/components/ui/badge'
@@ -25,6 +25,14 @@ function RoutineRow({ routine }: { routine: Routine }) {
       </div>
       {routine.lastStatus && routine.lastStatus !== 'done' && <Badge variant="destructive">{routine.lastStatus === 'error' ? 'Failed' : 'Stopped'}</Badge>}
       <div className="flex shrink-0 items-center gap-0.5">
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          title={routine.quiet ? 'Quiet: notifies only when a run has something to say. Click to notify after every run.' : 'Notifies after every run. Click to make it quiet.'}
+          onClick={() => void api.routines.setQuiet(routine.id, !routine.quiet).catch((err) => toast.error(errorMessage(err)))}
+        >
+          {routine.quiet ? <BellOff /> : <Bell />}
+        </Button>
         {routine.chatId && (
           <Button size="icon-sm" variant="ghost" title="Open its chat" onClick={() => void api.app.openChat(routine.chatId)}>
             <MessagesSquare />

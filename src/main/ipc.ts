@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, shell, systemPreferences } from 'electron'
 import type { EventChannel, EventChannels, InvokeChannel, InvokeChannels } from '@shared/ipc'
-import type { Settings, ThinkingChoice } from '@shared/types'
+import type { ChatSetup, McpServerConfig, Settings, ThinkingChoice } from '@shared/types'
 import { THINKING_CHOICES } from '@shared/thinking'
 import { DEFAULT_CLOUD_MODEL } from '@shared/constants'
 import { analytics } from './analytics'
@@ -18,8 +18,14 @@ import { listOllamaModels } from './llm/ollama'
 import { configFromDirectoryEntry, isServerConfig } from './mcp/config'
 import { clearDirectoryCache, getDirectoryServer, listDirectory, readmeUrl } from './mcp/directory'
 import { mcp } from './mcp/manager'
+import { appContext } from './mcp/appContext'
+import { appTools } from './mcp/appTools'
 import { memoryStore } from './memory/store'
 import { routineStore } from './routines/store'
+import { exportChat } from './chats/exportFile'
+import { cancelBundle, inspectBundle, installBundle, listBundles, removeBundle } from './plugins/claudeBundle'
+import { channelHub } from './channels'
+import { claudeCodeHooks, loadHooks, saveHooks } from './assistant/hooks'
 import { pluginDataDir, pluginsDir } from './paths'
 import { pluginHost } from './plugins/host'
 import { inspectPlugin, installPlugin } from './plugins/install'
@@ -122,10 +128,11 @@ export function registerIpc(): void {
       'allowedCommands',
       'commandRules',
       'reviewAfterTasks',
+      'notifyWhenDone',
+      'commandSandbox',
       'reviewMinToolCalls',
       'autoCompact',
       'autoCompactPercent',
-      'compactKeepTurns',
       'modelContext',
       'computerUse',
       'computerScreenshots',
@@ -154,7 +161,7 @@ export function registerIpc(): void {
   handle('chats:setThinking', (_e, id, thinking) =>
     chatService.setThinking(String(id), THINKING_CHOICES.includes(thinking as ThinkingChoice) ? (thinking as ThinkingChoice) : undefined)
   )
-  handle('chats:send', (e, chatId, text, model, attachments, thinking) => {
+  handle('chats:send', (e, chatId, text, model, attachments, thinking, setup) => {
     const used = model || (chatId ? chatService.get(chatId)?.model : undefined) || settings.get('selectedModel')
     const files = (attachments ?? []) as { kind: string }[]
     analytics.track('message_sent', {
@@ -165,8 +172,37 @@ export function registerIpc(): void {
       slash: /^\s*\//.test(String(text ?? '')),
       ...modelProps(String(used ?? ''))
     })
-    return chatService.send(chatId, text, model, attachments, THINKING_CHOICES.includes(thinking as ThinkingChoice) ? (thinking as ThinkingChoice) : undefined)
+    const choice = (setup ?? {}) as ChatSetup
+    return chatService.send(chatId, text, model, attachments, THINKING_CHOICES.includes(thinking as ThinkingChoice) ? (thinking as ThinkingChoice) : undefined, {
+      ...(choice.plan === true ? { plan: true } : {}),
+      ...(typeof choice.project === 'string' ? { project: choice.project } : {})
+    })
   })
+  handle('chats:setPlan', (_e, id, plan) => chatService.setPlan(String(id), plan === true))
+  handle('chats:setProject', (_e, id, folder) => chatService.setProject(String(id), typeof folder === 'string' ? folder : null))
+  handle('chats:pickFolder', async (e) => {
+    const parent = BrowserWindow.fromWebContents(e.sender)
+    const options = { title: 'Choose the folder this chat works in', properties: ['openDirectory' as const] }
+    const { canceled, filePaths } = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options)
+    return canceled || !filePaths[0] ? null : filePaths[0]
+  })
+  const channelId = (id: unknown): 'telegram' | 'discord' => (id === 'discord' ? 'discord' : 'telegram')
+  handle('channels:status', () => channelHub.status())
+  handle('channels:connect', (_e, id, token) => channelHub.connect(channelId(id), String(token ?? '')))
+  handle('channels:disconnect', (_e, id) => channelHub.disconnect(channelId(id)))
+  handle('channels:approve', (_e, id, peer) => channelHub.approve(channelId(id), String(peer ?? '')))
+  handle('channels:block', (_e, id, peer) => channelHub.block(channelId(id), String(peer ?? '')))
+  handle('channels:unpair', (_e, id, peer) => channelHub.unpair(channelId(id), String(peer)))
+  handle('channels:setDeliver', (_e, on) => channelHub.setDeliver(on === true))
+  const bundleDeps = { addMcpServer: (s: McpServerConfig) => mcp.saveServer(s), removeMcpServer: (n: string) => mcp.remove(n) }
+  handle('bundles:inspect', (_e, input) => inspectBundle(String(input ?? '').trim()))
+  handle('bundles:install', async (_e, token) => (await installBundle(String(token), bundleDeps), listBundles()))
+  handle('bundles:cancel', (_e, token) => cancelBundle(String(token)))
+  handle('bundles:list', () => listBundles())
+  handle('bundles:remove', async (_e, name) => (await removeBundle(String(name), bundleDeps), listBundles()))
+  handle('hooks:get', () => loadHooks())
+  handle('hooks:save', (_e, config) => saveHooks(config))
+  handle('hooks:claudeCode', () => claudeCodeHooks())
   handle('chats:compact', (_e, id, instructions) => chatService.compact(id, instructions))
   handle('chats:answerApproval', (_e, id, answer) => approvals.answer(id, answer))
   handle('chats:undoFiles', (_e, chatId, messageId) => chatService.undoFiles(String(chatId), String(messageId)))
@@ -177,13 +213,21 @@ export function registerIpc(): void {
   handle('models:context', (_e, models) => Promise.all(models.map((m) => contextFor(m))))
   handle('chats:cancel', (_e, id) => chatService.cancel(id))
   handle('chats:retry', (_e, id) => chatService.retry(id))
+  handle('chats:export', (_e, chatId) => exportChat(String(chatId)))
+  handle('chats:queue', (_e, chatId, text) => chatService.queue(String(chatId), String(text ?? '')))
+  handle('chats:steer', (_e, chatId, id) => chatService.steer(String(chatId), String(id)))
+  handle('chats:unqueue', (_e, chatId, id) => chatService.unqueue(String(chatId), String(id)))
+  handle('chats:queued', (_e, chatId) => chatService.queuedFor(String(chatId)))
+  handle('chats:edit', (_e, chatId, messageId, text, undo) => chatService.edit(String(chatId), String(messageId), String(text ?? ''), undo === true))
+  handle('chats:switchVersion', (_e, chatId, messageId, index) => chatService.switchVersion(String(chatId), String(messageId), Number(index)))
   handle('chats:continue', (_e, id) => void chatService.continue(id))
 
   handle('attachments:read', (_e, name, mimeType, bytes) => readDocument(String(name), String(mimeType ?? ''), bytes))
 
   handle('memory:list', () => memoryStore.list())
   handle('routines:list', () => routineStore.list())
-  handle('routines:add', (_e, prompt, when) => (routineStore.add(String(prompt), String(when)), routineStore.list()))
+  handle('routines:add', (_e, prompt, when, quiet) => (routineStore.add(String(prompt), String(when), undefined, quiet === true), routineStore.list()))
+  handle('routines:setQuiet', (_e, id, quiet) => (routineStore.update(String(id), { quiet: quiet === true }), routineStore.list()))
   handle('routines:act', (_e, id, action) => (routineStore.act(String(id), action), routineStore.list()))
   handle('memory:add', (_e, text) => (analytics.track('memory_changed', { action: 'add', source: 'user' }), memoryStore.add(String(text), 'user'), memoryStore.list()))
   handle('memory:update', (_e, id, text) => (analytics.track('memory_changed', { action: 'update', source: 'user' }), memoryStore.update(id, String(text), 'user'), memoryStore.list()))
@@ -266,9 +310,28 @@ export function registerIpc(): void {
     analytics.track(existed ? 'mcp_server_updated' : 'mcp_server_added', { transport: String(server.mcpType) })
   })
   handle('mcp:remove', (_e, name) => (analytics.track('mcp_server_removed'), mcp.remove(name)))
+  handle('mcp:signIn', (_e, name) => mcp.signIn(String(name)))
+  handle('mcp:signOut', (_e, name) => mcp.signOut(String(name)))
   handle('mcp:directory', (_e, query) => listDirectory(query))
   handle('mcp:clearDirectoryCache', () => clearDirectoryCache())
   handle('mcp:directoryServer', (_e, id) => getDirectoryServer(id))
+  // MCP Apps: a tool's interface asks for its page, calls its own server's tools, writes in the chat, tells the model what it shows.
+  handle('mcpApps:resource', (_e, server, uri) => mcp.appResource(String(server), String(uri)))
+  handle('mcpApps:callTool', (_e, server, name, args) => mcp.appCallTool(String(server), String(name), args && typeof args === 'object' ? (args as Record<string, unknown>) : {}))
+  handle('mcpApps:readResource', (_e, server, uri) => mcp.appReadResource(String(server), String(uri)))
+  handle('mcpApps:listTools', (_e, server) => mcp.appListTools(String(server)))
+  handle('mcpApps:listResources', (_e, server) => mcp.appListResources(String(server)))
+  handle('mcpApps:message', (_e, chatId, _server, text) => {
+    const id = String(chatId)
+    const message = String(text ?? '').trim()
+    if (!message) return
+    if (chatService.isRunning(id)) chatService.queue(id, message)
+    else void chatService.send(id, message).catch(() => {})
+  })
+  handle('mcpApps:setContext', (_e, chatId, server, text) => appContext.set(String(chatId), String(server), String(text ?? '')))
+  handle('mcpApps:registerTools', (e, chatId, viewId, server, tools) => appTools.register(e.sender, String(chatId), String(viewId), String(server), tools))
+  handle('mcpApps:unregisterTools', (_e, viewId) => appTools.unregister(String(viewId)))
+  handle('mcpApps:appToolResult', (_e, requestId, result) => appTools.answer(String(requestId), result))
   handle('mcp:readmeUrl', (_e, id) => readmeUrl(id))
   handle('mcp:configFromDirectory', (_e, server) => configFromDirectoryEntry(server.name, server.serverConfig))
 
@@ -313,6 +376,16 @@ export function registerIpc(): void {
     void shell.openPath(dir)
   })
   handle('plugins:runAction', (_e, id, action) => pluginHost.runAction(id, action))
+  handle('plugins:surfaces', () => pluginHost.surfaces())
+  handle('plugins:renderBlock', (_e, language, code) => pluginHost.renderBlock(String(language ?? ''), String(code ?? '')))
+  handle('plugins:clickButton', (_e, plugin, id, context) => pluginHost.clickButton(String(plugin), String(id), context ?? { chatId: null }))
+  handle('plugins:clickStatus', (_e, plugin, id) => pluginHost.clickStatus(String(plugin), String(id)))
+  handle('plugins:renderToolCard', (_e, server, tool, call) => pluginHost.renderToolCard(String(server), String(tool), call))
+  handle('plugins:attach', (_e, plugin, id, chatId) => pluginHost.attach(String(plugin), String(id), chatId ? String(chatId) : null))
+  handle('plugins:page', (_e, plugin, id) => pluginHost.pageTree(String(plugin), String(id)))
+  handle('plugins:pageEvent', (_e, plugin, id, event, payload, handler) =>
+    pluginHost.pageEvent(String(plugin), String(id), String(event), payload ?? null, typeof handler === 'string' ? handler : undefined)
+  )
 
   handle('hud:get', () => hudHost.snapshot())
   handle('hud:click', (_e, key) => hudHost.click(key))
@@ -332,15 +405,26 @@ export function registerIpc(): void {
     broadcast('settings:changed', all)
   })
   auth.on('changed', (profile) => broadcast('auth:changed', profile))
-  mcp.on('changed', (statuses) => broadcast('mcp:changed', statuses))
+  mcp.on('changed', (statuses) => {
+    broadcast('mcp:changed', statuses)
+    // A server's prompts are / commands.
+    broadcast('commands:changed', chatService.commands())
+    void channelHub.refreshCommands()
+  })
   pluginHost.on('changed', (list) => broadcast('plugins:changed', list))
-  pluginHost.on('commands', () => broadcast('commands:changed', chatService.commands()))
+  pluginHost.on('commands', () => {
+    broadcast('commands:changed', chatService.commands())
+    void channelHub.refreshCommands()
+  })
   pluginHost.on('css', applyPluginCss)
+  pluginHost.on('surfaces', (surfaces) => broadcast('plugins:surfaces', surfaces))
+  pluginHost.on('pageTree', (page) => broadcast('plugins:pageTree', page))
   app.on('browser-window-created', (_e, win) => {
     win.webContents.on('did-finish-load', () => void injectCss(win).catch(() => {}))
   })
   memoryStore.on('changed', (list) => broadcast('memory:changed', list))
   routineStore.on('changed', (list) => broadcast('routines:changed', list))
+  channelHub.on('changed', (list) => broadcast('channels:changed', list))
   approvals.on('changed', (chatId, request) => {
     broadcast('chat:event', { type: 'approval', chatId, request })
     // Nobody can answer a question in a chat no window shows: open it.
@@ -351,6 +435,7 @@ export function registerIpc(): void {
   skillStore.on('changed', (list) => {
     broadcast('skills:changed', list)
     broadcast('commands:changed', chatService.commands())
+    void channelHub.refreshCommands()
   })
   pluginSettings.on('changed', (id) => broadcast('plugins:settingsChanged', id))
   chatService.on('event', (event) => broadcast('chat:event', event))

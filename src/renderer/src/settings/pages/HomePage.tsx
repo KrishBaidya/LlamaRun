@@ -30,8 +30,8 @@ type Draft = Pick<
   | 'overlayNewChatAfterMinutes'
   | 'autoCompact'
   | 'autoCompactPercent'
-  | 'compactKeepTurns'
   | 'telemetryEnabled'
+  | 'notifyWhenDone'
 >
 
 const OVERLAY_TIMEOUTS: [number, string][] = [
@@ -53,8 +53,8 @@ function pick(s: Settings): Draft {
     overlayNewChatAfterMinutes,
     autoCompact: s.autoCompact !== false,
     autoCompactPercent: s.autoCompactPercent ?? 80,
-    compactKeepTurns: s.compactKeepTurns ?? 4,
-    telemetryEnabled: s.telemetryEnabled !== false
+    telemetryEnabled: s.telemetryEnabled !== false,
+    notifyWhenDone: s.notifyWhenDone !== false
   }
 }
 
@@ -337,6 +337,13 @@ export function HomePage() {
             </div>
           </SettingRow>
           <Separator />
+          <SettingRow
+            title="Notify me when a task finishes"
+            description="While you're in another app: a notification when a reply that used tools finishes, or when a chat needs your OK."
+          >
+            <Switch checked={draft.notifyWhenDone} onCheckedChange={(v) => set('notifyWhenDone', v)} />
+          </SettingRow>
+          <Separator />
           <div className="flex items-center gap-3 py-4">
             <Checkbox
               id="startup"
@@ -373,18 +380,6 @@ export function HomePage() {
               onValueChange={([v]) => set('autoCompactPercent', v)}
             />
             <span className="w-10 text-right text-sm tabular-nums">{draft.autoCompactPercent}%</span>
-          </SettingRow>
-          <Separator />
-          <SettingRow title="Recent messages kept" description="Your last few messages (and the replies) stay word for word; everything before is summarised.">
-            <Slider
-              className="w-48"
-              min={1}
-              max={10}
-              step={1}
-              value={[draft.compactKeepTurns]}
-              onValueChange={([v]) => set('compactKeepTurns', v)}
-            />
-            <span className="w-10 text-right text-sm tabular-nums">{draft.compactKeepTurns}</span>
           </SettingRow>
         </CardContent>
       </Card>

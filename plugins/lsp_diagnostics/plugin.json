@@ -1,0 +1,16 @@
+{
+  "name": "LSP Diagnostics",
+  "description": "After the model edits a code file, runs a language server you have installed (TypeScript, Python, Rust, Go) and adds new errors to the result, so the model fixes them.",
+  "version": "1.0.0",
+  "author": "Llama Run",
+  "sdk_version": "1.5",
+  "entry": {
+    "module": "lsp_diagnostics",
+    "class": "LspDiagnostics"
+  },
+  "permissions": [
+    "hooks",
+    "subprocess",
+    "filesystem"
+  ]
+}

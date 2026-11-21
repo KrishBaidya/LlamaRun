@@ -43,6 +43,19 @@ describe('working with the user on a task', () => {
     expect(text(await callBuiltinTool('todo_update', { items }, { chatId: 'c1' }))).toBe('To-do list updated: 1 of 3 done.')
   })
 
+  it('waits when a service says to, and stops waiting when the reply is stopped', async () => {
+    expect(builtinTools({ shell: true }).map((t) => t.name)).toContain('wait')
+    vi.useFakeTimers()
+    const waiting = callBuiltinTool('wait', { seconds: 15 }, { chatId: 'c1' })
+    await vi.advanceTimersByTimeAsync(15_000)
+    expect(text(await waiting)).toBe('Waited 15 seconds.')
+    const stop = new AbortController()
+    const stopped = callBuiltinTool('wait', { seconds: 500 }, { chatId: 'c1', signal: stop.signal })
+    stop.abort()
+    expect((await stopped).isError).toBe(true)
+    vi.useRealTimers()
+  })
+
   // Hermes' clarify and OpenCode's question: a choice only the user can make, with buttons.
   it('asks the user with options and returns what they picked or typed', async () => {
     let shown: ApprovalRequest | undefined
