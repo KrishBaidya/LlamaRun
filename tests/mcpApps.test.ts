@@ -30,6 +30,7 @@ describe('MCP Apps metadata and CSP', () => {
 
 describe('the host bridge', () => {
   const app: McpAppRef = { server: 'weather', uri: 'ui://weather/dash', tool: 'get_weather', args: { city: 'Pune' }, result: { content: [{ type: 'text', text: 'Sunny' }], structuredContent: { temp: 31 } } }
+  let gesture = false
   const setup = (): { bridge: McpAppBridge; sent: Record<string, unknown>[]; deps: BridgeDeps } => {
     const sent: Record<string, unknown>[] = []
     const deps: BridgeDeps = {
@@ -43,6 +44,7 @@ describe('the host bridge', () => {
       message: vi.fn(),
       setContext: vi.fn(),
       requestMode: vi.fn((m) => m),
+      hasGesture: () => gesture,
       resized: vi.fn()
     }
     const bridge = new McpAppBridge(app, { connectDomains: ['https://api.weather.com'] }, deps, { theme: 'dark', displayMode: 'inline', containerDimensions: { maxHeight: 600 } })
@@ -81,5 +83,18 @@ describe('the host bridge', () => {
     expect(deps.requestMode).not.toHaveBeenCalled()
     await bridge.handle({ jsonrpc: '2.0', id: 7, method: 'sampling/createMessage', params: {} })
     expect((sent.at(-1) as { error: { code: number } }).error.code).toBe(-32601)
+  })
+
+  it('changes how it is shown only right after a click in the app', async () => {
+    const { bridge, sent, deps } = setup()
+    await bridge.handle({ jsonrpc: '2.0', id: 1, method: 'ui/initialize', params: { appCapabilities: { availableDisplayModes: ['inline', 'fullscreen'] } } })
+    gesture = false
+    await bridge.handle({ jsonrpc: '2.0', id: 2, method: 'ui/request-display-mode', params: { mode: 'fullscreen' } })
+    expect(sent.at(-1)).toEqual({ jsonrpc: '2.0', id: 2, result: { mode: 'inline' } })
+    expect(deps.requestMode).not.toHaveBeenCalled()
+    gesture = true
+    await bridge.handle({ jsonrpc: '2.0', id: 3, method: 'ui/request-display-mode', params: { mode: 'fullscreen' } })
+    expect(sent.at(-1)).toEqual({ jsonrpc: '2.0', id: 3, result: { mode: 'fullscreen' } })
+    gesture = false
   })
 })

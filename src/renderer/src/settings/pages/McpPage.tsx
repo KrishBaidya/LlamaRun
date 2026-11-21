@@ -20,7 +20,7 @@ import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { api, useDebounced, useIpcEvent } from '@/hooks/use-llamarun'
+import { api, useDebounced, useIpcEvent, useSettings } from '@/hooks/use-llamarun'
 import { errorMessage, relativeTime } from '@/lib/utils'
 import { EmptyState, Page, PageHeader } from '../components'
 import { EMPTY_SERVER, McpConfigDialog } from '../McpConfigDialog'
@@ -387,6 +387,35 @@ function AvailableServers() {
   )
 }
 
+/** Servers whose apps show without asking ("Always allow" on an app), each removable. */
+function TrustedApps() {
+  const [settings, update] = useSettings()
+  const trusted = settings?.mcpAppsTrusted ?? []
+  if (!trusted.length) return null
+  return (
+    <Card className="gap-2 px-4 py-3">
+      <p className="text-sm font-medium">Apps shown without asking</p>
+      <p className="text-xs text-muted-foreground">These servers&apos; apps open in chats straight away. Remove one to be asked again.</p>
+      <div className="flex flex-wrap gap-1.5">
+        {trusted.map((name) => (
+          <Badge key={name} variant="secondary" className="gap-1 pe-1">
+            {name}
+            <button
+              type="button"
+              className="rounded p-0.5 hover:bg-background"
+              title={`Ask before showing ${name}'s apps`}
+              aria-label={`Ask before showing ${name}'s apps`}
+              onClick={() => void update({ mcpAppsTrusted: trusted.filter((t) => t !== name) })}
+            >
+              <Trash2 className="size-3" />
+            </button>
+          </Badge>
+        ))}
+      </div>
+    </Card>
+  )
+}
+
 export function McpPage() {
   const [adding, setAdding] = useState(false)
   const [params, setParams] = useSearchParams()
@@ -399,8 +428,9 @@ export function McpPage() {
           <TabsTrigger value="installed">Installed MCP Servers</TabsTrigger>
           <TabsTrigger value="available">Available MCP Servers</TabsTrigger>
         </TabsList>
-        <TabsContent value="installed" className="pt-2">
+        <TabsContent value="installed" className="flex flex-col gap-3 pt-2">
           <InstalledServers onAdd={() => setAdding(true)} />
+          <TrustedApps />
         </TabsContent>
         <TabsContent value="available" className="pt-2">
           <AvailableServers />

@@ -19,6 +19,9 @@ describe('MCP Apps against a real server', () => {
     expect(mcp.tools().map((t) => t.name)).toEqual(['get_weather', 'model_only'])
     const result = await mcp.callTool('get_weather', { city: 'Pune' })
     expect(JSON.stringify(result.content)).toContain('ui true')
+    // The model is told the user sees it; the app's own copy of the result isn't changed.
+    expect(result.content.at(-1)).toEqual({ type: 'text', text: '[The user can see this result in the weather app shown in the chat.]' })
+    expect(result.app?.result?.content).toHaveLength(1)
     expect(result.app).toMatchObject({ server: 'weather', uri: 'ui://weather/dash', tool: 'get_weather', args: { city: 'Pune' }, result: { structuredContent: { temp: 31, city: 'Pune' } } })
     expect((await mcp.callTool('model_only', {})).app).toBeUndefined()
   }, 30_000)

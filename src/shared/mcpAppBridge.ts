@@ -34,6 +34,8 @@ export interface BridgeDeps {
   /** ui/update-model-context: what the app wants the model to know from now on. */
   setContext(text: string): void
   requestMode(mode: DisplayMode): DisplayMode
+  /** Whether the user just clicked or typed in the app: only then may it change how it's shown. */
+  hasGesture(): boolean
   resized(width: number | undefined, height: number | undefined): void
   log?(level: string, data: unknown): void
 }
@@ -148,6 +150,8 @@ export class McpAppBridge {
         const wanted = params.mode === 'fullscreen' ? 'fullscreen' : params.mode === 'inline' ? 'inline' : null
         // Never a mode the app didn't list (when it listed any), nor one Llama Run doesn't have.
         if (!wanted || (this.appModes.length && !this.appModes.includes(wanted))) return { mode: this.context.displayMode }
+        // Like Claude: an app can't take over the screen on its own, only right after a click or key press in it.
+        if (wanted !== this.context.displayMode && !this.deps.hasGesture()) return { mode: this.context.displayMode }
         return { mode: this.deps.requestMode(wanted) }
       }
       default:

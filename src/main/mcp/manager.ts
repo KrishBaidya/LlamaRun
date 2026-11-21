@@ -181,7 +181,9 @@ class McpManager extends EventEmitter<{ changed: [McpServerStatus[]] }> {
       tool: name,
       ...(def ? { toolDef: { name: def.name, ...(def.title ? { title: def.title } : {}), ...(def.description ? { description: def.description } : {}), inputSchema: def.inputSchema } } : {}),
       args: fits(args) ? args : {}, result: fits(appResult) ? appResult : { content: [], isError: appResult.isError } }
-    return { content, isError: Boolean(result.isError), app }
+    // The model gets the result as text plus one fact: the user is looking at it in the app.
+    const shown = { type: 'text', text: `[The user can see this result in the ${conn.config.name} app shown in the chat.]` }
+    return { content: [...content, shown], isError: Boolean(result.isError), app }
   }
 
   private appConnection(server: string): Connection & { client: Client } {

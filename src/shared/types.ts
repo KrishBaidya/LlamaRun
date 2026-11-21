@@ -39,6 +39,8 @@ export interface Settings {
   notifyWhenDone: boolean
   /** Windows: commands the model runs can change files only in the workspace and the chat's folder (low integrity). */
   commandSandbox: boolean
+  /** MCP servers whose apps show without asking first ("Always allow"). */
+  mcpAppsTrusted: string[]
   /** Tool calls a reply needs before it's reviewed. */
   reviewMinToolCalls: number
   /** Summarise older messages when a chat gets close to the model's context window. */

@@ -25,6 +25,7 @@ export const DEFAULT_SETTINGS: Settings = {
   reviewAfterTasks: true,
   notifyWhenDone: true,
   commandSandbox: false,
+  mcpAppsTrusted: [],
   reviewMinToolCalls: 6,
   autoCompact: true,
   autoCompactPercent: 80,

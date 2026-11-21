@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { FoldVertical, MessageSquare } from 'lucide-react'
 import type { ChatAttachment, ChatSetup, ThinkingChoice } from '@shared/types'
 import { PlanToggle } from '@/components/chat/PlanToggle'
-import { McpAppPanelProvider, McpAppSidePanel } from '@/components/chat/McpApp'
+import { McpAppFullScreen, McpAppPanelProvider, McpAppSidePanel } from '@/components/chat/McpApp'
 import { ProjectPicker } from '@/components/chat/ProjectPicker'
 import { Composer, type ComposerHandle } from '@/components/chat/Composer'
 import { ContextRing } from '@/components/chat/ContextRing'
@@ -145,16 +145,18 @@ export function ChatApp() {
 
           {hasThread ? (
             <>
-              <MessageList
-                chatId={chat!.id}
-                messages={chat!.messages}
-                busy={busy}
-                onRetry={retry}
-                onContinue={resume}
-                compaction={chat!.compaction}
-                compacting={compacting}
-                approval={approval}
-              />
+              <McpAppFullScreen>
+                <MessageList
+                  chatId={chat!.id}
+                  messages={chat!.messages}
+                  busy={busy}
+                  onRetry={retry}
+                  onContinue={resume}
+                  compaction={chat!.compaction}
+                  compacting={compacting}
+                  approval={approval}
+                />
+              </McpAppFullScreen>
               <div className="px-5 pb-5">
                 {error && <p className="mx-auto mb-2 max-w-3xl px-2 text-xs text-destructive">{error}</p>}
                 {composerEl}
