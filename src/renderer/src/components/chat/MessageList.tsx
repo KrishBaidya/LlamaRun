@@ -10,6 +10,7 @@ import { api, useProfile } from '@/hooks/use-llamarun'
 import { cn } from '@/lib/utils'
 import { PluginButtons, PluginToolCardBody, usePluginToolCard } from '@/components/plugins/surfaces'
 import { AttachmentTile } from './attachments'
+import { McpAppInline } from './McpApp'
 import { modelName, useModelCatalog } from './ModelPicker'
 
 function CopyButton({ text }: { text: string }) {
@@ -339,6 +340,11 @@ function ToolCard({ part }: { part: ToolPart }) {
           <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono">
             {part.result ?? (part.status === 'running' ? 'Running…' : '')}
           </pre>
+        </div>
+      )}
+      {part.app && part.status !== 'running' && (
+        <div className="border-t border-border/70 p-1.5">
+          <McpAppInline id={part.id} app={part.app} />
         </div>
       )}
     </div>

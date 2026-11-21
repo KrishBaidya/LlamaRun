@@ -18,6 +18,7 @@ import { listOllamaModels } from './llm/ollama'
 import { configFromDirectoryEntry, isServerConfig } from './mcp/config'
 import { clearDirectoryCache, getDirectoryServer, listDirectory, readmeUrl } from './mcp/directory'
 import { mcp } from './mcp/manager'
+import { appContext } from './mcp/appContext'
 import { memoryStore } from './memory/store'
 import { routineStore } from './routines/store'
 import { exportChat } from './chats/exportFile'
@@ -313,6 +314,18 @@ export function registerIpc(): void {
   handle('mcp:directory', (_e, query) => listDirectory(query))
   handle('mcp:clearDirectoryCache', () => clearDirectoryCache())
   handle('mcp:directoryServer', (_e, id) => getDirectoryServer(id))
+  // MCP Apps: a tool's interface asks for its page, calls its own server's tools, writes in the chat, tells the model what it shows.
+  handle('mcpApps:resource', (_e, server, uri) => mcp.appResource(String(server), String(uri)))
+  handle('mcpApps:callTool', (_e, server, name, args) => mcp.appCallTool(String(server), String(name), args && typeof args === 'object' ? (args as Record<string, unknown>) : {}))
+  handle('mcpApps:readResource', (_e, server, uri) => mcp.appReadResource(String(server), String(uri)))
+  handle('mcpApps:message', (_e, chatId, _server, text) => {
+    const id = String(chatId)
+    const message = String(text ?? '').trim()
+    if (!message) return
+    if (chatService.isRunning(id)) chatService.queue(id, message)
+    else void chatService.send(id, message).catch(() => {})
+  })
+  handle('mcpApps:setContext', (_e, chatId, server, text) => appContext.set(String(chatId), String(server), String(text ?? '')))
   handle('mcp:readmeUrl', (_e, id) => readmeUrl(id))
   handle('mcp:configFromDirectory', (_e, server) => configFromDirectoryEntry(server.name, server.serverConfig))
 

@@ -50,7 +50,9 @@ export default defineConfig({
           dialog: resolve('src/renderer/dialog.html'),
           'plugin-view': resolve('src/renderer/plugin-view.html'),
           // Sandboxed page that shows HTML from chat replies (see components/HtmlPreview.tsx).
-          'html-preview': resolve('src/renderer/html-preview.html')
+          'html-preview': resolve('src/renderer/html-preview.html'),
+          // Sandboxed page that shows MCP Apps (see components/chat/McpApp.tsx).
+          'mcp-app': resolve('src/renderer/mcp-app.html')
         }
       }
     }

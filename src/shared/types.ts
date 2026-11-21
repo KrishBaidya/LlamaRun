@@ -165,6 +165,38 @@ export interface ToolPart {
   result?: string
   /** agent_run: the tool calls the agent made, in order. */
   steps?: ToolStep[]
+  /** An MCP App: the tool's own interface, shown with its result. */
+  app?: McpAppRef
+}
+
+/**
+ * A tool call whose server ships an interface for it (the MCP Apps extension,
+ * io.modelcontextprotocol/ui): the ui:// resource to show and what the view
+ * needs, the call's arguments and result.
+ */
+export interface McpAppRef {
+  server: string
+  uri: string
+  tool: string
+  args: Record<string, unknown>
+  result?: { content: unknown[]; structuredContent?: unknown; isError?: boolean }
+}
+
+/** Origins an MCP App may use, from its resource's _meta.ui.csp. */
+export interface McpAppCsp {
+  connectDomains?: string[]
+  resourceDomains?: string[]
+  frameDomains?: string[]
+  baseUriDomains?: string[]
+}
+
+/** An MCP App's interface, read from its server (resources/read on the ui:// URI). */
+export interface McpAppResource {
+  html: string
+  csp: McpAppCsp
+  /** Browser features it asked for (camera, microphone, geolocation, clipboardWrite). */
+  permissions: string[]
+  prefersBorder?: boolean
 }
 
 export interface ToolStep {

@@ -4,7 +4,8 @@ import { StdioClientTransport, getDefaultEnvironment } from '@modelcontextprotoc
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js'
-import type { McpServerConfig, McpServerStatus, McpToolInfo, SlashCommand } from '@shared/types'
+import type { McpAppRef, McpAppResource, McpServerConfig, McpServerStatus, McpToolInfo, SlashCommand } from '@shared/types'
+import { cleanCsp, MCP_APP_MIME, MCP_APPS_EXTENSION, toolUiMeta, type McpAppToolMeta } from '@shared/mcpApps'
 import { loadMcpConfig, saveMcpConfig } from './config'
 import { forgetSignIn, McpOAuthProvider } from './oauth'
 
@@ -21,7 +22,10 @@ interface Connection {
   config: McpServerConfig
   client?: Client
   status: McpServerStatus
+  /** The tools the model sees (not those only the server's app may call). */
   tools: McpToolInfo[]
+  /** Each tool's MCP Apps metadata, app-only tools included. */
+  ui?: Map<string, McpAppToolMeta>
   /** The server's prompts, offered as /server:prompt commands like Claude Code's /mcp__server__prompt. */
   prompts?: McpPrompt[]
 }
@@ -60,6 +64,18 @@ export interface McpToolResult {
   superseded?: string
   /** agent_run: the calls the agent made, shown in the tool card. */
   steps?: import('@shared/types').ToolStep[]
+  /** The tool has an MCP App: shown with the result. */
+  app?: McpAppRef
+}
+
+/** Most characters of an app's arguments and structured result kept in the chat file. */
+const MAX_APP_DATA = 200_000
+const fits = (v: unknown): boolean => {
+  try {
+    return JSON.stringify(v ?? null).length <= MAX_APP_DATA
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -149,7 +165,56 @@ class McpManager extends EventEmitter<{ changed: [McpServerStatus[]] }> {
     const conn = [...this.connections.values()].find((c) => c.tools.some((t) => t.name === name))
     if (!conn?.client) throw new Error(`MCP tool not found: ${name}`)
     const result = await conn.client.callTool({ name, arguments: args })
-    return { content: (result.content as unknown[]) ?? [], isError: Boolean(result.isError) }
+    const content = (result.content as unknown[]) ?? []
+    const uri = conn.ui?.get(name)?.resourceUri
+    if (!uri) return { content, isError: Boolean(result.isError) }
+    // The view gets the arguments and the full result, structuredContent included (the model only sees content).
+    const appResult = { content, isError: Boolean(result.isError), ...(result.structuredContent !== undefined && fits(result.structuredContent) ? { structuredContent: result.structuredContent } : {}) }
+    const app: McpAppRef = { server: conn.config.name, uri, tool: name, args: fits(args) ? args : {}, result: fits(appResult) ? appResult : { content: [], isError: appResult.isError } }
+    return { content, isError: Boolean(result.isError), app }
+  }
+
+  private appConnection(server: string): Connection & { client: Client } {
+    const conn = this.connections.get(server)
+    if (!conn?.client) throw new Error(`${server} is not connected`)
+    return conn as Connection & { client: Client }
+  }
+
+  /** An app's interface: its ui:// resource's HTML and what it may load. */
+  async appResource(server: string, uri: string): Promise<McpAppResource> {
+    if (!uri.startsWith('ui://')) throw new Error('Not an MCP App resource')
+    const conn = this.appConnection(server)
+    const read = await conn.client.readResource({ uri })
+    const item = (read.contents ?? []).find((c) => c.uri === uri) ?? read.contents?.[0]
+    if (!item) throw new Error(`${server} returned nothing for ${uri}`)
+    if (item.mimeType && !item.mimeType.startsWith('text/html')) throw new Error(`${uri} is ${item.mimeType}, not an MCP App page`)
+    const html = 'text' in item && typeof item.text === 'string' ? item.text : 'blob' in item && typeof item.blob === 'string' ? Buffer.from(item.blob, 'base64').toString('utf8') : ''
+    if (!html) throw new Error(`${uri} has no HTML`)
+    const ui = ((item._meta as { ui?: Record<string, unknown> } | undefined)?.ui ?? {}) as { csp?: McpAppResource['csp']; permissions?: Record<string, unknown>; prefersBorder?: unknown }
+    const csp = cleanCsp(ui.csp)
+    // The policy each app runs under, for anyone checking what an app may reach.
+    console.info(`MCP App ${server} ${uri}: csp ${JSON.stringify(csp)}`)
+    return {
+      html,
+      csp,
+      permissions: Object.keys(ui.permissions ?? {}).filter((p) => ['camera', 'microphone', 'geolocation', 'clipboardWrite'].includes(p)),
+      ...(typeof ui.prefersBorder === 'boolean' ? { prefersBorder: ui.prefersBorder } : {})
+    }
+  }
+
+  /** A tool call from a server's own app: only that server's tools, and only those open to apps. */
+  async appCallTool(server: string, name: string, args: Record<string, unknown>): Promise<{ content: unknown[]; structuredContent?: unknown; isError?: boolean }> {
+    const conn = this.appConnection(server)
+    const meta = conn.ui?.get(name)
+    if (!meta) throw new Error(`${server} has no tool called ${name}`)
+    if (!meta.visibility.includes('app')) throw new Error(`${name} is not available to apps`)
+    const result = await conn.client.callTool({ name, arguments: args })
+    return { content: (result.content as unknown[]) ?? [], isError: Boolean(result.isError), ...(result.structuredContent !== undefined ? { structuredContent: result.structuredContent } : {}) }
+  }
+
+  /** resources/read for a server's own app. */
+  async appReadResource(server: string, uri: string): Promise<unknown> {
+    return this.appConnection(server).client.readResource({ uri })
   }
 
   /** Every connected server's prompts as / commands. */
@@ -198,9 +263,11 @@ class McpManager extends EventEmitter<{ changed: [McpServerStatus[]] }> {
   }
 
   private async connect(config: McpServerConfig, gen: number, interactive = false): Promise<void> {
-    const client = new Client({ name: 'LlamaRun', version: '1.0.0' })
+    // Says Llama Run can show MCP Apps, so servers send their tools' interfaces.
+    const client = new Client({ name: 'LlamaRun', version: '1.0.0' }, { capabilities: { extensions: { [MCP_APPS_EXTENSION]: { mimeTypes: [MCP_APP_MIME] } } } })
     let status: McpServerStatus
     let tools: McpToolInfo[] = []
+    const ui = new Map<string, McpAppToolMeta>()
     let prompts: McpPrompt[] = []
     const stderr = new StderrTail()
     try {
@@ -246,12 +313,16 @@ class McpManager extends EventEmitter<{ changed: [McpServerStatus[]] }> {
         }
       }
       const listed = await client.listTools()
-      tools = listed.tools.map((t) => ({
-        name: t.name,
-        description: t.description ?? '',
-        server: config.name,
-        inputSchema: t.inputSchema as Record<string, unknown>
-      }))
+      for (const t of listed.tools) ui.set(t.name, toolUiMeta(t._meta))
+      // Tools only the server's own app may call are kept from the model.
+      tools = listed.tools
+        .filter((t) => ui.get(t.name)!.visibility.includes('model'))
+        .map((t) => ({
+          name: t.name,
+          description: t.description ?? '',
+          server: config.name,
+          inputSchema: t.inputSchema as Record<string, unknown>
+        }))
       if (client.getServerCapabilities()?.prompts) {
         const listed = await client.listPrompts().catch(() => null)
         prompts = (listed?.prompts ?? []).map((p) => ({
@@ -287,6 +358,7 @@ class McpManager extends EventEmitter<{ changed: [McpServerStatus[]] }> {
     }
     conn.status = status
     conn.tools = tools
+    conn.ui = ui
     conn.prompts = prompts
     if (status.state === 'connected') conn.client = client
     this.emitChanged()

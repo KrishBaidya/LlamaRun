@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { FoldVertical, MessageSquare } from 'lucide-react'
 import type { ChatAttachment, ChatSetup, ThinkingChoice } from '@shared/types'
 import { PlanToggle } from '@/components/chat/PlanToggle'
+import { McpAppPanelProvider, McpAppSidePanel } from '@/components/chat/McpApp'
 import { ProjectPicker } from '@/components/chat/ProjectPicker'
 import { Composer, type ComposerHandle } from '@/components/chat/Composer'
 import { ContextRing } from '@/components/chat/ContextRing'
@@ -122,6 +123,7 @@ export function ChatApp() {
 
   return (
     <TooltipProvider>
+      <McpAppPanelProvider chatId={hasThread ? chat!.id : null}>
       <div className="flex h-full">
         <ChatSidebar chats={chats} activeId={chatId} onSelect={select} onNew={() => select(null)} />
         <main className="flex min-w-0 flex-1 flex-col">
@@ -171,7 +173,9 @@ export function ChatApp() {
             </div>
           )}
         </main>
+        <McpAppSidePanel />
       </div>
+      </McpAppPanelProvider>
       <Toaster position="bottom-right" />
     </TooltipProvider>
   )

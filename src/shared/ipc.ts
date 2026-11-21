@@ -1,5 +1,6 @@
 import type {
   AppearanceInfo,
+  McpAppResource,
   BundleInfo,
   BundlePreview,
   ChannelStatus,
@@ -200,6 +201,11 @@ export interface InvokeChannels {
   'mcp:directory': (query: McpDirectoryQuery) => McpDirectoryPage
   'mcp:clearDirectoryCache': () => void
   'mcp:directoryServer': (id: string) => McpDirectoryServer
+  'mcpApps:resource': (server: string, uri: string) => McpAppResource
+  'mcpApps:callTool': (server: string, name: string, args: Record<string, unknown>) => { content: unknown[]; structuredContent?: unknown; isError?: boolean }
+  'mcpApps:readResource': (server: string, uri: string) => unknown
+  'mcpApps:message': (chatId: string, server: string, text: string) => void
+  'mcpApps:setContext': (chatId: string, server: string, text: string) => void
   'mcp:readmeUrl': (id: string) => string
   'mcp:configFromDirectory': (server: McpDirectoryServer) => McpServerConfig
 
@@ -390,6 +396,11 @@ export const INVOKE_CHANNELS = [
   'mcp:directory',
   'mcp:clearDirectoryCache',
   'mcp:directoryServer',
+  'mcpApps:resource',
+  'mcpApps:callTool',
+  'mcpApps:readResource',
+  'mcpApps:message',
+  'mcpApps:setContext',
   'mcp:readmeUrl',
   'mcp:configFromDirectory',
   'plugins:list',

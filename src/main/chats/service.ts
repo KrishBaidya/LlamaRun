@@ -33,6 +33,7 @@ import { describeDays, describeUsage, usageStore } from '../usage'
 import { editMessage, switchVersion } from './branches'
 import { projectInstructions, validProject } from '../assistant/project'
 import { createCommandHooks } from '../assistant/hooks'
+import { appContext } from '../mcp/appContext'
 import { allowedTools } from '../assistant/planMode'
 import { AGENT_RUN, agentRunTool, runSubagent } from './subagent'
 import * as notify from '../notify'
@@ -945,7 +946,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
           turn?.tools === false
             ? undefined
             : chatTools({ shell, chatId: chat.id, messageId: assistant.id, computer: computerOn, routine: turn?.routine, model, thinking: turnThinking, signal: controller.signal, plan: chat.plan, project: validProject(chat.project) }),
-        system: systemFor([turn?.system, hookContext].filter(Boolean).join('\n\n') || undefined, shell, Boolean(computerOn), install, chat.id),
+        system: systemFor([turn?.system, hookContext, appContext.text(chat.id)].filter(Boolean).join('\n\n') || undefined, shell, Boolean(computerOn), install, chat.id),
         maxToolRounds: maxRounds,
         vision: Boolean(info?.capabilities?.includes('vision')),
         thinking: turnThinking,
