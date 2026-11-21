@@ -17,7 +17,7 @@ vi.mock('electron', () => ({
 const { TelegramChannel } = await import('../src/main/channels/telegram')
 const { DiscordChannel } = await import('../src/main/channels/discord')
 const { chunks, toTelegramHtml } = await import('../src/main/channels/types')
-const { channelHub, menuCommands, BOT_COMMANDS } = await import('../src/main/channels')
+const { channelHub, menuCommands, menuAttempts, BOT_COMMANDS } = await import('../src/main/channels')
 const { approvals } = await import('../src/main/assistant/approval')
 
 const request: ApprovalRequest = { id: 'ap1', title: 'Run this command on your computer?', command: 'pip install x', detail: 'In D:\\', alwaysLabel: 'Always allow pip *', chatLabel: 'Allow for this chat' }
@@ -105,6 +105,20 @@ describe('the bot menu', () => {
     expect(menu.slice(0, BOT_COMMANDS.length)).toEqual(BOT_COMMANDS)
     // Plugin commands first, then MCP prompts, then skills; desktop-only built-ins stay out.
     expect(menu.slice(BOT_COMMANDS.length).map((c) => c.command)).toEqual(['jira_today', 'github_review_pr', 'li_post'])
+  })
+
+  it('folds skill packs into one entry, and has smaller versions for when Telegram says it is too much', () => {
+    const skill = (name: string): SlashCommand => ({ name, description: `${name} does a long and detailed thing for you`, kind: 'skill', plugin: 'Skill' })
+    const menu = menuCommands(['li-post', 'li-dm', 'seo', 'seo-audit', 'humanizer'].map(skill))
+    expect(menu.slice(BOT_COMMANDS.length)).toEqual([
+      { command: 'li', description: '2 skills: li-post, li-dm' },
+      { command: 'seo', description: '2 skills: seo, seo-audit' },
+      { command: 'humanizer', description: 'humanizer does a long and detailed thing for you' }
+    ])
+    const attempts = menuAttempts(menu)
+    expect(attempts[0]).toBe(menu)
+    expect(attempts.at(-1)!.length).toBeLessThanOrEqual(25)
+    expect(Math.max(...attempts[1].map((c) => c.description.length))).toBeLessThanOrEqual(30)
   })
 })
 

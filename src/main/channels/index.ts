@@ -124,19 +124,49 @@ const menuName = (name: string): string =>
  * names Telegram accepts: lowercase letters, digits and underscores, up to 32
  * characters, descriptions up to 256, and 100 commands at most.
  */
-export function menuCommands(commands: SlashCommand[]): BotCommand[] {
+export function menuCommands(commands: SlashCommand[], descriptionMax = 60): BotCommand[] {
   const seen = new Set(BOT_COMMANDS.map((c) => c.command))
   const out = [...BOT_COMMANDS]
-  const order: SlashCommand['kind'][] = ['plugin', 'mcp', 'skill']
-  const runnable = commands.filter((c) => order.includes(c.kind)).sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind))
-  for (const c of runnable) {
-    const command = menuName(c.name)
-    if (!command || seen.has(command) || out.length >= 100) continue
+  const add = (command: string, text: string): void => {
+    if (!command || seen.has(command) || out.length >= 100) return
     seen.add(command)
-    const description = (c.description || c.name).replace(/\s+/g, ' ').trim()
-    out.push({ command, description: description.length > 100 ? `${description.slice(0, 99)}…` : description || command })
+    const description = text.replace(/\s+/g, ' ').trim() || command
+    out.push({ command, description: description.length > descriptionMax ? `${description.slice(0, descriptionMax - 1)}…` : description })
+  }
+  for (const kind of ['plugin', 'mcp'] as const) for (const c of commands.filter((x) => x.kind === kind)) add(menuName(c.name), c.description || c.name)
+  // Skill packs (li-*, seo-*) are one entry each, opening buttons for their skills, as on the Skills page.
+  for (const entry of skillMenu(commands)) {
+    if (entry.pack) add(entry.key, `${entry.pack.length} skills: ${entry.pack.map((s) => s.name).join(', ')}`)
+    else add(menuName(entry.skill.name), entry.skill.description || entry.skill.name)
   }
   return out
+}
+
+type SkillEntry = { key: string; pack: SlashCommand[]; skill?: undefined } | { key: string; pack?: undefined; skill: SlashCommand }
+
+/** Skills as the menu lists them: packs sharing the part before the first dash (two or more), and lone skills. */
+export function skillMenu(commands: SlashCommand[]): SkillEntry[] {
+  const skills = commands.filter((c) => c.kind === 'skill')
+  const prefix = (name: string): string => menuName(name.includes('-') ? name.slice(0, name.indexOf('-')) : name)
+  const counts = new Map<string, number>()
+  for (const s of skills) counts.set(prefix(s.name), (counts.get(prefix(s.name)) ?? 0) + 1)
+  const out: SkillEntry[] = []
+  const placed = new Set<string>()
+  for (const s of skills) {
+    const key = prefix(s.name)
+    if ((counts.get(key) ?? 0) < 2) out.push({ key: menuName(s.name), skill: s })
+    else if (!placed.has(key)) {
+      placed.add(key)
+      out.push({ key, pack: skills.filter((x) => prefix(x.name) === key) })
+    }
+  }
+  return out
+}
+
+/** Smaller and smaller versions of a menu, for when Telegram says it's too much. */
+export function menuAttempts(list: BotCommand[]): BotCommand[][] {
+  const shorten = (max: number) => (c: BotCommand): BotCommand => ({ command: c.command, description: c.description.length > max ? `${c.description.slice(0, max - 1)}…` : c.description })
+  return [list, list.map(shorten(30)), list.slice(0, 50).map(shorten(30)), list.slice(0, 25).map(shorten(25))]
 }
 
 /** A menu command back to the /command it stands for (li_post -> /li-post). */
@@ -373,11 +403,24 @@ class ChannelHub extends EventEmitter<{ changed: [ChannelStatus[]] }> {
     if (this.menus.get(key) === value) return
     const who = peer === null ? 'everyone' : (this.record(id).paired.find((p) => p.peer === peer)?.name ?? peer)
     try {
-      const confirmed = await channel.setCommands(list, peer)
+      // Telegram also limits the menu's total size: shorter descriptions, then fewer entries, until it fits.
+      let sent = list
+      let confirmed: number | void = undefined
+      for (const attempt of menuAttempts(list)) {
+        try {
+          sent = attempt
+          confirmed = await channel.setCommands(attempt, peer)
+          break
+        } catch (err) {
+          if (!/TOO_MUCH|too many|too long/i.test((err as Error).message) || attempt === menuAttempts(list).at(-1)) throw err
+          this.log(`${id} menu for ${who}: ${sent.length} commands too much, trying smaller`)
+        }
+      }
       this.menus.set(key, value)
-      const count = typeof confirmed === 'number' ? confirmed : list.length
-      this.log(`${id} menu for ${who}: sent ${list.length}, ${typeof confirmed === 'number' ? `${LABEL[id]} has ${confirmed}` : 'not checked'}`)
-      if (peer !== null) this.menuInfo.set(id, `Menu: ${count} commands for ${who}${typeof confirmed === 'number' ? `, confirmed by ${LABEL[id]}` : ''} (${new Date().toLocaleTimeString()}). If it looks old in the app, close and reopen the chat with the bot.`)
+      const count = typeof confirmed === 'number' ? confirmed : sent.length
+      const cut = sent.length < list.length ? ` (${list.length - sent.length} left out: Telegram's menu was full)` : ''
+      this.log(`${id} menu for ${who}: sent ${sent.length}, ${typeof confirmed === 'number' ? `${LABEL[id]} has ${confirmed}` : 'not checked'}`)
+      if (peer !== null) this.menuInfo.set(id, `Menu: ${count} commands for ${who}${typeof confirmed === 'number' ? `, confirmed by ${LABEL[id]}` : ''}${cut} (${new Date().toLocaleTimeString()}). If it looks old in the app, close and reopen the chat with the bot.`)
       if (this.errors.get(id)?.startsWith('Menu:')) this.errors.delete(id)
       this.emit('changed', this.status())
     } catch (err) {
@@ -522,7 +565,10 @@ class ChannelHub extends EventEmitter<{ changed: [ChannelStatus[]] }> {
   private async onChoice(id: ChannelId, peer: string, value: string): Promise<void> {
     const channel = this.live.get(id)
     const paired = this.record(id).paired.find((p) => p.peer === peer)
-    if (!channel || !paired || !this.port || !value.startsWith('model:')) return
+    if (!channel || !paired || !this.port) return
+    // A skill picked from a pack's buttons runs as its /command.
+    if (value.startsWith('skill:')) return this.onMessage(id, { peer, name: paired.name, ...(paired.username ? { username: paired.username } : {}) }, `/${value.slice('skill:'.length)}`)
+    if (!value.startsWith('model:')) return
     const model = value.slice('model:'.length)
     const name = (await this.port.models()).find((m) => m.id === model)?.name ?? model
     this.pickModel(paired, model)
@@ -580,6 +626,16 @@ class ChannelHub extends EventEmitter<{ changed: [ChannelStatus[]] }> {
       )
     }
     if (name === 'model') return this.modelCommand(channel, paired, arg, reply)
+    // A skill pack from the menu (/li, /seo): buttons for its skills, unless a skill has exactly that name and words follow.
+    const packKey = /^\/([a-z0-9_]+)(?:@\w+)?\s*$/i.exec(raw.trim())?.[1]?.toLowerCase()
+    const pack = packKey ? skillMenu(port.commands()).find((e) => e.pack && e.key === packKey)?.pack : undefined
+    if (pack && channel.choose) {
+      return channel.choose(
+        from.peer,
+        `${pack.length} ${packKey} skills. Pick one, or send /${menuName(pack[0].name)} with what you want.`,
+        pack.map((s) => ({ label: s.name, value: `skill:${s.name}` }))
+      )
+    }
     if (name === 'tools') {
       const tools = port.tools?.() ?? []
       if (!tools.length) return reply('No tools right now.')
