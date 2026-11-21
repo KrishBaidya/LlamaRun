@@ -27,7 +27,7 @@ vi.mock('../src/main/llm', async (importOriginal) => {
   }
 })
 
-const { appendText, appendThinking, finishTool, recalledReplies, replaceText, replyForModel, textOf, toolPart } = await import('../src/main/chats/parts')
+const { appendText, appendThinking, finishTool, recallLimits, replaceText, replyForModel, textOf, toolPart } = await import('../src/main/chats/parts')
 const { chatService, historyFor } = await import('../src/main/chats/service')
 const { pluginHost } = await import('../src/main/plugins/host')
 const { joinRound, runToolCalls } = await import('../src/main/llm/toolRun')
@@ -57,7 +57,7 @@ describe('message parts', () => {
     expect(String(failed.args!.command).length).toBeLessThan(1100)
     const long = toolPart('t3', 'web_fetch', 'Llama Run', {})
     finishTool(long, { content: [{ type: 'text', text: 'y'.repeat(20_000) }] })
-    expect(long.result!.length).toBeLessThan(4100)
+    expect(long.result!.length).toBeLessThan(12_100)
     const errored = toolPart('t4', 'computer_click', 'Computer use', {})
     finishTool(errored, { content: [{ type: 'text', text: 'refused' }], isError: true })
     expect(errored.status).toBe('error')
@@ -80,14 +80,16 @@ describe('what later turns see of earlier tool calls', () => {
   const reply = (id: string, parts: MessagePart[]): ChatMessage => ({ id, role: 'assistant', content: textOf(parts), parts, status: 'done', createdAt: 0 })
   const used = (name: string, result: string): ToolPart => ({ type: 'tool', id: name, name, server: 's', args: { app: 'Notepad' }, status: 'done', result })
 
-  it('keeps a short record of the tools the newest replies used', () => {
-    const older = reply('a', [used('computer_open', 'Opened Notepad. Window 77'), { type: 'text', text: 'Opened it.' }])
+  it("keeps every reply's tool results: the newest in full, older ones shortened", () => {
+    const older = reply('a', [used('get_holdings', 'x'.repeat(5000)), { type: 'text', text: 'Here is your portfolio.' }])
     const recent1 = reply('b', [{ type: 'text', text: 'Typing.' }, used('computer_type', 'Typed')])
     const recent2 = reply('c', [used('computer_key', 'Saved')])
-    const ids = recalledReplies([older, recent1, recent2])
-    expect([...ids]).toEqual(['b', 'c'])
-    expect(replyForModel(recent1, true)).toBe('Typing.\n[earlier tool call computer_type {"app":"Notepad"}: Typed]')
-    expect(replyForModel(older, false)).toBe('Opened it.')
+    const limits = recallLimits([older, recent1, recent2])
+    expect([...limits.keys()]).toEqual(['a', 'b', 'c'])
+    expect(limits.get('a')).toBeLessThan(limits.get('b')!)
+    expect(replyForModel(recent1, limits.get('b')!)).toBe('Typing.\n[earlier tool call computer_type {"app":"Notepad"}: Typed]')
+    expect(replyForModel(older, limits.get('a')!)).toContain('x'.repeat(1000))
+    expect(replyForModel(older, false)).toBe('Here is your portfolio.')
   })
 
   it('feeds that record into the history sent with the next message', () => {

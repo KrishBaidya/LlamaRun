@@ -39,7 +39,7 @@ import * as notify from '../notify'
 import { stopChat as stopChatProcesses } from '../assistant/processes'
 import { COMPACT_SYSTEM, compactionRequest, splitForCompaction, SUMMARY_INTRO, transcriptOf, visibleMessages } from './compact'
 import { contextWindowFor, estimateParts, estimateTokens, usageOf } from './context'
-import { appendText, appendThinking, finishTool, recalledReplies, replaceText, replyForModel, textOf, toolPart } from './parts'
+import { appendText, appendThinking, finishTool, recallLimits, replaceText, replyForModel, textOf, toolPart } from './parts'
 import { chatStore, titleFrom } from './store'
 
 const FLUSH_MS = 16
@@ -236,11 +236,11 @@ function userContent(m: ChatMessage): string {
  */
 export function historyFor(messages: ChatMessage[], compaction?: Chat['compaction']): HistoryMessage[] {
   const visible = visibleMessages(messages, compaction)
-  const recall = recalledReplies(visible.messages)
+  const recall = recallLimits(visible.messages)
   const turns = visible.messages
     .filter((m) => m.role === 'user' || m.status === 'done')
     .map((m): HistoryMessage => {
-      if (m.role !== 'user') return { role: m.role, content: replyForModel(m, recall.has(m.id)) }
+      if (m.role !== 'user') return { role: m.role, content: replyForModel(m, recall.get(m.id) ?? false) }
       const images = (m.attachments ?? []).map(imageOf).filter((i): i is HistoryImage => !!i)
       return { role: 'user', content: userContent(m) || 'See the attached image.', ...(images.length ? { images } : {}) }
     })
