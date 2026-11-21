@@ -1,5 +1,5 @@
 import type { ApprovalAnswer, ApprovalRequest } from '@shared/types'
-import { approvalButtons, approvalText, chunks, type Channel, type ChannelEvents } from './types'
+import { approvalButtons, approvalText, chunks, type BotCommand, type Channel, type ChannelEvents } from './types'
 
 /**
  * Telegram through the user's own bot (made with @BotFather): long polling of
@@ -74,7 +74,7 @@ export class TelegramChannel implements Channel {
       const m = u.message
       // Direct messages only: a bot added to a group never acts on it.
       if (!m?.text || m.chat.type !== 'private') continue
-      events.message(String(m.chat.id), m.from?.first_name ?? m.from?.username ?? 'Telegram', m.text)
+      events.message({ peer: String(m.chat.id), name: m.from?.first_name ?? m.from?.username ?? 'Telegram', ...(m.from?.username ? { username: m.from.username } : {}) }, m.text)
     }
   }
 
@@ -111,5 +111,12 @@ export class TelegramChannel implements Channel {
 
   async typing(peer: string): Promise<void> {
     await this.call('sendChatAction', { chat_id: peer, action: 'typing' }).catch(() => {})
+  }
+
+  /** The / menu for one chat only (Telegram's chat scope), so strangers who open the bot see none of it. */
+  async setCommands(commands: BotCommand[], peer: string): Promise<void> {
+    const scope = { type: 'chat', chat_id: Number(peer) }
+    if (!commands.length) await this.call('deleteMyCommands', { scope })
+    else await this.call('setMyCommands', { commands, scope })
   }
 }

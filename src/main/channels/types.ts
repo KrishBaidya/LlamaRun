@@ -7,10 +7,23 @@ import type { ApprovalAnswer, ApprovalRequest } from '@shared/types'
 
 export type ChannelId = 'telegram' | 'discord'
 
+/** Who sent a message: their chat id with the bot, display name and @username. */
+export interface Sender {
+  peer: string
+  name: string
+  username?: string
+}
+
+/** One entry of the bot's / menu. */
+export interface BotCommand {
+  command: string
+  description: string
+}
+
 /** What a channel tells the bridge. */
 export interface ChannelEvents {
-  /** A message from someone: the bridge pairs them or runs it in their chat. */
-  message: (peer: string, name: string, text: string) => void
+  /** A message from someone: the bridge asks the user about them or runs it in their chat. */
+  message: (from: Sender, text: string) => void
   /** A button under an approval or question was pressed. */
   answer: (approvalId: string, answer: ApprovalAnswer | { text: string }) => void
 }
@@ -26,6 +39,8 @@ export interface Channel {
   ask(peer: string, request: ApprovalRequest): Promise<void>
   /** Shows that a reply is being made. */
   typing(peer: string): Promise<void>
+  /** Sets the / menu one person sees (an empty list removes it), where the app has one. */
+  setCommands?(commands: BotCommand[], peer: string): Promise<void>
 }
 
 /** Splits text into pieces of at most `max` characters, at line breaks where it can. */

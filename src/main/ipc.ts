@@ -188,7 +188,8 @@ export function registerIpc(): void {
   handle('channels:status', () => channelHub.status())
   handle('channels:connect', (_e, id, token) => channelHub.connect(channelId(id), String(token ?? '')))
   handle('channels:disconnect', (_e, id) => channelHub.disconnect(channelId(id)))
-  handle('channels:newCode', (_e, id) => channelHub.newCode(channelId(id)))
+  handle('channels:approve', (_e, id, peer) => channelHub.approve(channelId(id), String(peer ?? '')))
+  handle('channels:block', (_e, id, peer) => channelHub.block(channelId(id), String(peer ?? '')))
   handle('channels:unpair', (_e, id, peer) => channelHub.unpair(channelId(id), String(peer)))
   handle('channels:setDeliver', (_e, on) => channelHub.setDeliver(on === true))
   const bundleDeps = { addMcpServer: (s: McpServerConfig) => mcp.saveServer(s), removeMcpServer: (n: string) => mcp.remove(n) }
@@ -379,9 +380,13 @@ export function registerIpc(): void {
     broadcast('mcp:changed', statuses)
     // A server's prompts are / commands.
     broadcast('commands:changed', chatService.commands())
+    void channelHub.refreshCommands()
   })
   pluginHost.on('changed', (list) => broadcast('plugins:changed', list))
-  pluginHost.on('commands', () => broadcast('commands:changed', chatService.commands()))
+  pluginHost.on('commands', () => {
+    broadcast('commands:changed', chatService.commands())
+    void channelHub.refreshCommands()
+  })
   pluginHost.on('css', applyPluginCss)
   app.on('browser-window-created', (_e, win) => {
     win.webContents.on('did-finish-load', () => void injectCss(win).catch(() => {}))
@@ -399,6 +404,7 @@ export function registerIpc(): void {
   skillStore.on('changed', (list) => {
     broadcast('skills:changed', list)
     broadcast('commands:changed', chatService.commands())
+    void channelHub.refreshCommands()
   })
   pluginSettings.on('changed', (id) => broadcast('plugins:settingsChanged', id))
   chatService.on('event', (event) => broadcast('chat:event', event))

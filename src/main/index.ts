@@ -1,6 +1,6 @@
 import { appendFileSync, mkdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { app, dialog } from 'electron'
+import { app, dialog, Notification } from 'electron'
 import { PROTOCOL } from '@shared/constants'
 import { analytics } from './analytics'
 import { auth, PROFILE_FRESH_MS } from './auth'
@@ -21,7 +21,9 @@ import { openOnboarding } from './windows/onboarding'
 import { attachContextMenu } from './windows/contextMenu'
 import { createOverlay, markQuitting, showOverlay } from './windows/overlay'
 import { stopAll as stopProcesses } from './assistant/processes'
-import { usageStore } from './usage'
+import { describeDays, describeUsage, usageStore } from './usage'
+import { modelCatalog } from './llm'
+import { openSettings } from './windows/settings'
 import { startApprovalNotices } from './notify'
 import { channelHub } from './channels'
 import { chatService } from './chats/service'
@@ -153,9 +155,28 @@ if (!app.requestSingleInstanceLock()) {
     startRoutines()
     startApprovalNotices((id) => chatService.get(id)?.title ?? '')
     channelHub.start({
-      ask: (chatId, text, via) => chatService.ask(chatId && chatService.get(chatId) ? chatId : null, text, { via: { plugin: via, remote: true }, remote: true }),
+      ask: async (chatId, text, via) => {
+        const skill = await chatService.slashSkill(text)
+        return chatService.ask(chatId && chatService.get(chatId) ? chatId : null, text, { via: { plugin: via, remote: true }, remote: true, ...(skill ? { skill } : {}) })
+      },
       busy: (chatId) => chatService.isRunning(chatId),
-      queue: (chatId, text) => chatService.queue(chatId, text)
+      queue: (chatId, text) => chatService.queue(chatId, text),
+      stop: (chatId) => chatService.cancel(chatId),
+      compact: (chatId) => chatService.compact(chatId),
+      usage: (chatId) => {
+        const chat = chatId ? chatService.get(chatId) : null
+        return [describeUsage(chat ? usageStore.forChat(chat.id) : undefined), describeDays(usageStore.days(30))].filter(Boolean).join('\n\n')
+      },
+      model: (chatId) => (chatId ? chatService.get(chatId)?.model : undefined) || settings.get('selectedModel'),
+      setModel: (chatId, model) => chatService.setModel(chatId, model),
+      models: async () => (await modelCatalog()).groups.flatMap((g) => g.models.map((m) => ({ id: m.id, name: m.name || m.id }))),
+      commands: () => chatService.commands(),
+      requestNotice: (channel, name) => {
+        if (!Notification.isSupported()) return
+        const notice = new Notification({ title: `${name} wants to use your ${channel} bot`, body: 'Click to allow or block them in Settings > Channels.' })
+        notice.on('click', () => void openSettings('/channels'))
+        notice.show()
+      }
     })
     if (settings.get('computerUse')) warmDriver()
     settings.on('changed', (_all, patch) => {

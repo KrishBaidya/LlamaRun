@@ -459,19 +459,25 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
       analytics.track('plugin_command_used')
       return this.runCommand(chatId, text, command, model)
     }
+    const skill = await this.slashSkill(text)
+    if (skill) return this.start(chatId, text.trim(), { model, attachments, thinking, setup, skill }).chatId
+    return this.start(chatId, text, { model, attachments, thinking, setup }).chatId
+  }
+
+  /** A skill or an MCP server's prompt run as /command: what the model gets instead of the typed text. Null for anything else. */
+  async slashSkill(text: string): Promise<ChatMessage['skill'] | null> {
     const invoked = skillStore.matchCommand(text)
     if (invoked) {
       analytics.track('skill_invoked', { via: 'slash' })
-      const instructions = skillStore.invoke(invoked.skill, invoked.args)
-      return this.start(chatId, text.trim(), { model, attachments, thinking, setup, skill: { name: invoked.skill.name, instructions } }).chatId
+      return { name: invoked.skill.name, instructions: skillStore.invoke(invoked.skill, invoked.args) }
     }
     // An MCP server's prompt run as /server:prompt: the model gets the prompt's text.
     const prompt = /^\/[\w.-]+:[\w.-]+/.test(text.trim()) ? await mcp.runPrompt(text) : null
     if (prompt) {
       analytics.track('mcp_prompt_used')
-      return this.start(chatId, text.trim(), { model, attachments, thinking, setup, skill: { name: prompt.name, instructions: prompt.text } }).chatId
+      return { name: prompt.name, instructions: prompt.text }
     }
-    return this.start(chatId, text, { model, attachments, thinking, setup }).chatId
+    return null
   }
 
   /** Opens an "Install with AI" chat: the model reads the README and installs it, asking before each command. */
