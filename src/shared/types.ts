@@ -276,6 +276,8 @@ export interface ChannelStatus {
   /** People the bot ignores. */
   blocked: { peer: string; name: string; username?: string }[]
   error?: string
+  /** What the bot's / menu last did: how many commands, for whom, confirmed or not. */
+  menu?: string
   deliverRoutines: boolean
 }
 

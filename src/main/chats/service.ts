@@ -513,6 +513,30 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
   }
 
   /** A typed "/command args" a plugin registered: the plugin answers instead of a model. */
+  /** A plugin's /command, waiting for its reply (for the phone bots); null when no plugin has it. */
+  async pluginCommand(chatId: string | null, text: string): Promise<{ chatId: string; reply: string | null } | null> {
+    const command = pluginHost.matchCommand(text)
+    if (!command) return null
+    const chat = (chatId ? chatStore.get(chatId) : undefined) ?? this.create()
+    const user: ChatMessage = { id: randomUUID(), role: 'user', content: text.trim(), status: 'done', createdAt: Date.now() }
+    if (!chat.messages.length) chat.title = titleFrom(text)
+    chat.messages.push(user)
+    chatStore.save(chat)
+    this.emit('event', { type: 'chat', chat })
+    const args = text.trim().slice(command.name.length + 1).trim()
+    const name = pluginHost.pluginName(command.plugin)
+    analytics.track('plugin_command_used')
+    try {
+      const reply = await pluginHost.runCommand(command.plugin, command.name, args, chat.id)
+      if (reply) this.post(chat.id, reply, name)
+      return { chatId: chat.id, reply }
+    } catch (err) {
+      const message = `/${command.name} failed: ${(err as Error).message}`
+      this.post(chat.id, `**${message}**`, name)
+      return { chatId: chat.id, reply: message }
+    }
+  }
+
   private runCommand(chatId: string | null, text: string, command: { plugin: string; name: string }, model?: string): string {
     const chat = (chatId ? chatStore.get(chatId) : undefined) ?? this.create(model)
     const user: ChatMessage = { id: randomUUID(), role: 'user', content: text.trim(), status: 'done', createdAt: Date.now() }

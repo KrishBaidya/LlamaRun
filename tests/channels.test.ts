@@ -47,9 +47,11 @@ describe('Telegram', () => {
     expect(events.answer).toHaveBeenCalledWith('ap1', 'deny')
     // The / menu is set for that one chat, not for everyone who opens the bot.
     await tg.setCommands([{ command: 'new', description: 'x' }], '42')
-    expect(calls.at(-1)).toEqual({ method: 'setMyCommands', body: { commands: [{ command: 'new', description: 'x' }], scope: { type: 'chat', chat_id: 42 } } })
+    expect(calls.find((c) => c.method === 'setMyCommands')).toEqual({ method: 'setMyCommands', body: { commands: [{ command: 'new', description: 'x' }], scope: { type: 'chat', chat_id: 42 } } })
+    // The chat's menu button shows the commands, and Telegram is asked what it now has.
+    expect(calls.map((c) => c.method).slice(-2)).toEqual(['setChatMenuButton', 'getMyCommands'])
     await tg.setCommands([{ command: 'help', description: 'x' }], null)
-    expect(calls.at(-1)!.body.scope).toEqual({ type: 'default' })
+    expect(calls.filter((c) => c.method === 'setMyCommands').at(-1)!.body.scope).toEqual({ type: 'default' })
   })
 
   it('downloads a photo sent with a caption', async () => {
@@ -96,11 +98,13 @@ describe('the bot menu', () => {
     const commands: SlashCommand[] = [
       { name: 'li-post', description: 'Write a LinkedIn post', kind: 'skill', plugin: 'Skill' },
       { name: 'github:review_pr', description: 'Review a PR', kind: 'mcp', plugin: 'MCP · GitHub' },
-      { name: 'compact', description: 'built in', kind: 'builtin', plugin: 'Llama Run' }
+      { name: 'compact', description: 'built in', kind: 'builtin', plugin: 'Llama Run' },
+      { name: 'jira-today', description: 'Tickets due today', kind: 'plugin', plugin: 'Jira' }
     ]
     const menu = menuCommands(commands)
     expect(menu.slice(0, BOT_COMMANDS.length)).toEqual(BOT_COMMANDS)
-    expect(menu.slice(BOT_COMMANDS.length).map((c) => c.command)).toEqual(['li_post', 'github_review_pr'])
+    // Plugin commands first, then MCP prompts, then skills; desktop-only built-ins stay out.
+    expect(menu.slice(BOT_COMMANDS.length).map((c) => c.command)).toEqual(['jira_today', 'github_review_pr', 'li_post'])
   })
 })
 
@@ -127,7 +131,15 @@ describe('the channel hub', () => {
       { id: 'gemini-flash', name: 'Gemini Flash' },
       { id: 'gemini-pro', name: 'Gemini Pro' }
     ],
-    commands: (): SlashCommand[] => [{ name: 'li-post', description: 'Write a post', kind: 'skill', plugin: 'Skill' }],
+    commands: (): SlashCommand[] => [
+      { name: 'li-post', description: 'Write a post', kind: 'skill', plugin: 'Skill' },
+      { name: 'jira-today', description: 'Tickets due today', kind: 'plugin', plugin: 'Jira' }
+    ],
+    pluginCommand: vi.fn(async (chatId: string | undefined, text: string) => (text.startsWith('/jira-today') ? { chatId: chatId ?? 'chat-9', reply: '**3** tickets due' } : null)),
+    tools: () => [
+      { name: 'read_file', server: 'Llama Run' },
+      { name: 'create_issue', server: 'GitHub' }
+    ],
     requestNotice: vi.fn(),
     watch: (_chatId: string, listener: (e: ChatEvent) => void) => ((chatEvents = listener), () => (chatEvents = null)),
     attach: vi.fn(async (file: { kind: 'image' | 'document'; name: string }) => ({ id: 'a1', kind: file.kind, name: file.name, mimeType: 'image/jpeg', size: 3 }))
@@ -226,6 +238,13 @@ describe('the channel hub', () => {
     expect(port.setModel).toHaveBeenCalledWith('chat-9', 'gemini-pro')
     await channelHub.onMessage('telegram', me, '/model flash')
     expect(port.setModel).toHaveBeenLastCalledWith('chat-9', 'gemini-flash')
+    await channelHub.onMessage('telegram', me, '/tools')
+    expect(sent.at(-1)!.text).toBe('Llama Run (1):\nread_file\n\nGitHub (1):\ncreate_issue')
+    // A plugin's command from the menu runs through the plugin and its reply comes back.
+    await channelHub.onMessage('telegram', me, '/jira_today')
+    expect(port.pluginCommand).toHaveBeenLastCalledWith('chat-9', '/jira-today')
+    expect(sent.at(-1)!.text).toBe('**3** tickets due')
+    expect(channelHub.status()[0].menu).toContain('commands for Krish')
     await channelHub.onMessage('telegram', me, '/usage')
     expect(sent.at(-1)!.text).toBe('1,000 tokens')
     port.busy.mockReturnValue(true)

@@ -56,8 +56,11 @@ export interface Channel {
   ask(peer: string, request: ApprovalRequest): Promise<void>
   /** Shows that a reply is being made. */
   typing(peer: string): Promise<void>
-  /** Sets the / menu one person sees (null: everyone's default menu); an empty list removes it. */
-  setCommands?(commands: BotCommand[], peer: string | null): Promise<void>
+  /**
+   * Sets the / menu one person sees (null: everyone's default menu); an empty
+   * list removes it. Resolves with how many commands the app reports back, when it can check.
+   */
+  setCommands?(commands: BotCommand[], peer: string | null): Promise<number | void>
   /** A reply written in Markdown, shown formatted where the app can (falls back to plain text). */
   sendFormatted?(peer: string, markdown: string): Promise<void>
   /** Starts a message that `edit` keeps changing as a reply streams; returns its id. */

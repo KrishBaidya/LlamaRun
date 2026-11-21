@@ -227,11 +227,22 @@ export class TelegramChannel implements Channel {
     await this.call('sendChatAction', { chat_id: peer, action: 'typing' }).catch(() => {})
   }
 
-  /** The / menu for one chat (Telegram's chat scope), or everyone's default menu when peer is null. */
-  async setCommands(commands: BotCommand[], peer: string | null): Promise<void> {
+  /**
+   * The / menu for one chat (Telegram's chat scope), or everyone's default
+   * menu when peer is null. For a chat, its menu button is set to show the
+   * commands (a bot set up with a web app button would hide them otherwise),
+   * and Telegram is asked what it now has, so a silent refusal shows.
+   */
+  async setCommands(commands: BotCommand[], peer: string | null): Promise<number> {
     const scope = peer === null ? { type: 'default' } : { type: 'chat', chat_id: Number(peer) }
-    if (!commands.length) await this.call('deleteMyCommands', { scope })
-    else await this.call('setMyCommands', { commands, scope })
+    if (!commands.length) {
+      await this.call('deleteMyCommands', { scope })
+      return 0
+    }
+    await this.call('setMyCommands', { commands, scope })
+    if (peer !== null) await this.call('setChatMenuButton', { chat_id: Number(peer), menu_button: { type: 'commands' } }).catch(() => {})
+    const now = await this.call<BotCommand[]>('getMyCommands', { scope })
+    return now.length
   }
 
   async setProfile(description: string, short: string): Promise<void> {

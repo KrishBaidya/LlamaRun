@@ -29,7 +29,7 @@ import { modelCatalog } from './llm'
 import { openSettings } from './windows/settings'
 import { startApprovalNotices } from './notify'
 import { channelHub } from './channels'
-import { chatService } from './chats/service'
+import { chatService, chatTools } from './chats/service'
 
 // ---------------------------------------------------------------- crash log
 
@@ -199,6 +199,8 @@ if (!app.requestSingleInstanceLock()) {
       setModel: (chatId, model) => chatService.setModel(chatId, model),
       models: async () => (await modelCatalog()).groups.flatMap((g) => g.models.map((m) => ({ id: m.id, name: m.name || m.id }))),
       commands: () => chatService.commands(),
+      pluginCommand: (chatId, text) => chatService.pluginCommand(chatId && chatService.get(chatId) ? chatId : null, text),
+      tools: () => (chatTools({ shell: true })?.tools ?? []).map((t) => ({ name: t.name, server: t.server })),
       requestNotice: (channel, name) => {
         if (!Notification.isSupported()) return
         const notice = new Notification({ title: `${name} wants to use your ${channel} bot`, body: 'Click to allow or block them in Settings > Channels.' })

@@ -45,6 +45,7 @@ function ChannelCard({ status }: { status: ChannelStatus }) {
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         {status.error && <p className="text-xs text-destructive">{status.error}</p>}
+        {status.menu && !status.error?.startsWith('Menu:') && <p className="text-xs text-muted-foreground">{status.menu}</p>}
         {!status.configured ? (
           <div className="flex gap-2">
             <Input type="password" autoComplete="off" placeholder="Bot token" value={token} onChange={(e) => setToken(e.target.value)} />

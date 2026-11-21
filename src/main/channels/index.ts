@@ -1,9 +1,11 @@
 import { EventEmitter } from 'node:events'
+import { appendFileSync, mkdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { safeStorage } from 'electron'
 import type { ChannelStatus, ChatAttachment, ChatEvent, SlashCommand } from '@shared/types'
 import { approvals } from '../assistant/approval'
 import { readJson, writeJson } from '../jsonFile'
-import { userDataPath } from '../paths'
+import { logsDir, userDataPath } from '../paths'
 import { DiscordChannel } from './discord'
 import { TelegramChannel } from './telegram'
 import type { BotCommand, Channel, ChannelEvents, ChannelId, IncomingFile, MessageExtra, Sender } from './types'
@@ -77,8 +79,12 @@ export interface ChatPort {
   setModel(chatId: string, model: string): void
   /** Models a chat can use, by id and name. */
   models(): Promise<{ id: string; name: string }[]>
-  /** Skills and MCP prompts the user can run as /commands. */
+  /** Skills, MCP prompts and plugin commands the user can run as /commands. */
   commands(): SlashCommand[]
+  /** Runs a plugin's /command and waits for its reply; null when no plugin has it. */
+  pluginCommand?(chatId: string | undefined, text: string): Promise<{ chatId: string; reply: string | null } | null>
+  /** The tools a chat's model can use, with where each comes from. */
+  tools?(): { name: string; server: string }[]
   /** A desktop notification that someone asked to use the bot; clicking it opens Settings > Channels. */
   requestNotice(channel: string, name: string): void
 }
@@ -102,6 +108,7 @@ export const BOT_COMMANDS: BotCommand[] = [
   { command: 'compact', description: 'Summarise older messages to free up room' },
   { command: 'usage', description: 'Tokens used in this chat and the last 30 days' },
   { command: 'status', description: 'Model, chat and whether a reply is running' },
+  { command: 'tools', description: 'Tools the model can use: Llama Run, MCP servers, plugins' },
   { command: 'help', description: 'What the bot can do' }
 ]
 
@@ -112,12 +119,17 @@ const menuName = (name: string): string =>
     .replace(/^_+|_+$/g, '')
     .slice(0, 32)
 
-/** Telegram allows lowercase letters, digits and underscores, up to 32 characters, descriptions up to 256, and 100 commands. */
+/**
+ * The bot's own commands, then plugin commands, MCP prompts and skills, with
+ * names Telegram accepts: lowercase letters, digits and underscores, up to 32
+ * characters, descriptions up to 256, and 100 commands at most.
+ */
 export function menuCommands(commands: SlashCommand[]): BotCommand[] {
   const seen = new Set(BOT_COMMANDS.map((c) => c.command))
   const out = [...BOT_COMMANDS]
-  for (const c of commands) {
-    if (c.kind !== 'skill' && c.kind !== 'mcp') continue
+  const order: SlashCommand['kind'][] = ['plugin', 'mcp', 'skill']
+  const runnable = commands.filter((c) => order.includes(c.kind)).sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind))
+  for (const c of runnable) {
     const command = menuName(c.name)
     if (!command || seen.has(command) || out.length >= 100) continue
     seen.add(command)
@@ -245,6 +257,17 @@ class ChannelHub extends EventEmitter<{ changed: [ChannelStatus[]] }> {
   private routes = new Map<string, { id: ChannelId; peer: string }>()
   /** The last menu each person was sent, so it's only sent again when it changes. */
   private menus = new Map<string, string>()
+  /** What happened to each channel's menus, for Settings. */
+  private menuInfo = new Map<ChannelId, string>()
+
+  private log(line: string): void {
+    try {
+      mkdirSync(logsDir(), { recursive: true })
+      appendFileSync(join(logsDir(), 'channels.log'), `${new Date().toISOString()} ${line}\n`)
+    } catch {
+      /* logging is best effort */
+    }
+  }
   factory: (id: ChannelId) => Channel = (id) => (id === 'telegram' ? new TelegramChannel() : new DiscordChannel())
 
   private get path(): string {
@@ -301,6 +324,7 @@ class ChannelHub extends EventEmitter<{ changed: [ChannelStatus[]] }> {
         pending: fresh.map((p) => ({ ...person(p), text: p.text, at: p.at })),
         blocked: (r?.blocked ?? []).map(person),
         ...(this.errors.get(id) ? { error: this.errors.get(id) } : {}),
+        ...(this.menuInfo.get(id) ? { menu: this.menuInfo.get(id) } : {}),
         deliverRoutines: this.load().deliverRoutines === true
       }
     })
@@ -347,16 +371,19 @@ class ChannelHub extends EventEmitter<{ changed: [ChannelStatus[]] }> {
     const key = `${id}:${peer ?? '*'}`
     const value = JSON.stringify(list)
     if (this.menus.get(key) === value) return
+    const who = peer === null ? 'everyone' : (this.record(id).paired.find((p) => p.peer === peer)?.name ?? peer)
     try {
-      await channel.setCommands(list, peer)
+      const confirmed = await channel.setCommands(list, peer)
       this.menus.set(key, value)
-      if (this.errors.get(id)?.startsWith('Menu:')) {
-        this.errors.delete(id)
-        this.emit('changed', this.status())
-      }
+      const count = typeof confirmed === 'number' ? confirmed : list.length
+      this.log(`${id} menu for ${who}: sent ${list.length}, ${typeof confirmed === 'number' ? `${LABEL[id]} has ${confirmed}` : 'not checked'}`)
+      if (peer !== null) this.menuInfo.set(id, `Menu: ${count} commands for ${who}${typeof confirmed === 'number' ? `, confirmed by ${LABEL[id]}` : ''} (${new Date().toLocaleTimeString()}). If it looks old in the app, close and reopen the chat with the bot.`)
+      if (this.errors.get(id)?.startsWith('Menu:')) this.errors.delete(id)
+      this.emit('changed', this.status())
     } catch (err) {
       this.menus.delete(key)
-      this.errors.set(id, `Menu: couldn't update the bot's / menu: ${(err as Error).message}`)
+      this.log(`${id} menu for ${who} failed: ${(err as Error).message}`)
+      this.errors.set(id, `Menu: couldn't update the bot's / menu for ${who}: ${(err as Error).message}`)
       this.emit('changed', this.status())
     }
   }
@@ -553,6 +580,26 @@ class ChannelHub extends EventEmitter<{ changed: [ChannelStatus[]] }> {
       )
     }
     if (name === 'model') return this.modelCommand(channel, paired, arg, reply)
+    if (name === 'tools') {
+      const tools = port.tools?.() ?? []
+      if (!tools.length) return reply('No tools right now.')
+      const groups = new Map<string, string[]>()
+      for (const t of tools) groups.set(t.server, [...(groups.get(t.server) ?? []), t.name])
+      return reply([...groups].map(([server, names]) => `${server} (${names.length}):\n${names.join(', ')}`).join('\n\n'))
+    }
+    // A plugin's /command: it answers itself, without the model.
+    if (text.trim().startsWith('/') && port.pluginCommand) {
+      const ran = await port.pluginCommand(paired.chatId, text).catch((err: Error) => ({ chatId: paired.chatId ?? '', reply: `That command failed: ${err.message}` }))
+      if (ran) {
+        if (ran.chatId && ran.chatId !== paired.chatId) {
+          paired.chatId = ran.chatId
+          this.routes.set(ran.chatId, { id, peer: from.peer })
+          this.save()
+        }
+        if (!ran.reply) return reply('Done.')
+        return void (await (channel.sendFormatted ? channel.sendFormatted(from.peer, ran.reply) : channel.send(from.peer, ran.reply)).catch(() => {}))
+      }
+    }
 
     if (extra.messageId) void channel.react?.(from.peer, extra.messageId, '👀')
     const attachments: ChatAttachment[] = []
