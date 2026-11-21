@@ -376,7 +376,11 @@ export function registerIpc(): void {
     broadcast('settings:changed', all)
   })
   auth.on('changed', (profile) => broadcast('auth:changed', profile))
-  mcp.on('changed', (statuses) => broadcast('mcp:changed', statuses))
+  mcp.on('changed', (statuses) => {
+    broadcast('mcp:changed', statuses)
+    // A server's prompts are / commands.
+    broadcast('commands:changed', chatService.commands())
+  })
   pluginHost.on('changed', (list) => broadcast('plugins:changed', list))
   pluginHost.on('commands', () => broadcast('commands:changed', chatService.commands()))
   pluginHost.on('css', applyPluginCss)

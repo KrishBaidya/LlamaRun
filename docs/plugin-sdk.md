@@ -77,6 +77,10 @@ To try it, go to **Settings → Plugins → Install from Disk** and pick the fol
 
 Validation errors are reported per field and shown on the plugin's card.
 
+### Skills that come with a plugin
+
+Put skills in a `skills/` folder next to `plugin.json`, one folder per skill with its `SKILL.md`, as in a Claude Code plugin. While the plugin is turned on they join the user's skills: the model can load them, and they show in the chat box's `/` menu as "Skill · your plugin's name". Turning the plugin off or removing it takes them away. No permission is needed, since they are files the user already installed with the plugin.
+
 ## Permissions and the sandbox
 
 Every plugin runs in its own Python process. A plugin that crashes or hangs affects only itself: LlamaRun restarts it with backoff and skips it for the chat turn it was holding up. A plugin can only do what its manifest asks for and the user approved. When a plugin is installed, LlamaRun shows its permissions. The user can untick optional ones, and can change them later on the plugin's page. Turning one off restarts the plugin.

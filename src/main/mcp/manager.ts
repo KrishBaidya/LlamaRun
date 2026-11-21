@@ -4,19 +4,33 @@ import { StdioClientTransport, getDefaultEnvironment } from '@modelcontextprotoc
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js'
-import type { McpServerConfig, McpServerStatus, McpToolInfo } from '@shared/types'
+import type { McpServerConfig, McpServerStatus, McpToolInfo, SlashCommand } from '@shared/types'
 import { loadMcpConfig, saveMcpConfig } from './config'
 import { forgetSignIn, McpOAuthProvider } from './oauth'
 
 /** A server that needs the user to sign in before it can connect. */
 class SignInNeeded extends Error {}
 
+interface McpPrompt {
+  name: string
+  description: string
+  args: { name: string; required: boolean }[]
+}
+
 interface Connection {
   config: McpServerConfig
   client?: Client
   status: McpServerStatus
   tools: McpToolInfo[]
+  /** The server's prompts, offered as /server:prompt commands like Claude Code's /mcp__server__prompt. */
+  prompts?: McpPrompt[]
 }
+
+const slug = (s: string): string =>
+  s
+    .toLowerCase()
+    .replace(/[^a-z0-9_.-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
 
 /** Keeps the last few KB a server wrote to stderr, to explain why it failed. */
 class StderrTail {
@@ -138,6 +152,47 @@ class McpManager extends EventEmitter<{ changed: [McpServerStatus[]] }> {
     return { content: (result.content as unknown[]) ?? [], isError: Boolean(result.isError) }
   }
 
+  /** Every connected server's prompts as / commands. */
+  commands(): SlashCommand[] {
+    return [...this.connections.values()].flatMap((c) =>
+      (c.prompts ?? []).map((p) => ({
+        name: `${slug(c.config.name)}:${slug(p.name)}`,
+        description: p.description || `${p.name} from ${c.config.name}`,
+        kind: 'mcp' as const,
+        plugin: `MCP · ${c.config.name}`,
+        ...(p.args.length ? { args: p.args.map((a) => (a.required ? `<${a.name}>` : `[${a.name}]`)).join(' ') } : {})
+      }))
+    )
+  }
+
+  /**
+   * A typed "/server:prompt args": the prompt's text from the server, with
+   * the words after the command given to its arguments in order (the last
+   * one gets the rest). Null when no server has that prompt.
+   */
+  async runPrompt(text: string): Promise<{ name: string; text: string } | null> {
+    const m = /^\/([\w.-]+):([\w.-]+)(?:\s+([\s\S]*))?$/.exec(text.trim())
+    if (!m) return null
+    const conn = [...this.connections.values()].find((c) => c.client && slug(c.config.name) === m[1].toLowerCase())
+    const prompt = conn?.prompts?.find((p) => slug(p.name) === m[2].toLowerCase())
+    if (!conn?.client || !prompt) return null
+    const words = (m[3] ?? '').trim() ? (m[3] ?? '').trim().split(/\s+/) : []
+    const args: Record<string, string> = {}
+    prompt.args.forEach((a, i) => {
+      const value = i === prompt.args.length - 1 ? words.slice(i).join(' ') : words[i]
+      if (value) args[a.name] = value
+    })
+    const missing = prompt.args.filter((a) => a.required && !args[a.name])
+    if (missing.length) throw new Error(`/${m[1]}:${m[2]} needs ${missing.map((a) => a.name).join(', ')}`)
+    const result = await conn.client.getPrompt({ name: prompt.name, arguments: args })
+    const parts = result.messages.map((msg) => {
+      const c = msg.content as { type: string; text?: string; resource?: { text?: string; uri?: string } }
+      const body = c.type === 'text' ? (c.text ?? '') : c.type === 'resource' ? (c.resource?.text ?? c.resource?.uri ?? '') : `[${c.type}]`
+      return msg.role === 'assistant' ? `(Assistant:) ${body}` : body
+    })
+    return { name: `${m[1]}:${m[2]}`, text: parts.filter(Boolean).join('\n\n') }
+  }
+
   serverForTool(name: string): string | undefined {
     return this.tools().find((t) => t.name === name)?.server
   }
@@ -146,6 +201,7 @@ class McpManager extends EventEmitter<{ changed: [McpServerStatus[]] }> {
     const client = new Client({ name: 'LlamaRun', version: '1.0.0' })
     let status: McpServerStatus
     let tools: McpToolInfo[] = []
+    let prompts: McpPrompt[] = []
     const stderr = new StderrTail()
     try {
       if (config.mcpType === 'STDIO') {
@@ -196,6 +252,14 @@ class McpManager extends EventEmitter<{ changed: [McpServerStatus[]] }> {
         server: config.name,
         inputSchema: t.inputSchema as Record<string, unknown>
       }))
+      if (client.getServerCapabilities()?.prompts) {
+        const listed = await client.listPrompts().catch(() => null)
+        prompts = (listed?.prompts ?? []).map((p) => ({
+          name: p.name,
+          description: p.description ?? '',
+          args: (p.arguments ?? []).map((a) => ({ name: a.name, required: Boolean(a.required) }))
+        }))
+      }
       status = { name: config.name, state: 'connected', toolCount: tools.length }
     } catch (err) {
       await client.close().catch(() => undefined)
@@ -223,6 +287,7 @@ class McpManager extends EventEmitter<{ changed: [McpServerStatus[]] }> {
     }
     conn.status = status
     conn.tools = tools
+    conn.prompts = prompts
     if (status.state === 'connected') conn.client = client
     this.emitChanged()
   }

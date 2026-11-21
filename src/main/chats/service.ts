@@ -465,6 +465,12 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
       const instructions = skillStore.invoke(invoked.skill, invoked.args)
       return this.start(chatId, text.trim(), { model, attachments, thinking, setup, skill: { name: invoked.skill.name, instructions } }).chatId
     }
+    // An MCP server's prompt run as /server:prompt: the model gets the prompt's text.
+    const prompt = /^\/[\w.-]+:[\w.-]+/.test(text.trim()) ? await mcp.runPrompt(text) : null
+    if (prompt) {
+      analytics.track('mcp_prompt_used')
+      return this.start(chatId, text.trim(), { model, attachments, thinking, setup, skill: { name: prompt.name, instructions: prompt.text } }).chatId
+    }
     return this.start(chatId, text, { model, attachments, thinking, setup }).chatId
   }
 
@@ -481,7 +487,7 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
    */
   commands(): SlashCommand[] {
     const seen = new Set<string>()
-    return [...BUILTIN_COMMANDS, ...pluginHost.commands(), ...skillStore.commands()].filter((c) => !seen.has(c.name) && !!seen.add(c.name))
+    return [...BUILTIN_COMMANDS, ...pluginHost.commands(), ...skillStore.commands(), ...mcp.commands()].filter((c) => !seen.has(c.name) && !!seen.add(c.name))
   }
 
   /**

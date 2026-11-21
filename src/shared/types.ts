@@ -546,7 +546,7 @@ export interface MemoryItem {
 
 /** An installed skill: a folder with a SKILL.md the model can load and scripts it can run. */
 /** shared: ~/.agents/skills (every agent); claude: ~/.claude/skills; app: Llama Run's old private folder. */
-export type SkillLocation = 'shared' | 'claude' | 'app'
+export type SkillLocation = 'shared' | 'claude' | 'app' | 'plugin'
 
 export interface SkillInfo {
   /** Folder name inside the Skills directory. */
@@ -558,6 +558,8 @@ export interface SkillInfo {
   trusted: boolean
   folder: string
   location: SkillLocation
+  /** The plugin it comes with (location "plugin"); it goes when the plugin is turned off or removed. */
+  plugin?: string
   /** Where it was installed from (a link, ZIP or folder), if known. */
   source?: string
   /** The /command that runs it from the chat box. */
@@ -582,7 +584,7 @@ export interface SkillInfo {
 export interface SlashCommand {
   name: string
   description: string
-  kind: 'builtin' | 'plugin' | 'skill'
+  kind: 'builtin' | 'plugin' | 'skill' | 'mcp'
   /** Who provides it: 'Llama Run', a plugin's name, or where a skill comes from. */
   plugin: string
   /** Text after the name, e.g. "[focus]". */

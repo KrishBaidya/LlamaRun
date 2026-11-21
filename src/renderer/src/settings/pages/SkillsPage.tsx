@@ -87,7 +87,7 @@ function SkillCard({ skill }: { skill: SkillInfo }) {
           )}
           {skill.location !== 'shared' && (
             <Badge variant="outline" className="px-1.5 py-0 text-2xs font-normal">
-              {skill.location === 'claude' ? 'From Claude Code' : 'Llama Run only'}
+              {skill.location === 'claude' ? 'From Claude Code' : skill.location === 'plugin' ? `From the ${skill.plugin} plugin` : 'Llama Run only'}
             </Badge>
           )}
           <Badge variant="outline" className="px-1.5 py-0 text-2xs font-normal">
@@ -118,7 +118,7 @@ function SkillCard({ skill }: { skill: SkillInfo }) {
               <ShieldCheck /> Ask before scripts
             </Button>
           )}
-          {skill.location !== 'claude' && (
+          {skill.location !== 'claude' && skill.location !== 'plugin' && (
             <Button
               size="sm"
               variant="ghost"

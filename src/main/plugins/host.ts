@@ -1197,11 +1197,27 @@ class PluginHost extends EventEmitter<{
     }
   }
 
+  /** The skills/ folders of turned-on plugins: their skills join the user's, like a Claude Code plugin's. */
+  skillFolders(): { dir: string; plugin: string }[] {
+    return this.order
+      .map((id) => this.records.get(id)!)
+      .filter((r) => r.manifest && !r.problem && this.enabled(r) && existsSync(join(r.folder, 'skills')))
+      .map((r) => ({ dir: join(r.folder, 'skills'), plugin: r.manifest!.name }))
+  }
+
+  private skillKey = ''
+
   private emitChanged(): void {
     if (this.changedTimer) return
     this.changedTimer = setTimeout(() => {
       this.changedTimer = null
       this.emit('changed', this.list)
+      // A plugin with skills was turned on or off: the skill list changes with it.
+      const key = this.skillFolders().map((f) => f.dir).join('|')
+      if (key !== this.skillKey) {
+        this.skillKey = key
+        skillStore.changed()
+      }
     }, 50)
   }
 
@@ -1224,3 +1240,4 @@ class PluginHost extends EventEmitter<{
 }
 
 export const pluginHost = new PluginHost()
+skillStore.setPluginRoots(() => pluginHost.skillFolders())
