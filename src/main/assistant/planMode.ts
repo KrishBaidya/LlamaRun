@@ -10,7 +10,8 @@ export const READ_ONLY_TOOLS = [
   'chat_read',
   'skill_load',
   'skill_read_file',
-  'todo_update'
+  'todo_update',
+  'wait'
 ]
 
 /** What a chat in plan mode may still do: read, look up, plan out loud, ask, and hand read-only tasks to helpers. */

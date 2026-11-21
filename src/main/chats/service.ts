@@ -34,6 +34,7 @@ import { editMessage, switchVersion } from './branches'
 import { projectInstructions, validProject } from '../assistant/project'
 import { createCommandHooks } from '../assistant/hooks'
 import { appContext } from '../mcp/appContext'
+import { appTools } from '../mcp/appTools'
 import { allowedTools } from '../assistant/planMode'
 import { AGENT_RUN, agentRunTool, runSubagent } from './subagent'
 import * as notify from '../notify'
@@ -139,7 +140,9 @@ export function chatTools(options: ChatToolOptions = {}): ToolBridge | undefined
     ...builtinTools(options),
     ...(options.computer ? computer.tools() : []),
     ...(options.shell ? [RUN_CODE_TOOL] : []),
-    ...(options.shell && options.model ? [agentRunTool()] : [])
+    ...(options.shell && options.model ? [agentRunTool()] : []),
+    // Tools the MCP Apps open in this chat offer (the user's own messages only).
+    ...(options.shell ? appTools.toolsFor(options.chatId) : [])
   ]
   const ownNames = new Set(own.map((t) => t.name))
   const mcpTools = mcp.tools().filter((t) => !isBuiltinTool(t.name) && !ownNames.has(t.name))
@@ -164,14 +167,16 @@ export function chatTools(options: ChatToolOptions = {}): ToolBridge | undefined
     !offered.has(name)
       ? Promise.resolve({ content: [{ type: 'text', text: `${name} is not available in this chat${options.plan ? ' while plan mode is on' : ''}.` }], isError: true })
       : isBuiltinTool(name)
-      ? callBuiltinTool(name, args, { chatId: options.chatId, messageId: options.messageId, project: options.project })
+      ? callBuiltinTool(name, args, { chatId: options.chatId, messageId: options.messageId, project: options.project, signal: options.signal })
       : options.computer && isComputerTool(name)
         ? computer.call(name, args, { chatId: options.chatId, screenshots: options.computer.screenshots })
         : fromPlugins.has(name)
           ? pluginHost.callModelTool(name, args)
           : name === RUN_CODE
             ? runCode(args, { tools: tools.filter((t) => t.name !== RUN_CODE), call: hooked }, { chatId: options.chatId, project: options.project })
-            : name === AGENT_RUN && options.model
+            : options.chatId && appTools.has(options.chatId, name)
+              ? appTools.call(options.chatId, name, args, options.signal)
+              : name === AGENT_RUN && options.model
               ? runSubagent(args, {
                   bridge: { tools: tools.filter((t) => t.name !== AGENT_RUN), call: hooked, sequential: (n) => isComputerTool(n) || n === RUN_CODE },
                   model: options.model,

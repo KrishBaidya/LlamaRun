@@ -37,6 +37,8 @@ export interface BridgeDeps {
   /** Whether the user just clicked or typed in the app: only then may it change how it's shown. */
   hasGesture(): boolean
   resized(width: number | undefined, height: number | undefined): void
+  /** The app offers tools of its own (now, or changed): the host should list them again. */
+  toolsChanged?(): void
   log?(level: string, data: unknown): void
 }
 
@@ -54,6 +56,10 @@ export class McpAppBridge {
   private nextId = 1
   /** The modes the app said it supports; empty means it didn't say. */
   private appModes: string[] = []
+  /** It said it has tools of its own (appCapabilities.tools). */
+  private appHasTools = false
+  /** Requests sent to the view, waiting for its answer. */
+  private waiting = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>()
 
   constructor(
     private app: McpAppRef,
@@ -78,7 +84,16 @@ export class McpAppBridge {
   async handle(raw: unknown): Promise<void> {
     if (!raw || typeof raw !== 'object') return
     const msg = raw as RpcMessage
-    if (typeof msg.method !== 'string') return // a response to something we sent (teardown)
+    if (typeof msg.method !== 'string') {
+      // An answer to a request the host sent (tools/list, tools/call, teardown).
+      const entry = msg.id !== undefined ? this.waiting.get(String(msg.id)) : undefined
+      if (!entry) return
+      this.waiting.delete(String(msg.id))
+      clearTimeout(entry.timer)
+      if (msg.error !== undefined) entry.reject(new Error(String((msg.error as { message?: unknown })?.message ?? 'The app failed')))
+      else entry.resolve(msg.result)
+      return
+    }
     const params = msg.params ?? {}
     const id = msg.id
     if (id === undefined) return this.onNotification(msg.method, params)
@@ -93,8 +108,9 @@ export class McpAppBridge {
   private async onRequest(method: string, params: Record<string, unknown>): Promise<unknown> {
     switch (method) {
       case 'ui/initialize': {
-        const caps = (params.appCapabilities ?? params.capabilities ?? {}) as { availableDisplayModes?: unknown }
+        const caps = (params.appCapabilities ?? params.capabilities ?? {}) as { availableDisplayModes?: unknown; tools?: unknown }
         this.appModes = Array.isArray(caps.availableDisplayModes) ? caps.availableDisplayModes.map(String) : []
+        this.appHasTools = Boolean(caps.tools)
         return {
           protocolVersion: MCP_APPS_PROTOCOL,
           hostInfo: { name: 'Llama Run', version: '1' },
@@ -165,14 +181,43 @@ export class McpAppBridge {
       this.initialized = true
       this.notify('ui/notifications/tool-input', { arguments: this.app.args ?? {} })
       if (this.app.result) this.notify('ui/notifications/tool-result', this.app.result as unknown as Record<string, unknown>)
+      if (this.appHasTools) this.deps.toolsChanged?.()
     } else if (method === 'ui/notifications/size-changed') {
       const n = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : undefined)
       this.deps.resized(n(params.width), n(params.height))
+    } else if (method === 'notifications/tools/list_changed') {
+      if (this.appHasTools) this.deps.toolsChanged?.()
     } else if (method === 'ui/notifications/request-teardown') {
       this.deps.close()
     } else if (method === 'notifications/message') {
       this.deps.log?.(String(params.level ?? 'info'), params.data)
     }
+  }
+
+  /** Sends the view a request and waits for its answer. */
+  private request(method: string, params: Record<string, unknown>, timeoutMs = 60_000): Promise<unknown> {
+    if (!this.initialized) return Promise.reject(new Error('The app is still loading'))
+    const id = `host-${this.nextId++}`
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.waiting.delete(id)
+        reject(new Error("The app didn't answer"))
+      }, timeoutMs)
+      this.waiting.set(id, { resolve, reject, timer })
+      this.deps.post({ jsonrpc: '2.0', id, method, params })
+    })
+  }
+
+  /** The tools the app offers (MCP tools/list sent to the view). */
+  async listAppTools(): Promise<unknown[]> {
+    if (!this.appHasTools) return []
+    const result = (await this.request('tools/list', {})) as { tools?: unknown }
+    return Array.isArray(result?.tools) ? result.tools : []
+  }
+
+  /** Runs one of the app's own tools (MCP tools/call sent to the view). */
+  callAppTool(name: string, args: Record<string, unknown>): Promise<unknown> {
+    return this.request('tools/call', { name, arguments: args }, 120_000)
   }
 
   /** Theme, size or display mode changed: tells the view, once it is listening. */
@@ -183,6 +228,11 @@ export class McpAppBridge {
 
   /** Before the view goes away (spec: ui/resource-teardown). Doesn't wait for the answer. */
   teardown(reason: string): void {
+    for (const entry of this.waiting.values()) {
+      clearTimeout(entry.timer)
+      entry.reject(new Error('The app was closed'))
+    }
+    this.waiting.clear()
     if (this.initialized) this.deps.post({ jsonrpc: '2.0', id: `teardown-${this.nextId++}`, method: 'ui/resource-teardown', params: { reason } })
   }
 }

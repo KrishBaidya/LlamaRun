@@ -19,6 +19,7 @@ import { configFromDirectoryEntry, isServerConfig } from './mcp/config'
 import { clearDirectoryCache, getDirectoryServer, listDirectory, readmeUrl } from './mcp/directory'
 import { mcp } from './mcp/manager'
 import { appContext } from './mcp/appContext'
+import { appTools } from './mcp/appTools'
 import { memoryStore } from './memory/store'
 import { routineStore } from './routines/store'
 import { exportChat } from './chats/exportFile'
@@ -328,6 +329,9 @@ export function registerIpc(): void {
     else void chatService.send(id, message).catch(() => {})
   })
   handle('mcpApps:setContext', (_e, chatId, server, text) => appContext.set(String(chatId), String(server), String(text ?? '')))
+  handle('mcpApps:registerTools', (e, chatId, viewId, server, tools) => appTools.register(e.sender, String(chatId), String(viewId), String(server), tools))
+  handle('mcpApps:unregisterTools', (_e, viewId) => appTools.unregister(String(viewId)))
+  handle('mcpApps:appToolResult', (_e, requestId, result) => appTools.answer(String(requestId), result))
   handle('mcp:readmeUrl', (_e, id) => readmeUrl(id))
   handle('mcp:configFromDirectory', (_e, server) => configFromDirectoryEntry(server.name, server.serverConfig))
 

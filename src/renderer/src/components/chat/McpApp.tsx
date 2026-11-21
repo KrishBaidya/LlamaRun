@@ -94,6 +94,8 @@ function AppFrame({
   onCloseRef.current = onClose ?? (() => undefined)
   const frame = useRef<HTMLIFrameElement>(null)
   const bridge = useRef<McpAppBridge | null>(null)
+  // Names this view when it offers tools to the model.
+  const [viewId] = useState(() => crypto.randomUUID())
   const [resource, setResource] = useState<McpAppResource | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [height, setHeight] = useState(INLINE_MIN_HEIGHT * 2)
@@ -134,6 +136,14 @@ function AppFrame({
       setContext: (text) => chatId && void api.mcpApps.setContext(chatId, app.server, text),
       requestMode: (m) => (onModeRef.current(m), m),
       hasGesture: () => recentGesture(frame.current),
+      // The app's own tools, offered to the model while it's open in this chat.
+      toolsChanged: () =>
+        void b
+          .listAppTools()
+          .then((tools) => {
+            if (chatId) void api.mcpApps.registerTools(chatId, viewId, app.server, tools)
+          })
+          .catch(() => undefined),
       resized: (_w, h) => h !== undefined && setHeight(Math.max(INLINE_MIN_HEIGHT, Math.min(INLINE_MAX_HEIGHT, Math.ceil(h)))),
       log: (level, data) => console.debug(`[${app.server} app] ${level}`, data)
     }, context)
@@ -144,12 +154,21 @@ function AppFrame({
       else void b.handle(e.data)
     }
     window.addEventListener('message', onMessage)
+    // The model calling one of this app's tools.
+    const offCall = api.on('mcpApps:callAppTool', (call) => {
+      if (call.viewId !== viewId) return
+      b.callAppTool(call.name, call.args)
+        .then((result) => api.mcpApps.appToolResult(call.requestId, result))
+        .catch((err: Error) => api.mcpApps.appToolResult(call.requestId, { error: err.message }))
+    })
     // The page may already be loaded (and waiting) by the time the resource arrives.
     frame.current?.contentWindow?.location.replace(frame.current.src)
     // Light/dark follows the app.
     const watch = new MutationObserver(() => b.contextChanged({ theme: isDark() ? 'dark' : 'light', styles: { variables: themeVariables() } }))
     watch.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
     return () => {
+      offCall()
+      void api.mcpApps.unregisterTools(viewId)
       b.teardown('closed')
       watch.disconnect()
       window.removeEventListener('message', onMessage)

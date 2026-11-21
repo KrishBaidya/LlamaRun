@@ -208,6 +208,9 @@ export interface InvokeChannels {
   'mcpApps:listResources': (server: string) => unknown
   'mcpApps:message': (chatId: string, server: string, text: string) => void
   'mcpApps:setContext': (chatId: string, server: string, text: string) => void
+  'mcpApps:registerTools': (chatId: string, viewId: string, server: string, tools: unknown) => void
+  'mcpApps:unregisterTools': (viewId: string) => void
+  'mcpApps:appToolResult': (requestId: string, result: unknown) => void
   'mcp:readmeUrl': (id: string) => string
   'mcp:configFromDirectory': (server: McpDirectoryServer) => McpServerConfig
 
@@ -276,6 +279,8 @@ export interface EventChannels {
   'channels:changed': ChannelStatus[]
   'skills:changed': SkillInfo[]
   'commands:changed': SlashCommand[]
+  /** The model calls a tool an open MCP App offers; the chat window passes it to the app. */
+  'mcpApps:callAppTool': { requestId: string; viewId: string; name: string; args: Record<string, unknown> }
 }
 
 export type InvokeChannel = keyof InvokeChannels
@@ -405,6 +410,9 @@ export const INVOKE_CHANNELS = [
   'mcpApps:listResources',
   'mcpApps:message',
   'mcpApps:setContext',
+  'mcpApps:registerTools',
+  'mcpApps:unregisterTools',
+  'mcpApps:appToolResult',
   'mcp:readmeUrl',
   'mcp:configFromDirectory',
   'plugins:list',
@@ -458,5 +466,6 @@ export const EVENT_CHANNELS = [
   'skills:changed',
   'commands:changed',
   'routines:changed',
-  'channels:changed'
+  'channels:changed',
+  'mcpApps:callAppTool'
 ] as const satisfies readonly EventChannel[]

@@ -282,6 +282,12 @@ const TASK_TOOLS: McpToolInfo[] = [
       other: { type: 'boolean', description: 'Let them type an answer of their own. Default true.' }
     },
     ['question', 'options']
+  ),
+  tool(
+    'wait',
+    'Wait a number of seconds (1 to 120) before the next step, for example when a service says to wait before checking a job again. Stopping the reply ends the wait.',
+    { seconds: { type: 'number', description: 'How long, 1 to 120.' } },
+    ['seconds']
   )
 ]
 
@@ -744,6 +750,8 @@ export interface ToolContext {
   messageId?: string
   /** The chat's project folder: where relative paths and commands start, and the model's to read and write. */
   project?: string
+  /** The reply's stop signal (wait ends early when it fires). */
+  signal?: AbortSignal
 }
 
 /** Where relative paths and commands start: the chat's project folder, else the skill workspace. */
@@ -793,6 +801,16 @@ export async function callBuiltinTool(name: string, args: Record<string, unknown
         const action = String(args.action)
         if (!['pause', 'resume', 'remove', 'run'].includes(action)) throw new Error('action is pause, resume, remove or run')
         return result(routineStore.act(str(args, 'id'), action as 'pause' | 'resume' | 'remove' | 'run'))
+      }
+      case 'wait': {
+        const seconds = Math.min(120, Math.max(1, Number(args.seconds) || 1))
+        const started = Date.now()
+        await new Promise<void>((done) => {
+          const timer = setTimeout(done, seconds * 1000)
+          context.signal?.addEventListener('abort', () => (clearTimeout(timer), done()), { once: true })
+        })
+        if (context.signal?.aborted) return result('Stopped while waiting.', true)
+        return result(`Waited ${Math.round((Date.now() - started) / 1000)} seconds.`)
       }
       case 'todo_update': {
         // The list itself is drawn from this call's arguments in the chat; the model just needs to know it landed.
