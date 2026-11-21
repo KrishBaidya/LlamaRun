@@ -14,6 +14,17 @@ Surfaces:
 * :func:`panel` is a window, built from a :class:`View` in Python or from a
   TSX component in the plugin's ``ui/`` folder.
 
+The chat window and Settings (SDK 1.6):
+
+* :func:`add_renderer` draws fenced code blocks of a language (```chart) in
+  replies as HTML. (``renderers``)
+* :func:`add_button` puts buttons on messages, in the chat box's toolbar or
+  in the chat sidebar. (``buttons``)
+* :func:`add_tool_card` draws the card for calls of the plugin's own tools. (``tools``)
+* :func:`status_item` shows a small item next to the chat box. (``statusbar``)
+* :func:`settings_page` adds a page of the plugin's own to Settings. (``pages``)
+* :func:`add_attachment_source` adds an entry to the attach menu. (``attachments``)
+
 Example::
 
     from llamarun import ui
@@ -39,6 +50,7 @@ import itertools
 import mimetypes
 import threading
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Literal, Optional, Sequence, Tuple, Union
 
@@ -52,6 +64,10 @@ __all__ = [
     "Button", "Input", "Textarea", "Switch", "Checkbox", "Select", "Slider",
     "Badge", "Progress", "Spinner", "List",
     "settings", "hud", "toast", "confirm", "prompt", "select", "form", "alert", "panel", "image_file",
+    # SDK 1.6: the chat window and Settings
+    "ButtonContext", "ToolCall", "AttachContext", "Attachment", "StatusItem", "SettingsPage",
+    "add_renderer", "remove_renderer", "add_button", "remove_button", "add_tool_card", "remove_tool_card",
+    "status_item", "add_attachment_source", "remove_attachment_source", "settings_page",
 ]
 
 Tone = Literal["default", "muted", "success", "warning", "destructive"]
@@ -743,6 +759,344 @@ def panel(title: str, *, view: Optional[View] = None, tsx: Optional[str] = None,
     return Panel(title, view=view, tsx=tsx, state=state, width=width, height=height)
 
 
+# ------------------------------------------------- chat window and Settings (SDK 1.6)
+
+ButtonPlace = Literal["message", "composer", "sidebar"]
+
+
+@dataclass
+class ButtonContext:
+    """What a button's ``on_click`` gets: where it was clicked."""
+
+    where: str
+    """``"message"``, ``"composer"`` or ``"sidebar"``."""
+    chat_id: Optional[str] = None
+    """The chat, or ``None`` for a chat not started yet."""
+    message_id: Optional[str] = None
+    """Message buttons: the message."""
+    message_text: Optional[str] = None
+    """Message buttons: its text."""
+    role: Optional[str] = None
+    """Message buttons: ``"user"`` or ``"assistant"``."""
+    draft: Optional[str] = None
+    """Composer buttons: what is typed in the chat box."""
+
+
+@dataclass
+class ToolCall:
+    """A call of one of your tools, as its card draws it."""
+
+    tool: str
+    arguments: Dict[str, Any] = field(default_factory=dict)
+    result: Optional[str] = None
+    """What the tool returned, once it has."""
+    status: str = "done"
+    """``"running"``, ``"done"`` or ``"error"``."""
+
+
+@dataclass
+class AttachContext:
+    """What an attachment source gets when the user picks it."""
+
+    chat_id: Optional[str] = None
+
+
+class Attachment:
+    """A file or text to attach to the user's message, returned by an attachment source.
+
+    ``Attachment("notes.md", text="# Notes")`` attaches text;
+    ``Attachment("chart.png", data=png_bytes)`` attaches bytes (images, PDFs,
+    Word files and text files are read the way picked files are);
+    ``Attachment.from_file(path)`` reads a file.
+    """
+
+    def __init__(self, name: str, *, text: Optional[str] = None, data: Optional[bytes] = None,
+                 mime_type: Optional[str] = None) -> None:
+        if (text is None) == (data is None):
+            raise ValueError("pass exactly one of text= or data=")
+        self.name = str(name)
+        self.text = text
+        self.data = data
+        self.mime_type = mime_type or mimetypes.guess_type(self.name)[0] or ("text/plain" if text is not None else "application/octet-stream")
+
+    @classmethod
+    def from_file(cls, path: Union[str, Path], *, name: Optional[str] = None) -> "Attachment":
+        """Read a file (your data folder, or anywhere with the ``filesystem`` permission)."""
+        p = Path(path)
+        return cls(name or p.name, data=p.read_bytes())
+
+    def to_dict(self) -> Dict[str, Any]:
+        out: Dict[str, Any] = {"name": self.name, "mime_type": self.mime_type}
+        if self.text is not None:
+            out["text"] = self.text
+        else:
+            out["data"] = base64.b64encode(self.data or b"").decode("ascii")
+        return out
+
+
+_renderers: Dict[str, Callable[..., Any]] = {}
+_buttons: Dict[str, Tuple[str, Callable[..., Any]]] = {}
+_tool_cards: Dict[str, Callable[..., Any]] = {}
+_status_items: Dict[str, "StatusItem"] = {}
+_attach_sources: Dict[str, Callable[..., Any]] = {}
+_registry_lock = threading.Lock()
+
+
+def add_renderer(language: str, render: Callable[[str], Optional[str]], *, label: Optional[str] = None) -> None:
+    """Draw fenced code blocks of ``language`` in replies yourself. Needs ``renderers``.
+
+    ``render(code)`` returns HTML, shown like an ```html block: in a
+    sandboxed frame that grows to fit, with the source a click away. Return
+    ``None`` to show the block as plain code. ``label`` names it on the
+    block's toolbar (defaults to the language)::
+
+        ui.add_renderer("chart", lambda code: make_chart_html(json.loads(code)), label="Chart")
+
+    Tell your models about the language (with :func:`llamarun.chats.set_context`,
+    say) so they write such blocks.
+    """
+    key = str(language).strip().lower()
+    _rpc.call("renderers.register", {"language": key, "label": label or ""})
+    with _registry_lock:
+        _renderers[key] = render
+
+
+def remove_renderer(language: str) -> None:
+    key = str(language).strip().lower()
+    with _registry_lock:
+        _renderers.pop(key, None)
+    _rpc.call("renderers.unregister", {"language": key})
+
+
+def add_button(where: ButtonPlace, label: str, on_click: Callable[..., Any], *, icon: Optional[str] = None,
+               tooltip: Optional[str] = None, id: Optional[str] = None) -> str:  # noqa: A002
+    """Add a button to the chat window. Needs ``buttons``. Returns its id.
+
+    ``where`` is ``"message"`` (under each message, next to Copy),
+    ``"composer"`` (the chat box's toolbar) or ``"sidebar"`` (above Settings
+    in the chat list). ``icon`` is a Lucide icon name (``"languages"``,
+    ``"star"``); message and composer buttons show just the icon when there is
+    one, with ``label`` as the tooltip.
+
+    ``on_click(ctx)`` gets a :class:`ButtonContext`. A composer button can
+    return text to add to what the user is typing. Adding a button with the
+    same ``id`` again replaces it.
+    """
+    key = id or _new_id(f"button-{where}")
+    _rpc.call("buttons.register", {"id": key, "where": where, "label": label, "icon": icon, "tooltip": tooltip})
+    with _registry_lock:
+        _buttons[key] = (str(where), on_click)
+    return key
+
+
+def remove_button(id: str) -> None:  # noqa: A002
+    with _registry_lock:
+        _buttons.pop(id, None)
+    _rpc.call("buttons.unregister", {"id": id})
+
+
+def add_tool_card(tool: str, render: Callable[[ToolCall], Optional[str]]) -> None:
+    """Draw the chat's card for calls of one of your own tools. Needs ``tools``.
+
+    ``render(call)`` gets a :class:`ToolCall` (it is called again as the call
+    runs and finishes) and returns HTML for the card, or ``None`` for the
+    usual one. The card's header and the raw input and result stay a click
+    away. Only tools this plugin offers can have its cards.
+    """
+    _rpc.call("toolcards.register", {"tool": tool})
+    with _registry_lock:
+        _tool_cards[tool] = render
+
+
+def remove_tool_card(tool: str) -> None:
+    with _registry_lock:
+        _tool_cards.pop(tool, None)
+    _rpc.call("toolcards.unregister", {"tool": tool})
+
+
+class StatusItem:
+    """A small item next to the chat box. Create it with :func:`status_item`."""
+
+    def __init__(self, text: str = "", *, icon: Optional[str] = None, tooltip: Optional[str] = None,
+                 on_click: Optional[Callable[[], Any]] = None, id: Optional[str] = None) -> None:  # noqa: A002
+        self.id = id or _new_id("status")
+        self.text = text
+        self.icon = icon
+        self.tooltip = tooltip
+        self.on_click = on_click
+        self._shown = False
+
+    @property
+    def visible(self) -> bool:
+        return self._shown
+
+    def show(self) -> "StatusItem":
+        _rpc.call("statusbar.set", {"id": self.id, "text": self.text, "icon": self.icon, "tooltip": self.tooltip,
+                                    "clickable": self.on_click is not None})
+        with _registry_lock:
+            _status_items[self.id] = self
+        self._shown = True
+        return self
+
+    def update(self, **props: Any) -> "StatusItem":
+        """Change ``text``, ``icon``, ``tooltip`` or ``on_click`` (and show it, if it was removed)."""
+        for key, value in props.items():
+            if key not in ("text", "icon", "tooltip", "on_click"):
+                raise TypeError(f"unknown status item property {key!r}")
+            setattr(self, key, value)
+        return self.show()
+
+    def remove(self) -> None:
+        with _registry_lock:
+            _status_items.pop(self.id, None)
+        if self._shown:
+            self._shown = False
+            _rpc.call("statusbar.remove", {"id": self.id})
+
+
+def status_item(text: str = "", *, icon: Optional[str] = None, tooltip: Optional[str] = None,
+                on_click: Optional[Callable[[], Any]] = None, id: Optional[str] = None) -> StatusItem:  # noqa: A002
+    """Show a small item (text and a Lucide icon) next to the chat box. Needs ``statusbar``.
+
+    Keep the text short ("3 unread", "Synced"). Change it with
+    :meth:`StatusItem.update`; ``on_click`` makes it a button::
+
+        sync = ui.status_item("Syncing…", icon="refresh-cw")
+        ...
+        sync.update(text="Synced", icon="check")
+    """
+    return StatusItem(text, icon=icon, tooltip=tooltip, on_click=on_click, id=id).show()
+
+
+def add_attachment_source(label: str, provide: Callable[..., Any], *, icon: Optional[str] = None,
+                          id: Optional[str] = None) -> str:  # noqa: A002
+    """Add an entry to the chat box's attach menu. Needs ``attachments``. Returns its id.
+
+    ``provide(ctx)`` gets an :class:`AttachContext` and returns what to attach:
+    an :class:`Attachment`, a file path, or a list of them (up to 10). Return
+    ``None`` or ``[]`` to attach nothing (the user cancelled your dialog, say).
+    """
+    key = id or _new_id("attach")
+    _rpc.call("attachments.register", {"id": key, "label": label, "icon": icon})
+    with _registry_lock:
+        _attach_sources[key] = provide
+    return key
+
+
+def remove_attachment_source(id: str) -> None:  # noqa: A002
+    with _registry_lock:
+        _attach_sources.pop(id, None)
+    _rpc.call("attachments.unregister", {"id": id})
+
+
+class SettingsPage(Panel):
+    """A page of your own in Settings, built from a :class:`View`. Create it with :func:`settings_page`."""
+
+    def __init__(self, title: str, *, view: View, icon: Optional[str] = None, id: Optional[str] = None) -> None:  # noqa: A002
+        super().__init__(title, view=view)
+        if id:
+            with _surfaces_lock:
+                _surfaces.pop(self.id, None)
+                self.id = id
+                _surfaces[id] = self
+        self.icon = icon
+
+    def show(self) -> "SettingsPage":
+        """Add the page to Settings (it updates in place when the view changes)."""
+        _rpc.call("pages.register", {"id": self.id, "title": self.title, "icon": self.icon, "tree": self._tree()})
+        self._visible = True
+        return self
+
+    def set_title(self, title: str) -> None:
+        self.title = title
+        if self._visible:
+            self.show()
+
+    def close(self) -> None:
+        """Take the page out of Settings."""
+        if self._visible:
+            self._visible = False
+            _rpc.call("pages.unregister", {"id": self.id})
+
+    remove = close
+
+
+def settings_page(title: str, view: View, *, icon: Optional[str] = None, id: Optional[str] = None) -> SettingsPage:  # noqa: A002
+    """Add a page to Settings, listed under your plugin's name. Needs ``pages``.
+
+    The page draws ``view`` (a :class:`View`, as in a panel) with the app's
+    own components and updates whenever the view calls ``set_state``. Unlike
+    :func:`settings` it saves nothing for you: it's your UI, for accounts,
+    lists, status, whatever the plugin needs. ``icon`` is a Lucide icon name.
+    """
+    return SettingsPage(title, view=view, icon=icon, id=id).show()
+
+
+def _html(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise PluginError(f"a renderer must return HTML as a str or None, not {type(value).__name__}")
+    return value
+
+
+def _render_block(params: dict) -> Optional[str]:
+    with _registry_lock:
+        render = _renderers.get(str(params.get("language", "")).lower())
+    if render is None:
+        return None
+    return _html(_call(render, str(params.get("code", ""))))
+
+
+def _button(params: dict) -> Optional[str]:
+    with _registry_lock:
+        entry = _buttons.get(str(params.get("id", "")))
+    if entry is None:
+        return None
+    where, fn = entry
+    raw = params.get("context") or {}
+    ctx = ButtonContext(where=where, **{k: raw.get(k) for k in ("chat_id", "message_id", "message_text", "role", "draft")})
+    out = _call(fn, ctx)
+    return out if where == "composer" and isinstance(out, str) else None
+
+
+def _status_click(params: dict) -> None:
+    with _registry_lock:
+        item = _status_items.get(str(params.get("id", "")))
+    if item is not None and item.on_click is not None:
+        _call(item.on_click)
+
+
+def _render_card(params: dict) -> Optional[str]:
+    tool = str(params.get("tool", ""))
+    with _registry_lock:
+        render = _tool_cards.get(tool)
+    if render is None:
+        return None
+    call = ToolCall(tool=tool, arguments=dict(params.get("arguments") or {}), result=params.get("result"),
+                    status=str(params.get("status") or "done"))
+    return _html(_call(render, call))
+
+
+def _attach(params: dict) -> List[Dict[str, Any]]:
+    with _registry_lock:
+        provide = _attach_sources.get(str(params.get("id", "")))
+    if provide is None:
+        return []
+    out = _call(provide, AttachContext(chat_id=params.get("chat_id")))
+    if out is None:
+        return []
+    items = out if isinstance(out, (list, tuple)) else [out]
+    result = []
+    for item in items:
+        if isinstance(item, (str, Path)):
+            item = Attachment.from_file(item)
+        if not isinstance(item, Attachment):
+            raise PluginError(f"an attachment source must return Attachment objects or file paths, not {type(item).__name__}")
+        result.append(item.to_dict())
+    return result
+
+
 # ------------------------------------------------------------------ host dispatch
 
 
@@ -759,3 +1113,6 @@ def _reset() -> None:
     """Forget every surface (the host calls this when the plugin unloads)."""
     with _surfaces_lock:
         _surfaces.clear()
+    with _registry_lock:
+        for registry in (_renderers, _buttons, _tool_cards, _status_items, _attach_sources):
+            registry.clear()

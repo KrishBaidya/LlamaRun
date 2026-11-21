@@ -9,6 +9,7 @@ import { MessageList } from '@/components/chat/MessageList'
 import { ModelPicker } from '@/components/chat/ModelPicker'
 import { QueuedMessages } from '@/components/chat/QueuedMessages'
 import { ThinkingPicker } from '@/components/chat/ThinkingPicker'
+import { PluginStatusItems } from '@/components/plugins/surfaces'
 import { TitleBar } from '@/components/TitleBar'
 import { Button } from '@/components/ui/button'
 import { Toaster } from '@/components/ui/sonner'
@@ -99,6 +100,8 @@ export function ChatApp() {
       onSend={onSend}
       onStop={stop}
       onQueue={chat ? queue : undefined}
+      plugins
+      chatId={chat?.id ?? null}
       above={<QueuedMessages items={queued} busy={busy} onSteer={steer} onRemove={unqueue} />}
       toolbar={
         <>
@@ -108,7 +111,12 @@ export function ChatApp() {
           <PlanToggle value={plan} onChange={setPlan} />
         </>
       }
-      status={<ContextRing chatId={hasThread ? chat!.id : null} model={model} version={version} onCompact={() => void compact()} />}
+      status={
+        <>
+          <PluginStatusItems />
+          <ContextRing chatId={hasThread ? chat!.id : null} model={model} version={version} onCompact={() => void compact()} />
+        </>
+      }
     />
   )
 

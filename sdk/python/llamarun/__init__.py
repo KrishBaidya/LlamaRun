@@ -23,7 +23,7 @@ from .plugins import expose
 from .tools import ToolError, tool
 from .types import SessionContext, StopContext, TextGenerationContext, TextGenerationResult, ToolCallContext, ToolCallResult
 
-__version__ = "1.5"
+__version__ = "1.6"
 """SDK API version (MAJOR.MINOR). Plugins declare the version they target in ``sdk_version``."""
 
 __all__ = [

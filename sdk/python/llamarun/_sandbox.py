@@ -38,6 +38,11 @@ PERMISSIONS = (
     "appearance",
     "commands",
     "usage",
+    "renderers",
+    "buttons",
+    "statusbar",
+    "pages",
+    "attachments",
 )
 UNRESTRICTED = "unrestricted"
 

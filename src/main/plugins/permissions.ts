@@ -128,6 +128,41 @@ export const PERMISSIONS: Record<PluginPermission, PermissionInfo> = {
     risk: 'low',
     enforced: true
   },
+  renderers: {
+    id: 'renderers',
+    label: 'Draw code blocks in replies',
+    description: 'Draws fenced code blocks of the languages it adds (```chart, say) in your replies as a web page. It sees those blocks, not the rest of the reply.',
+    risk: 'low',
+    enforced: true
+  },
+  buttons: {
+    id: 'buttons',
+    label: 'Add buttons to chats',
+    description: 'Adds buttons to messages, the chat box and the chat sidebar. When you click one it gets the chat, and the message or what you typed.',
+    risk: 'low',
+    enforced: true
+  },
+  statusbar: {
+    id: 'statusbar',
+    label: 'Show status in the chat window',
+    description: 'Shows small items (text and an icon) next to the chat box, and hears when you click them.',
+    risk: 'low',
+    enforced: true
+  },
+  pages: {
+    id: 'pages',
+    label: 'Add pages to Settings',
+    description: 'Adds its own pages to Settings, beyond its settings form.',
+    risk: 'low',
+    enforced: true
+  },
+  attachments: {
+    id: 'attachments',
+    label: 'Add to the attach menu',
+    description: 'Adds entries to the chat box’s attach menu. When you pick one it hands back files or text to attach to your message.',
+    risk: 'low',
+    enforced: true
+  },
   unrestricted: {
     id: 'unrestricted',
     label: 'Full access (older plugin)',

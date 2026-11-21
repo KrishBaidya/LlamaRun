@@ -28,16 +28,21 @@ import type {
   OverlayModelMenuPayload,
   OverlayShownPayload,
   PermissionInfo,
+  PluginAttachmentFile,
+  PluginButtonContext,
   PluginDialogRequest,
   PluginInfo,
   PluginInspection,
   PluginPermission,
   PluginRuntimeStatus,
   PluginSettingsView,
+  PluginSurfaces,
+  PluginToolCall,
   Settings,
   SkillInfo,
   SlashCommand,
   ThinkingChoice,
+  UiNode,
   UserProfile
 } from './types'
 
@@ -213,6 +218,21 @@ export interface InvokeChannels {
   'plugins:openFolder': () => void
   'plugins:openDataFolder': (id: string) => void
   'plugins:runAction': (id: string, action: string) => void
+  /** What running plugins added to the chat window and Settings (SDK 1.6). */
+  'plugins:surfaces': () => PluginSurfaces
+  /** HTML for a fenced code block a plugin draws, or null when no plugin draws its language. */
+  'plugins:renderBlock': (language: string, code: string) => string | null
+  /** A plugin's button was clicked; composer buttons may return text for the chat box. */
+  'plugins:clickButton': (plugin: string, id: string, context: PluginButtonContext) => string | null
+  'plugins:clickStatus': (plugin: string, id: string) => void
+  /** HTML for a tool call's card, from the plugin that offers the tool, or null for the usual card. */
+  'plugins:renderToolCard': (server: string, tool: string, call: PluginToolCall) => string | null
+  /** Files from a plugin's attach-menu entry. */
+  'plugins:attach': (plugin: string, id: string, chatId: string | null) => PluginAttachmentFile[]
+  /** A plugin's Settings page: its current tree. */
+  'plugins:page': (plugin: string, id: string) => UiNode | null
+  /** A callback in a plugin's Settings page. */
+  'plugins:pageEvent': (plugin: string, id: string, event: string, payload: unknown, handler?: string) => unknown
 
   'hud:get': () => HudSnapshot
   'hud:click': (key: string) => void
@@ -238,6 +258,8 @@ export interface EventChannels {
   'plugins:changed': PluginInfo[]
   /** A plugin's settings form or values changed (payload: plugin id). */
   'plugins:settingsChanged': string
+  'plugins:surfaces': PluginSurfaces
+  'plugins:pageTree': { plugin: string; id: string; tree: UiNode }
   'hud:state': HudSnapshot
   'settings:navigate': string
   'memory:changed': MemoryItem[]
@@ -382,6 +404,14 @@ export const INVOKE_CHANNELS = [
   'plugins:openFolder',
   'plugins:openDataFolder',
   'plugins:runAction',
+  'plugins:surfaces',
+  'plugins:renderBlock',
+  'plugins:clickButton',
+  'plugins:clickStatus',
+  'plugins:renderToolCard',
+  'plugins:attach',
+  'plugins:page',
+  'plugins:pageEvent',
   'hud:get',
   'hud:click',
   'hud:dismiss',
@@ -403,6 +433,8 @@ export const EVENT_CHANNELS = [
   'mcp:changed',
   'plugins:changed',
   'plugins:settingsChanged',
+  'plugins:surfaces',
+  'plugins:pageTree',
   'hud:state',
   'settings:navigate',
   'memory:changed',

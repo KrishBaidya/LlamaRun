@@ -1,9 +1,14 @@
 import { useCallback, useRef, useState, type ClipboardEvent, type DragEvent } from 'react'
 import { FileText, Loader2, Paperclip, X } from 'lucide-react'
+import { toast } from 'sonner'
 import type { ChatAttachment } from '@shared/types'
 import { ZoomableImage } from '@/components/HtmlPreview'
+import { filesFromSource } from '@/components/plugins/surfaces'
 import { Button } from '@/components/ui/button'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { api } from '@/hooks/use-llamarun'
+import { usePluginSurfaces } from '@/hooks/use-plugin-surfaces'
+import { Icon } from '@/plugin-kit/icons'
 import { ACCEPT, formatBytes, toAttachment } from '@/lib/attachments'
 import { cn } from '@/lib/utils'
 
@@ -85,25 +90,70 @@ export function useAttachments(): AttachmentsState {
   return { items, pending, error, add, remove, clear, dropProps, dragging }
 }
 
-/** Paperclip button that opens the file picker. */
-export function AttachButton({ onFiles, className }: { onFiles: (files: File[]) => void; className?: string }) {
+/**
+ * Paperclip button that opens the file picker. With `plugins`, entries
+ * plugins added to the attach menu (SDK 1.6) make it a menu: files, then theirs.
+ */
+export function AttachButton({
+  onFiles,
+  className,
+  plugins,
+  chatId
+}: {
+  onFiles: (files: File[]) => void
+  className?: string
+  plugins?: boolean
+  chatId?: string | null
+}) {
   const input = useRef<HTMLInputElement>(null)
+  const { attachSources } = usePluginSurfaces()
+  const sources = plugins ? attachSources : []
+  const pick = (): void => {
+    // The overlay hides when it loses focus; the file picker would close it otherwise.
+    void api.overlay.holdOpen()
+    input.current?.click()
+  }
+  const button = (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      className={cn('rounded-full text-muted-foreground hover:text-foreground', className)}
+      title="Attach images or documents"
+      aria-label="Attach files"
+      onClick={sources.length ? undefined : pick}
+    >
+      <Paperclip className="size-4" />
+    </Button>
+  )
   return (
     <>
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        className={cn('rounded-full text-muted-foreground hover:text-foreground', className)}
-        title="Attach images or documents"
-        aria-label="Attach files"
-        onClick={() => {
-          // The overlay hides when it loses focus; the file picker would close it otherwise.
-          void api.overlay.holdOpen()
-          input.current?.click()
-        }}
-      >
-        <Paperclip className="size-4" />
-      </Button>
+      {sources.length ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>{button}</DropdownMenuTrigger>
+          <DropdownMenuContent align="start" side="top" className="min-w-52">
+            <DropdownMenuItem onSelect={pick}>
+              <Paperclip /> Images or documents…
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="text-2xs font-normal text-muted-foreground">From plugins</DropdownMenuLabel>
+            {sources.map((s) => (
+              <DropdownMenuItem
+                key={`${s.plugin}:${s.id}`}
+                title={s.pluginName}
+                onSelect={() =>
+                  void filesFromSource(s.plugin, s.id, chatId ?? null)
+                    .then((files) => files.length && onFiles(files))
+                    .catch((err: unknown) => toast.error(String((err as Error)?.message ?? err).replace(/^Error invoking remote method '[^']+': (?:\w*Error: )?/, '')))
+                }
+              >
+                {s.icon ? <Icon name={s.icon} /> : <FileText />} {s.label}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : (
+        button
+      )}
       <input
         ref={input}
         type="file"

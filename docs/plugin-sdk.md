@@ -2,7 +2,7 @@
 
 LlamaRun plugins are Python packages that hook into chats, talk to your models in chats, and use MCP tools, storage and notifications. They can also build UI that the app draws with its own components: a settings page, status cards, dialogs, toasts and windows. Plugins run on the **bundled CPython 3.13**, so users don't need Python installed. Each plugin runs **in its own process with only the permissions the user allowed**.
 
-- SDK version: **1.3** (`llamarun.__version__`). 1.3 adds [tools for your models](#tools-for-your-models-needs-tools) and [installing MCP servers and plugins](#installing-mcp-servers-and-plugins-needs-install). 1.2 added [`llamarun.chats`](#llamarunchats-needs-chats) and [global shortcuts](#llamarunapp).
+- SDK version: **1.6** (`llamarun.__version__`). 1.6 adds [the chat window and Settings](#the-chat-window-and-settings-sdk-16): code blocks a plugin draws, buttons, tool cards, status items, Settings pages and attach-menu entries. 1.5 added tool-call, session start and stop hooks, `llamarun.usage` and plugin skills. 1.3 added [tools for your models](#tools-for-your-models-needs-tools) and [installing MCP servers and plugins](#installing-mcp-servers-and-plugins-needs-install). 1.2 added [`llamarun.chats`](#llamarunchats-needs-chats) and [global shortcuts](#llamarunapp).
 - Examples:
   - [`examples/plugins/prompt_logger`](../examples/plugins/prompt_logger) uses the chat hooks and a settings page.
   - [`examples/plugins/ui_showcase`](../examples/plugins/ui_showcase) uses every kind of UI and exposes a service to other plugins.
@@ -91,7 +91,7 @@ Every plugin runs in its own Python process. A plugin that crashes or hangs affe
 | `llm` | `llm.generate`, `llm.get_available_models`, `llm.get_selected_model` | The app checks each call. |
 | `chats` | `llamarun.chats`: sending messages as the user and reading their chats | The app checks each call. |
 | `mcp` | `mcp.list_tools`, `mcp.call_tool`, and MCP tools in `chats.send` | The app checks each call. |
-| `tools` | Offering `@llamarun.tool` methods to models in chats | The app only offers tools of plugins that have this. |
+| `tools` | Offering `@llamarun.tool` methods to models in chats, and drawing their cards with `ui.add_tool_card` | The app only offers tools (and draws cards) of plugins that have this. |
 | `install` | Browsing the MCP directory, and asking to add MCP servers and install plugins | The app checks each call, and shows its own dialog before adding anything. |
 | `network` | Internet access: sockets and DNS | The sandbox. Loopback connections the plugin itself sets up (such as asyncio's internal socket pair) are allowed without it. |
 | `subprocess` | Starting programs and signalling processes | The sandbox. |
@@ -103,6 +103,11 @@ Every plugin runs in its own Python process. A plugin that crashes or hangs affe
 | `usage` | `llamarun.usage`: token counts per day and model (SDK 1.5; counts only, never content) | The app checks each call. |
 | `skills` | `llamarun.skills`: listing skills, and asking to install new ones | The app checks each call, and asks the user before installing. |
 | `appearance` | `app.set_theme`: restyling Llama Run's windows with CSS | The app checks each call. |
+| `renderers` | `ui.add_renderer`: drawing fenced code blocks of its languages in replies (SDK 1.6) | The app checks each call. |
+| `buttons` | `ui.add_button`: buttons on messages, in the chat box and in the chat sidebar (SDK 1.6) | The app checks each call. |
+| `statusbar` | `ui.status_item`: small items next to the chat box (SDK 1.6) | The app checks each call. |
+| `pages` | `ui.settings_page`: pages of its own in Settings (SDK 1.6) | The app checks each call. |
+| `attachments` | `ui.add_attachment_source`: entries in the chat box's attach menu (SDK 1.6) | The app checks each call. |
 | `microphone`, `clipboard` | Shown to the user | Declared only. They can't be enforced from Python. |
 
 Things that need no permission:
@@ -316,6 +321,102 @@ panel.show()
 - You can import `react` and files in your plugin folder, nothing else. Tailwind classes work: LlamaRun generates the ones your panel uses, against the app's theme.
 - LlamaRun compiles panels itself (with esbuild) when they open, and caches the result. There is no build step and nothing to install. For editor autocomplete, map the two modules to the type definitions in [`sdk/ts`](../sdk/ts). The ui_showcase example includes a `tsconfig.json`.
 - **Panels are sandboxed.** They run in a separate browser session with no network access (CSP plus a request filter), no Node.js, and no access to the app's API. They can only talk to their own plugin, through the bridge above, and LlamaRun checks every message.
+
+### The chat window and Settings (SDK 1.6)
+
+Plugins can add to the chat window and to Settings, not just open windows of their own. Each surface has its own permission, and everything a plugin added goes away when it stops.
+
+| Surface | Call | Permission |
+| --- | --- | --- |
+| Code blocks it draws in replies | `ui.add_renderer(language, render, label=)` | `renderers` |
+| Buttons on messages, in the chat box, in the sidebar | `ui.add_button(where, label, on_click, icon=, tooltip=, id=)` | `buttons` |
+| The card for calls of its own tools | `ui.add_tool_card(tool, render)` | `tools` |
+| Small items next to the chat box | `ui.status_item(text, icon=, tooltip=, on_click=, id=)` | `statusbar` |
+| Pages of its own in Settings | `ui.settings_page(title, view, icon=, id=)` | `pages` |
+| Entries in the attach menu | `ui.add_attachment_source(label, provide, icon=, id=)` | `attachments` |
+
+Each has a matching `remove_…` (`item.remove()` and `page.remove()` for status items and pages). Icons are Lucide names such as `"languages"` or `"refresh-cw"`.
+
+**Code blocks.** `render(code)` returns HTML for a fenced block of that language in a reply. It shows like an ```` ```html ```` block: in a sandboxed frame (scripts on, no access to the app) that grows to fit, with the source, copy and expand on hover. Return `None` to leave the block as code. A block that is still streaming is drawn once it stops changing, and each text is drawn once. One plugin owns a language; `html`, `svg`, `mermaid` and `xml` stay the app's. Models only write such blocks if they know about them, so say so with `chats.set_context`:
+
+```python
+import json
+from llamarun import chats, ui
+
+def chart(code: str) -> str:
+    points = json.loads(code)
+    bars = "".join(f'<div style="height:{v}px;width:18px;background:#7c3aed"></div>' for v in points)
+    return f'<div style="display:flex;gap:4px;align-items:end;padding:12px">{bars}</div>'
+
+ui.add_renderer("chart", chart, label="Chart")
+chats.set_context("To draw a bar chart, write a ```chart block holding a JSON list of numbers.")
+```
+
+**Buttons.** `where` is `"message"` (under every message, next to Copy), `"composer"` (the chat box's toolbar) or `"sidebar"` (above Settings in the chat list). Message and composer buttons with an icon show only the icon. `on_click(ctx)` gets a `ButtonContext`: `where`, `chat_id` (`None` before the chat exists), and `message_id`, `message_text` and `role` for message buttons or `draft` (what is typed) for composer buttons. A composer button can return text, which is added to the chat box. Everything else is up to the plugin: post a message, open a panel, send the text to a model.
+
+```python
+def translate(ctx: ui.ButtonContext) -> None:
+    english = llm.generate(f"Translate to English:\n\n{ctx.message_text}")
+    chats.post(english, chat_id=ctx.chat_id)
+
+ui.add_button("message", "Translate", translate, icon="languages")
+ui.add_button("composer", "Signature", lambda ctx: "\n\n-- Sam", icon="pen-line")
+```
+
+**Tool cards.** `render(call)` gets a `ToolCall` (`tool`, `arguments`, `result`, and `status`: `"running"`, `"done"` or `"error"`) and returns HTML for the card, or `None` for the usual one. It's called again as the call runs and finishes. The card keeps its header; clicking it still shows the raw input and result. A plugin can only draw the cards of tools it offers itself.
+
+```python
+class Weather(llamarun.Plugin):
+    def on_load(self):
+        ui.add_tool_card("get_forecast", self.card)
+
+    @llamarun.tool
+    def get_forecast(self, city: str) -> str:
+        """Weather forecast for a city."""
+        return json.dumps({"city": city, "high": 21, "sky": "sunny"})
+
+    def card(self, call: ui.ToolCall):
+        if call.status != "done":
+            return f"<p style='font:13px system-ui;padding:8px'>Looking up {call.arguments.get('city')}…</p>"
+        w = json.loads(call.result)
+        return f"<div style='font:13px system-ui;padding:8px'>☀️ <b>{w['city']}</b> {w['high']}°</div>"
+```
+
+**Status items.** `ui.status_item(...)` shows the item right away and returns a `StatusItem`. Change it with `item.update(text=, icon=, tooltip=, on_click=)`; with `on_click` it's a button. Keep the text to a few words.
+
+```python
+inbox = ui.status_item("Checking…", icon="mail")
+inbox.update(text=f"{count} unread", on_click=lambda: ui.panel("Inbox", view=InboxView()).show())
+```
+
+**Settings pages.** A page is a `ui.View`, drawn with the app's own components the way a [Python panel](#panels-built-in-python) is, under "From plugins" in Settings' sidebar. It updates in place when the view calls `set_state`. Unlike [`ui.settings`](#settings-page) it saves nothing for you: it's for accounts, lists, status and anything else that isn't a form of settings.
+
+```python
+class Accounts(ui.View):
+    def __init__(self):
+        super().__init__(accounts=storage.get("accounts", []))
+
+    def render(self):
+        return ui.Column(
+            ui.List([ui.Text(a) for a in self.state["accounts"]]),
+            ui.Input("name", placeholder="Account name"),
+            ui.Button("Add", on_click=lambda values: self.set_state(accounts=self.state["accounts"] + [values["name"]])),
+        )
+
+ui.settings_page("Accounts", Accounts(), icon="users")
+```
+
+**Attachment sources.** Once a plugin adds one, the chat box's paperclip opens a menu: the usual file picker, then the plugins' entries. `provide(ctx)` gets an `AttachContext` (`chat_id`) and returns what to attach: a `ui.Attachment`, a file path, or a list of up to 10. `ui.Attachment(name, text=...)` attaches text; `ui.Attachment(name, data=bytes, mime_type=...)` and `ui.Attachment.from_file(path)` attach bytes, which are read the way picked files are (images, PDFs, Word files, text). Return `None` or `[]` to attach nothing. Reading files outside the plugin's own folders needs `filesystem`.
+
+```python
+def todays_notes(ctx: ui.AttachContext):
+    path = app.get_data_dir() / "notes" / f"{date.today()}.md"
+    return path if path.exists() else ui.Attachment("notes.md", text="(no notes today)")
+
+ui.add_attachment_source("Today's notes", todays_notes, icon="notebook")
+```
+
+Callbacks run on the plugin's thread pool, like panel events, and an exception shows the user an error. Drawing a block or a card has 30 seconds; a click has 5 minutes, so a button can ask the user something with a dialog first.
 
 ## Working with other plugins
 
@@ -610,5 +711,6 @@ For each enabled plugin, the app starts `python -I -X utf8 -B -u plugin_host.py 
 - The app calls `plugin.load`, `events.before_text_generation`, `ui.event`, `services.call`, `settings.changed`, and so on.
 - Plugin code calls the app for `llm.*`, `mcp.*`, `app.*`, `ui.dialog`, `settings.*`, `services.*` and `shared.*`.
 - UI updates are notifications: `ui.hud`, `ui.toast`, `ui.panel.open`, `ui.render` and `ui.state`.
+- The chat window's surfaces (SDK 1.6) are registered with requests (`renderers.register`, `buttons.register`, `toolcards.register`, `statusbar.set`, `pages.register`, `attachments.register`) so a missing permission raises in the plugin. The app asks the plugin back with `ui.render_block`, `ui.render_card`, `ui.button`, `ui.status_click` and `ui.attach`; Settings pages get `ui.event` like panels.
 
 `print()` output goes to stderr and ends up in `plugins.log`. The main process routes everything between plugins and checks every call against the caller's grants and dependencies.

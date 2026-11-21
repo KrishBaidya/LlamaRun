@@ -477,6 +477,14 @@ class PluginRunner:
             self._report(f"tool {name}")
             return {"content": [{"type": "text", "text": f"{name} failed: {exc}"}], "isError": True}
 
+    def surface(self, what: str, handler: Callable[[dict], Any], params: dict) -> Any:
+        """Run a chat-window surface's callback (a renderer, a button), logging what fails."""
+        try:
+            return handler(params)
+        except Exception as exc:
+            self._report(what)
+            raise RpcError(f"{what} failed: {exc}") from exc
+
     def ui_event(self, params: dict) -> Any:
         try:
             return ui._dispatch(params)
@@ -563,6 +571,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         "tools.call": lambda p: runner.call_tool(str(p.get("name", "")), p.get("arguments") or {}),
         "settings.changed": lambda p: list(settings._apply(p.get("values") or {})),
         "ui.event": runner.ui_event,
+        # SDK 1.6: code blocks, buttons, tool cards, status items and attach-menu entries.
+        "ui.render_block": lambda p: runner.surface("code block renderer", ui._render_block, p),
+        "ui.render_card": lambda p: runner.surface("tool card", ui._render_card, p),
+        "ui.button": lambda p: runner.surface("button", ui._button, p),
+        "ui.status_click": lambda p: runner.surface("status item", ui._status_click, p),
+        "ui.attach": lambda p: runner.surface("attachment source", ui._attach, p),
         # Notifications from the app: streamed chat replies and global shortcuts.
         "chats.stream": lambda p: chats._deliver(p),
         "app.shortcut": lambda p: app._shortcut_pressed(p),

@@ -7,8 +7,12 @@ import type {
   ChatEvent,
   ChatMessage,
   McpToolInfo,
+  PluginAttachmentFile,
+  PluginButtonContext,
   PluginInfo,
   PluginPermission,
+  PluginSurfaces,
+  PluginToolCall,
   PluginRuntimeStatus,
   PluginState,
   SlashCommand,
@@ -34,6 +38,7 @@ import { closePluginDialogs, showPluginDialog } from './ui/dialogs'
 import { hudHost } from './ui/hud'
 import { closePanel, closePluginPanels, openPanel, reloadPluginPanels, renderPanel, setPanelState, setPanelTitle } from './ui/panels'
 import { pluginSettings } from './ui/settingsForms'
+import { attachmentFiles, renderedHtml, SurfaceRegistry } from './surfaces'
 import { usageStore } from '../usage'
 
 export interface BeforeGenerationResult {
@@ -120,6 +125,10 @@ const COMMAND_NAME = /^[a-z][a-z0-9_-]{0,31}$/
 const MAX_CONTEXT_CHARS = 4000
 const MAX_CSS_CHARS = 100_000
 const COMMAND_TIMEOUT_MS = 5 * 60_000
+/** Drawing a code block or a tool card. */
+const RENDER_TIMEOUT_MS = 30_000
+/** A click the user made: the plugin may ask them things. */
+const CLICK_TIMEOUT_MS = 5 * 60_000
 
 /** Images (data: URLs) a plugin posts with a message. */
 function postedImages(value: unknown): ChatAttachment[] {
@@ -161,12 +170,18 @@ class PluginHost extends EventEmitter<{
   status: [PluginRuntimeStatus]
   commands: [SlashCommand[]]
   css: [string]
+  /** Buttons, renderers, status items, pages and the rest changed (SDK 1.6). */
+  surfaces: [PluginSurfaces]
+  /** A plugin's Settings page drew a new tree. */
+  pageTree: [{ plugin: string; id: string; tree: UiNode }]
 }> {
   private records = new Map<string, PluginRecord>()
   private order: string[] = []
   private ready: Promise<void> | null = null
   private runtime: PluginRuntimeStatus = { state: 'stopped', pythonPath: pythonExecutable() }
   private changedTimer: NodeJS.Timeout | null = null
+  private surfacesTimer: NodeJS.Timeout | null = null
+  private readonly surfaceRegistry = new SurfaceRegistry()
   readonly broker = new Broker(() => this.peers())
 
   constructor() {
@@ -380,6 +395,89 @@ class PluginHost extends EventEmitter<{
       record.css = undefined
       this.emit('css', this.css())
     }
+    if (this.surfaceRegistry.forget(record.id)) this.surfacesChanged()
+  }
+
+  // ------------------------------------------- chat window and Settings surfaces (SDK 1.6)
+
+  /** What running plugins added to the chat window and Settings. */
+  surfaces(): PluginSurfaces {
+    return this.surfaceRegistry.snapshot(this.order, (id) => this.pluginName(id), (id) => !!this.records.get(id)?.process)
+  }
+
+  private surfacesChanged(): void {
+    if (this.surfacesTimer) return
+    this.surfacesTimer = setTimeout(() => {
+      this.surfacesTimer = null
+      this.emit('surfaces', this.surfaces())
+    }, 30)
+  }
+
+  private running(pluginId: string): PluginProcess {
+    const proc = this.records.get(pluginId)?.process
+    if (!proc?.running) throw new Error(`${this.pluginName(pluginId)} is not running`)
+    return proc
+  }
+
+  /** HTML for a fenced code block in a reply, from the plugin that draws its language. */
+  async renderBlock(language: string, code: string): Promise<string | null> {
+    const pluginId = this.surfaceRegistry.rendererFor(String(language).toLowerCase())
+    if (!pluginId) return null
+    const out = await this.running(pluginId).request('ui.render_block', { language, code: String(code) }, RENDER_TIMEOUT_MS)
+    return renderedHtml(out)
+  }
+
+  /** A plugin's button was clicked. Composer buttons may hand back text for the chat box. */
+  async clickButton(pluginId: string, id: string, context: PluginButtonContext): Promise<string | null> {
+    if (!this.surfaceRegistry.hasButton(pluginId, id)) throw new Error('That button is gone')
+    const ctx = {
+      chat_id: context?.chatId ?? null,
+      message_id: context?.messageId ?? null,
+      message_text: context?.messageText ?? null,
+      role: context?.role ?? null,
+      draft: context?.draft ?? null
+    }
+    const out = await this.running(pluginId).request('ui.button', { id, context: ctx }, CLICK_TIMEOUT_MS)
+    return typeof out === 'string' && out ? out : null
+  }
+
+  async clickStatus(pluginId: string, id: string): Promise<void> {
+    if (!this.surfaceRegistry.isClickable(pluginId, id)) return
+    await this.running(pluginId).request('ui.status_click', { id }, CLICK_TIMEOUT_MS)
+  }
+
+  /**
+   * HTML for a tool call's card, from the plugin that offers the tool (and
+   * only for its own tools: `server` must be its name and the tool one it offers).
+   */
+  async renderToolCard(server: string, tool: string, call: PluginToolCall): Promise<string | null> {
+    const record = this.order
+      .map((id) => this.records.get(id)!)
+      .find((r) => r.manifest?.name === server && r.load?.tools.some((t) => t.name === tool) && this.surfaceRegistry.hasToolCard(r.id, tool))
+    if (!record?.process?.running || !allows(this.grantsOf(record) ?? [], 'tools')) return null
+    const out = await record.process.request(
+      'ui.render_card',
+      { tool, arguments: call?.args ?? {}, result: call?.result ?? null, status: call?.status ?? 'done' },
+      RENDER_TIMEOUT_MS
+    )
+    return renderedHtml(out)
+  }
+
+  /** Files from a plugin's attach-menu entry. */
+  async attach(pluginId: string, id: string, chatId: string | null): Promise<PluginAttachmentFile[]> {
+    if (!this.surfaceRegistry.hasAttachSource(pluginId, id)) throw new Error('That attachment source is gone')
+    return attachmentFiles(await this.running(pluginId).request('ui.attach', { id, chat_id: chatId }, CLICK_TIMEOUT_MS))
+  }
+
+  pageTree(pluginId: string, id: string): UiNode | null {
+    return this.surfaceRegistry.pageTree(pluginId, id)
+  }
+
+  /** A callback from a plugin's Settings page. */
+  pageEvent(pluginId: string, id: string, event: string, payload: unknown, handler?: string): Promise<unknown> {
+    if (!this.surfaceRegistry.hasPage(pluginId, id)) return Promise.reject(new Error('That page is gone'))
+    if (event !== '$callback') return Promise.reject(new Error('invalid event name'))
+    return this.sendUiEvent(pluginId, id, event, payload, handler)
   }
 
   // ------------------------------------------------- chat context, commands, theme
@@ -1094,6 +1192,50 @@ class PluginHost extends EventEmitter<{
       'shared.delete': (p) => this.broker.sharedRequest(this.peerOf(record), 'shared.delete', p),
       'shared.keys': (p) => this.broker.sharedRequest(this.peerOf(record), 'shared.keys', p),
       'shared.watch': (p) => this.broker.sharedRequest(this.peerOf(record), 'shared.watch', p),
+      'renderers.register': (p) => {
+        need('renderers')
+        this.surfaceRegistry.addRenderer(record.id, p, (id) => this.pluginName(id))
+        this.surfacesChanged()
+        return null
+      },
+      'renderers.unregister': (p) => this.unregistered(this.surfaceRegistry.removeRenderer(record.id, p.language)),
+      'buttons.register': (p) => {
+        need('buttons')
+        this.surfaceRegistry.addButton(record.id, p)
+        this.surfacesChanged()
+        return null
+      },
+      'buttons.unregister': (p) => this.unregistered(this.surfaceRegistry.removeButton(record.id, p.id)),
+      'toolcards.register': (p) => {
+        need('tools')
+        this.surfaceRegistry.addToolCard(record.id, p.tool)
+        this.surfacesChanged()
+        return null
+      },
+      'toolcards.unregister': (p) => this.unregistered(this.surfaceRegistry.removeToolCard(record.id, p.tool)),
+      'statusbar.set': (p) => {
+        need('statusbar')
+        this.surfaceRegistry.setStatusItem(record.id, p)
+        this.surfacesChanged()
+        return null
+      },
+      'statusbar.remove': (p) => this.unregistered(this.surfaceRegistry.removeStatusItem(record.id, p.id)),
+      'attachments.register': (p) => {
+        need('attachments')
+        this.surfaceRegistry.addAttachSource(record.id, p)
+        this.surfacesChanged()
+        return null
+      },
+      'attachments.unregister': (p) => this.unregistered(this.surfaceRegistry.removeAttachSource(record.id, p.id)),
+      'pages.register': (p) => {
+        need('pages')
+        const id = this.surfaceRegistry.addPage(record.id, p)
+        this.surfacesChanged()
+        const tree = this.surfaceRegistry.pageTree(record.id, id)
+        if (tree) this.emit('pageTree', { plugin: record.id, id, tree })
+        return null
+      },
+      'pages.unregister': (p) => this.unregistered(this.surfaceRegistry.removePage(record.id, p.id)),
       'ui.dialog': (p) => showPluginDialog(plugin, p),
       'settings.register': (p) => {
         const values = pluginSettings.register(record.id, manifest.module, (p.schema as UiNode[]) ?? [])
@@ -1105,6 +1247,11 @@ class PluginHost extends EventEmitter<{
         return null
       }
     }
+  }
+
+  private unregistered(removed: boolean): null {
+    if (removed) this.surfacesChanged()
+    return null
   }
 
   private onNotification(record: PluginRecord, method: string, params: Record<string, unknown>): void {
@@ -1145,7 +1292,11 @@ class PluginHost extends EventEmitter<{
         setPanelTitle(record.id, viewId, String(params.title ?? ''))
         return
       case 'ui.render':
-        renderPanel(record.id, viewId, params.tree as UiNode)
+        if (this.surfaceRegistry.renderPage(record.id, viewId, params.tree as UiNode)) {
+          this.emit('pageTree', { plugin: record.id, id: viewId, tree: params.tree as UiNode })
+        } else {
+          renderPanel(record.id, viewId, params.tree as UiNode)
+        }
         return
       case 'ui.state':
         setPanelState(record.id, viewId, (params.state as Record<string, unknown>) ?? {})

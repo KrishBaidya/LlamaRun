@@ -3,6 +3,7 @@ import { ArrowUp, Square } from 'lucide-react'
 import type { ChatAttachment } from '@shared/types'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { PluginButtons } from '@/components/plugins/surfaces'
 import { AttachButton, AttachmentStrip, useAttachments } from './attachments'
 import { SlashMenu, useSlashMenu } from './slash'
 
@@ -28,11 +29,15 @@ interface Props {
   onQueue?: (text: string) => void
   /** Shown above the prompt (the queued messages). */
   above?: ReactNode
+  /** Show what plugins added to the chat box: toolbar buttons and attach-menu entries (SDK 1.6). */
+  plugins?: boolean
+  /** The chat it writes in, for plugins' buttons; null before the chat exists. */
+  chatId?: string | null
 }
 
 /** T3 Code-style glass composer: rounded card, auto-growing prompt, attachments, / commands, round send button. */
 export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
-  { busy, onSend, onStop, placeholder = 'Ask anything…', toolbar, status, onEscape, autoFocus, className, size = 'default', onQueue, above },
+  { busy, onSend, onStop, placeholder = 'Ask anything…', toolbar, status, onEscape, autoFocus, className, size = 'default', onQueue, above, plugins, chatId },
   ref
 ) {
   const [text, setText] = useState('')
@@ -97,8 +102,20 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
         )}
       />
       <div className="flex items-center gap-1 px-2 pb-2">
-        <AttachButton onFiles={files.add} />
-        <div className="flex min-w-0 flex-1 items-center gap-1">{toolbar}</div>
+        <AttachButton onFiles={files.add} plugins={plugins} chatId={chatId} />
+        <div className="flex min-w-0 flex-1 items-center gap-1">
+          {toolbar}
+          {plugins && (
+            <PluginButtons
+              where="composer"
+              context={() => ({ chatId: chatId ?? null, draft: text })}
+              onInsert={(t) => {
+                setText((prev) => (prev ? `${prev}${/\s$/.test(prev) ? '' : ' '}${t}` : t))
+                input.current?.focus()
+              }}
+            />
+          )}
+        </div>
         {status}
         {busy && onQueue && text.trim() && !files.items.length && (
           <Button size="icon-sm" variant="secondary" className="rounded-full" title="Queue (Enter): sent when the reply finishes" onClick={submit}>

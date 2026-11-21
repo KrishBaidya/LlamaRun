@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { api, useProfile } from '@/hooks/use-llamarun'
 import { cn } from '@/lib/utils'
+import { PluginButtons, PluginToolCardBody, usePluginToolCard } from '@/components/plugins/surfaces'
 import { AttachmentTile } from './attachments'
 import { modelName, useModelCatalog } from './ModelPicker'
 
@@ -111,7 +112,10 @@ function UserMessage({
       )}
       {message.content && (
         <div className="relative flex max-w-[80%] items-start">
-          <span className={cn('absolute top-1 flex opacity-0 transition-opacity group-hover:opacity-100', chatId && !message.via ? '-left-16' : '-left-9')}>
+          <span className="absolute top-1 right-full me-1 flex opacity-0 transition-opacity group-hover:opacity-100">
+            {chatId && (
+              <PluginButtons where="message" context={() => ({ chatId, messageId: message.id, messageText: message.content, role: 'user' })} />
+            )}
             {chatId && !message.via && (
               <Button variant="ghost" size="icon-sm" title="Edit and send again" disabled={busy} onClick={() => setEditing(true)}>
                 <Pencil className="size-3.5" />
@@ -283,6 +287,8 @@ function ThinkingNote({ text }: { text: string }) {
 
 function ToolCard({ part }: { part: ToolPart }) {
   const [open, setOpen] = useState(false)
+  // The plugin that offers the tool may draw its card (SDK 1.6); the details stay a click away.
+  const drawn = usePluginToolCard(part)
   const hint = argHint(part.args)
   const hasArgs = part.args && Object.keys(part.args).length > 0
   return (
@@ -307,6 +313,11 @@ function ToolCard({ part }: { part: ToolPart }) {
         {hint && <span className="min-w-0 truncate opacity-80">{hint}</span>}
         <ChevronDown className={cn('ms-auto size-3 shrink-0 transition-transform', open && 'rotate-180')} />
       </button>
+      {drawn && !open && (
+        <div className="border-t border-border/70">
+          <PluginToolCardBody html={drawn} />
+        </div>
+      )}
       {open && (
         <div className="flex flex-col gap-1.5 border-t border-border/70 px-2 py-1.5">
           {hasArgs && (
@@ -441,6 +452,9 @@ const AssistantMessage = memo(function AssistantMessage({
             <Button variant="ghost" size="icon-sm" title="Regenerate" onClick={onRetry}>
               <RotateCcw className="size-3.5" />
             </Button>
+          )}
+          {chatId && message.content && (
+            <PluginButtons where="message" context={() => ({ chatId, messageId: message.id, messageText: message.content, role: 'assistant' })} />
           )}
           {message.model && !message.from && (
             <span className="ms-1 inline-flex items-center gap-1">

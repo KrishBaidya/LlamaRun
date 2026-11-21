@@ -356,6 +356,16 @@ export function registerIpc(): void {
     void shell.openPath(dir)
   })
   handle('plugins:runAction', (_e, id, action) => pluginHost.runAction(id, action))
+  handle('plugins:surfaces', () => pluginHost.surfaces())
+  handle('plugins:renderBlock', (_e, language, code) => pluginHost.renderBlock(String(language ?? ''), String(code ?? '')))
+  handle('plugins:clickButton', (_e, plugin, id, context) => pluginHost.clickButton(String(plugin), String(id), context ?? { chatId: null }))
+  handle('plugins:clickStatus', (_e, plugin, id) => pluginHost.clickStatus(String(plugin), String(id)))
+  handle('plugins:renderToolCard', (_e, server, tool, call) => pluginHost.renderToolCard(String(server), String(tool), call))
+  handle('plugins:attach', (_e, plugin, id, chatId) => pluginHost.attach(String(plugin), String(id), chatId ? String(chatId) : null))
+  handle('plugins:page', (_e, plugin, id) => pluginHost.pageTree(String(plugin), String(id)))
+  handle('plugins:pageEvent', (_e, plugin, id, event, payload, handler) =>
+    pluginHost.pageEvent(String(plugin), String(id), String(event), payload ?? null, typeof handler === 'string' ? handler : undefined)
+  )
 
   handle('hud:get', () => hudHost.snapshot())
   handle('hud:click', (_e, key) => hudHost.click(key))
@@ -383,6 +393,8 @@ export function registerIpc(): void {
   pluginHost.on('changed', (list) => broadcast('plugins:changed', list))
   pluginHost.on('commands', () => broadcast('commands:changed', chatService.commands()))
   pluginHost.on('css', applyPluginCss)
+  pluginHost.on('surfaces', (surfaces) => broadcast('plugins:surfaces', surfaces))
+  pluginHost.on('pageTree', (page) => broadcast('plugins:pageTree', page))
   app.on('browser-window-created', (_e, win) => {
     win.webContents.on('did-finish-load', () => void injectCss(win).catch(() => {}))
   })

@@ -22,6 +22,7 @@ import { api } from '@/hooks/use-llamarun'
 import { cn, relativeDay } from '@/lib/utils'
 import { TitleBar } from '@/components/TitleBar'
 import { folderName } from '@/components/chat/ProjectPicker'
+import { PluginButtons } from '@/components/plugins/surfaces'
 
 function ChatRow({
   chat,
@@ -175,6 +176,7 @@ export function ChatSidebar({
       </nav>
 
       <div className="border-t border-sidebar-border p-2">
+        <PluginButtons where="sidebar" context={() => ({ chatId: activeId })} />
         <Button variant="ghost" className="w-full justify-start text-muted-foreground" onClick={() => void api.app.openSettings('/')}>
           <Settings2 /> Settings
         </Button>

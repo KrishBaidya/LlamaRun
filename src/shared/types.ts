@@ -673,7 +673,55 @@ export type PluginPermission =
   | 'appearance'
   | 'commands'
   | 'usage'
+  | 'renderers'
+  | 'buttons'
+  | 'statusbar'
+  | 'pages'
+  | 'attachments'
   | 'unrestricted'
+
+/** Where a plugin's button sits (SDK 1.6). */
+export type PluginButtonPlace = 'message' | 'composer' | 'sidebar'
+
+/** Everything running plugins added to the chat window and Settings (SDK 1.6). */
+export interface PluginSurfaces {
+  /** Fenced code blocks in replies with this language are drawn by the plugin. */
+  renderers: { plugin: string; pluginName: string; language: string; label: string }[]
+  buttons: { plugin: string; pluginName: string; id: string; where: PluginButtonPlace; label: string; icon?: string; tooltip?: string }[]
+  statusItems: { plugin: string; pluginName: string; id: string; text: string; icon?: string; tooltip?: string; clickable: boolean }[]
+  /** Entries in the chat box's attach menu. */
+  attachSources: { plugin: string; pluginName: string; id: string; label: string; icon?: string }[]
+  settingsPages: { plugin: string; pluginName: string; id: string; title: string; icon?: string }[]
+  /** Tools whose calls the plugin that offers them draws itself. `server` is the plugin's name, as on tool parts. */
+  toolCards: { plugin: string; server: string; tool: string }[]
+}
+
+/** What a plugin's button gets when it is clicked. */
+export interface PluginButtonContext {
+  chatId: string | null
+  messageId?: string
+  messageText?: string
+  role?: 'user' | 'assistant'
+  /** Composer buttons: what is typed in the chat box. */
+  draft?: string
+}
+
+/** A tool call, as a plugin's tool card sees it. */
+export interface PluginToolCall {
+  args: Record<string, unknown>
+  result?: string
+  status: 'running' | 'done' | 'error'
+}
+
+/** A file an attachment source returned, turned into an attachment by the chat box. */
+export interface PluginAttachmentFile {
+  name: string
+  mimeType: string
+  /** Text files. */
+  text?: string
+  /** Anything else, base64. */
+  data?: string
+}
 
 export interface PermissionInfo {
   id: PluginPermission

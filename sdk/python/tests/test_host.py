@@ -102,7 +102,7 @@ def test_sdk_version_rules():
         check_sdk_version("1.4", "1.3")
     with pytest.raises(ManifestError):
         check_sdk_version("2.0", "1.3")
-    assert llamarun.__version__ == "1.5"
+    assert llamarun.__version__ == "1.6"
 
 
 def test_manifest_reports_missing_field(tmp_path):
@@ -650,3 +650,128 @@ def test_install_calls(fake):
     assert added.tool_count == 4 and fake.calls[-1][1] == {"directory_id": "a1", "args": [], "env": {}, "reason": "for repos"}
     assert llamarun.plugins.install("C:/x", reason="r").tools == ["t"]
     assert not llamarun.plugins.search_marketplace("q").available
+
+
+# ------------------------------------------------- chat window and Settings (SDK 1.6)
+
+
+def test_code_block_renderers(fake):
+    ui.add_renderer("Chart", lambda code: f"<b>{code}</b>", label="Chart")
+    assert fake.calls[-1] == ("renderers.register", {"language": "chart", "label": "Chart"})
+    assert ui._render_block({"language": "chart", "code": "1,2"}) == "<b>1,2</b>"
+    assert ui._render_block({"language": "other", "code": "x"}) is None
+    ui.add_renderer("none", lambda code: None)
+    assert ui._render_block({"language": "none", "code": "x"}) is None
+    ui.add_renderer("bad", lambda code: 42)
+    with pytest.raises(llamarun.PluginError, match="HTML"):
+        ui._render_block({"language": "bad", "code": "x"})
+    ui.remove_renderer("chart")
+    assert fake.calls[-1] == ("renderers.unregister", {"language": "chart"})
+    assert ui._render_block({"language": "chart", "code": "1,2"}) is None
+
+
+def test_buttons_get_their_context(fake):
+    seen = []
+    msg = ui.add_button("message", "Translate", lambda ctx: seen.append(ctx) or "ignored", icon="languages", id="tr")
+    box = ui.add_button("composer", "Sign", lambda ctx: f"{ctx.draft} -- me")
+    assert msg == "tr" and box.startswith("button-composer-")
+    assert ("buttons.register", {"id": "tr", "where": "message", "label": "Translate", "icon": "languages", "tooltip": None}) in fake.calls
+    out = ui._button({"id": "tr", "context": {"chat_id": "c1", "message_id": "m1", "message_text": "hola", "role": "assistant"}})
+    assert out is None  # only composer buttons hand text back
+    assert seen[0] == ui.ButtonContext(where="message", chat_id="c1", message_id="m1", message_text="hola", role="assistant")
+    assert ui._button({"id": box, "context": {"chat_id": None, "draft": "hi"}}) == "hi -- me"
+    assert ui._button({"id": "gone", "context": {}}) is None
+    ui.remove_button("tr")
+    assert ui._button({"id": "tr", "context": {}}) is None
+
+
+def test_status_items_update_and_click(fake):
+    clicks = []
+    item = ui.status_item("Syncing", icon="refresh-cw")
+    assert fake.calls[-1] == ("statusbar.set", {"id": item.id, "text": "Syncing", "icon": "refresh-cw", "tooltip": None, "clickable": False})
+    item.update(text="3 new", on_click=lambda: clicks.append(1))
+    assert fake.calls[-1][1]["text"] == "3 new" and fake.calls[-1][1]["clickable"] is True
+    ui._status_click({"id": item.id})
+    assert clicks == [1]
+    with pytest.raises(TypeError):
+        item.update(colour="red")
+    item.remove()
+    assert fake.calls[-1] == ("statusbar.remove", {"id": item.id}) and not item.visible
+    ui._status_click({"id": item.id})
+    assert clicks == [1]
+
+
+def test_tool_cards_draw_calls(fake):
+    calls = []
+    ui.add_tool_card("forecast", lambda call: calls.append(call) or f"<p>{call.status}: {call.result}</p>")
+    assert fake.calls[-1] == ("toolcards.register", {"tool": "forecast"})
+    html = ui._render_card({"tool": "forecast", "arguments": {"city": "Oslo"}, "result": None, "status": "running"})
+    assert html == "<p>running: None</p>"
+    assert calls[0] == ui.ToolCall(tool="forecast", arguments={"city": "Oslo"}, result=None, status="running")
+    assert ui._render_card({"tool": "other"}) is None
+    ui.remove_tool_card("forecast")
+    assert ui._render_card({"tool": "forecast"}) is None
+
+
+def test_attachment_sources_return_files(fake, tmp_path):
+    report = tmp_path / "report.pdf"
+    report.write_bytes(b"%PDF-1.4 x")
+    ui.add_attachment_source("Notes", lambda ctx: [ui.Attachment(f"{ctx.chat_id}.md", text="# hi"), str(report)], icon="notebook", id="notes")
+    assert fake.calls[-1] == ("attachments.register", {"id": "notes", "label": "Notes", "icon": "notebook"})
+    files = ui._attach({"id": "notes", "chat_id": "c1"})
+    assert files[0] == {"name": "c1.md", "mime_type": "text/markdown", "text": "# hi"}
+    assert files[1]["name"] == "report.pdf" and files[1]["mime_type"] == "application/pdf"
+    import base64
+    assert base64.b64decode(files[1]["data"]) == b"%PDF-1.4 x"
+    ui.add_attachment_source("Nothing", lambda: None, id="none")
+    assert ui._attach({"id": "none"}) == []
+    ui.add_attachment_source("Bad", lambda: [42], id="bad")
+    with pytest.raises(llamarun.PluginError, match="Attachment"):
+        ui._attach({"id": "bad"})
+    with pytest.raises(ValueError):
+        ui.Attachment("x", text="a", data=b"b")
+
+
+def test_settings_page_renders_and_dispatches(fake):
+    class Accounts(ui.View):
+        def __init__(self):
+            super().__init__(n=0)
+
+        def render(self):
+            return ui.Column(ui.Text(f"accounts={self.state['n']}"), ui.Button("Add", on_click=lambda: self.set_state(n=self.state["n"] + 1)))
+
+    page = ui.settings_page("Accounts", Accounts(), icon="users", id="accounts")
+    method, params = fake.calls[-1]
+    assert method == "pages.register" and params["id"] == "accounts" and params["icon"] == "users"
+    assert params["tree"]["children"][0]["props"]["text"] == "accounts=0"
+    ui._dispatch({"id": "accounts", "event": "$callback", "handler": "cb0", "payload": []})
+    time.sleep(0.2)
+    assert fake.notes_of("ui.render")[-1] == {"id": "accounts", "tree": fake.notes_of("ui.render")[-1]["tree"]}
+    assert fake.notes_of("ui.render")[-1]["tree"]["children"][0]["props"]["text"] == "accounts=1"
+    page.remove()
+    assert fake.calls[-1] == ("pages.unregister", {"id": "accounts"}) and not page.visible
+
+
+def test_surfaces_through_the_runner(load, fake):
+    runner = load(
+        """
+        import llamarun
+        from llamarun import ui
+
+        class P(llamarun.Plugin):
+            def on_load(self):
+                ui.add_renderer("boom", self.draw)
+                ui.add_button("sidebar", "Hi", lambda ctx: None, id="hi")
+
+            def draw(self, code):
+                raise RuntimeError("cannot draw " + code)
+        """,
+        sdk_version="1.6",
+    )
+    from plugin_host import RpcError
+
+    with pytest.raises(RpcError, match="code block renderer failed: cannot draw x"):
+        runner.surface("code block renderer", ui._render_block, {"language": "boom", "code": "x"})
+    assert runner.surface("button", ui._button, {"id": "hi", "context": {}}) is None
+    runner.unload()
+    assert ui._render_block({"language": "boom", "code": "x"}) is None  # forgotten on unload
