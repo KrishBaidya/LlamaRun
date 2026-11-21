@@ -36,6 +36,7 @@ const CLAUDE_NAMES: Record<string, string> = {
   web_fetch: 'WebFetch',
   web_search: 'WebSearch',
   agent_run: 'Task',
+  skill_load: 'Skill',
   todo_update: 'TodoWrite'
 }
 

@@ -5,7 +5,7 @@ import { basename, extname, join, resolve, sep } from 'node:path'
 import type { BundleInfo, BundlePreview, HookConfig, HookEvent, McpServerConfig } from '@shared/types'
 import { HOOK_EVENTS, loadHooks, saveHooks, validateHooks } from '../assistant/hooks'
 import { readJson, writeJson } from '../jsonFile'
-import { configFromDirectoryEntry } from '../mcp/config'
+import { configFromDirectoryEntry, loadMcpConfig } from '../mcp/config'
 import { userDataPath } from '../paths'
 import { parseFrontMatter } from '../skills/frontMatter'
 import { fetchSource, findSkillFolders, installSkills } from '../skills/install'
@@ -50,13 +50,40 @@ const mdFiles = (dir: string): string[] => (existsSync(dir) ? readdirSync(dir).f
 /** Replaces ${CLAUDE_PLUGIN_ROOT} (Claude Code's variable for the plugin folder) with where the plugin will live. */
 export const withRoot = (text: string, root: string): string => text.replace(/\$\{CLAUDE_PLUGIN_ROOT\}/g, root.replace(/\\/g, '/'))
 
+/**
+ * The plugin's command or agent files: the ones its plugin.json lists, when it
+ * lists them (other files in the folder are shared parts, like _conventions.md),
+ * else every .md in the folder.
+ */
+export function listedFiles(dir: string, kind: 'commands' | 'agents'): string[] {
+  const manifest = readJson<Record<string, unknown>>(join(dir, '.claude-plugin', 'plugin.json'), {})
+  const listed = manifest[kind]
+  if (Array.isArray(listed) && listed.every((x) => typeof x === 'string')) {
+    const files = (listed as string[])
+      .map((rel) => resolve(dir, rel))
+      .filter((f) => f.startsWith(resolve(dir) + sep) && extname(f).toLowerCase() === '.md' && existsSync(f))
+    if (files.length) return files
+  }
+  return mdFiles(join(dir, kind)).map((f) => join(dir, kind, f))
+}
+
+/** An MCP server the user already has (same address or same command): installing it again would only duplicate its tools. */
+function existingServer(config: McpServerConfig): McpServerConfig | undefined {
+  const norm = (u: string | null | undefined): string => (u ?? '').trim().replace(/\/+$/, '').toLowerCase()
+  return loadMcpConfig().find((s) =>
+    config.data.URL
+      ? Boolean(s.data.URL) && norm(s.data.URL) === norm(config.data.URL)
+      : Boolean(s.data.Command) && s.data.Command === config.data.Command && JSON.stringify(s.data.Arguments ?? []) === JSON.stringify(config.data.Arguments ?? [])
+  )
+}
+
 /** What a plugin folder holds, as the install card shows it. `root` is where it will be installed. */
 export function describeBundle(dir: string, root: string): BundlePreview {
   const manifest = readJson<{ name?: string; description?: string; version?: string }>(join(dir, '.claude-plugin', 'plugin.json'), {})
   const name = manifest.name?.trim() || basename(dir)
   const skills = existsSync(join(dir, 'skills')) ? findSkillFolders(join(dir, 'skills')).map((f) => basename(f)) : []
-  const commands = mdFiles(join(dir, 'commands')).map((f) => basename(f, '.md'))
-  const agents = mdFiles(join(dir, 'agents')).map((f) => basename(f, '.md'))
+  const commands = listedFiles(dir, 'commands').map((f) => basename(f, '.md'))
+  const agents = listedFiles(dir, 'agents').map((f) => basename(f, '.md'))
   let hooks: HookConfig = {}
   const hooksFile = join(dir, 'hooks', 'hooks.json')
   if (existsSync(hooksFile)) {
@@ -86,7 +113,10 @@ export function describeBundle(dir: string, root: string): BundlePreview {
     commands,
     agents,
     hooks: hookCommands,
-    mcpServers: mcpServers.map((s) => `${s.name}: ${s.data.Command ? [s.data.Command, ...(s.data.Arguments ?? [])].join(' ') : (s.data.URL ?? '')}`)
+    mcpServers: mcpServers.map((s) => {
+      const have = existingServer(s)
+      return `${s.name}: ${s.data.Command ? [s.data.Command, ...(s.data.Arguments ?? [])].join(' ') : (s.data.URL ?? '')}${have ? ` (already added as ${have.name}, skipped)` : ''}`
+    })
   }
 }
 
@@ -164,15 +194,15 @@ export async function installBundle(token: string, deps: BundleDeps): Promise<Bu
     const info: BundleInfo = { name, description: s.preview.description, root, installedAt: Date.now(), skills: [], mcpServers: [] }
     if (existsSync(join(root, 'skills'))) info.skills.push(...(await installSkills(join(root, 'skills'))).map((sk) => sk.id))
     mkdirSync(skillsDir(), { recursive: true })
-    for (const f of mdFiles(join(root, 'commands'))) {
-      const skill = commandSkill(join(root, 'commands', f), name, root)
+    for (const file of listedFiles(root, 'commands')) {
+      const skill = commandSkill(file, name, root)
       const dest = join(skillsDir(), skill.id)
       mkdirSync(dest, { recursive: true })
       writeFileSync(join(dest, 'SKILL.md'), skill.text, 'utf8')
       info.skills.push(skill.id)
     }
-    for (const f of mdFiles(join(root, 'agents'))) {
-      const skill = agentSkill(join(root, 'agents', f), name, root)
+    for (const file of listedFiles(root, 'agents')) {
+      const skill = agentSkill(file, name, root)
       const dest = join(skillsDir(), skill.id)
       mkdirSync(dest, { recursive: true })
       writeFileSync(join(dest, 'SKILL.md'), skill.text, 'utf8')
@@ -189,6 +219,7 @@ export async function installBundle(token: string, deps: BundleDeps): Promise<Bu
     const mcpRaw = readJson<{ mcpServers?: Record<string, unknown> }>(join(root, '.mcp.json'), {}).mcpServers ?? {}
     for (const [server, cfg] of Object.entries(mcpRaw)) {
       const config = configFromDirectoryEntry(`${name}:${server}`, JSON.parse(withRoot(JSON.stringify(cfg), root)))
+      if (existingServer(config)) continue
       await deps.addMcpServer(config)
       info.mcpServers.push(config.name)
     }

@@ -35,6 +35,7 @@ import { projectInstructions, validProject } from '../assistant/project'
 import { createCommandHooks } from '../assistant/hooks'
 import { appContext } from '../mcp/appContext'
 import { appTools } from '../mcp/appTools'
+import { BUNDLE_INSTALL, bundleInstallTool, runBundleInstall } from '../plugins/bundleTool'
 import { allowedTools } from '../assistant/planMode'
 import { AGENT_RUN, agentRunTool, runSubagent } from './subagent'
 import * as notify from '../notify'
@@ -142,7 +143,9 @@ export function chatTools(options: ChatToolOptions = {}): ToolBridge | undefined
     ...(options.shell ? [RUN_CODE_TOOL] : []),
     ...(options.shell && options.model ? [agentRunTool()] : []),
     // Tools the MCP Apps open in this chat offer (the user's own messages only).
-    ...(options.shell ? appTools.toolsFor(options.chatId) : [])
+    ...(options.shell ? appTools.toolsFor(options.chatId) : []),
+    // Installing Claude Code plugins into Llama Run itself, with an approval card.
+    ...(options.shell && !options.routine ? [bundleInstallTool] : [])
   ]
   const ownNames = new Set(own.map((t) => t.name))
   const mcpTools = mcp.tools().filter((t) => !isBuiltinTool(t.name) && !ownNames.has(t.name))
@@ -174,7 +177,9 @@ export function chatTools(options: ChatToolOptions = {}): ToolBridge | undefined
           ? pluginHost.callModelTool(name, args)
           : name === RUN_CODE
             ? runCode(args, { tools: tools.filter((t) => t.name !== RUN_CODE), call: hooked }, { chatId: options.chatId, project: options.project })
-            : options.chatId && appTools.has(options.chatId, name)
+            : name === BUNDLE_INSTALL
+              ? runBundleInstall(args, options.chatId, { addMcpServer: (s) => mcp.saveServer(s), removeMcpServer: (n) => mcp.remove(n) }, options.signal)
+              : options.chatId && appTools.has(options.chatId, name)
               ? appTools.call(options.chatId, name, args, options.signal)
               : name === AGENT_RUN && options.model
               ? runSubagent(args, {
