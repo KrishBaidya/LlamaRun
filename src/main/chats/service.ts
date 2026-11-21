@@ -39,7 +39,7 @@ import * as notify from '../notify'
 import { stopChat as stopChatProcesses } from '../assistant/processes'
 import { COMPACT_SYSTEM, compactionRequest, splitForCompaction, SUMMARY_INTRO, transcriptOf, visibleMessages } from './compact'
 import { contextWindowFor, estimateParts, estimateTokens, usageOf } from './context'
-import { appendText, appendThinking, finishTool, recalledReplies, replaceText, replyForModel, textOf, toolPart } from './parts'
+import { appendText, appendThinking, finishTool, recallLimits, replaceText, replyForModel, textOf, toolPart } from './parts'
 import { chatStore, titleFrom } from './store'
 
 const FLUSH_MS = 16
@@ -236,11 +236,11 @@ function userContent(m: ChatMessage): string {
  */
 export function historyFor(messages: ChatMessage[], compaction?: Chat['compaction']): HistoryMessage[] {
   const visible = visibleMessages(messages, compaction)
-  const recall = recalledReplies(visible.messages)
+  const recall = recallLimits(visible.messages)
   const turns = visible.messages
     .filter((m) => m.role === 'user' || m.status === 'done')
     .map((m): HistoryMessage => {
-      if (m.role !== 'user') return { role: m.role, content: replyForModel(m, recall.has(m.id)) }
+      if (m.role !== 'user') return { role: m.role, content: replyForModel(m, recall.get(m.id) ?? false) }
       const images = (m.attachments ?? []).map(imageOf).filter((i): i is HistoryImage => !!i)
       return { role: 'user', content: userContent(m) || 'See the attached image.', ...(images.length ? { images } : {}) }
     })
@@ -459,19 +459,25 @@ class ChatService extends EventEmitter<{ event: [ChatEvent]; changed: [ChatSumma
       analytics.track('plugin_command_used')
       return this.runCommand(chatId, text, command, model)
     }
+    const skill = await this.slashSkill(text)
+    if (skill) return this.start(chatId, text.trim(), { model, attachments, thinking, setup, skill }).chatId
+    return this.start(chatId, text, { model, attachments, thinking, setup }).chatId
+  }
+
+  /** A skill or an MCP server's prompt run as /command: what the model gets instead of the typed text. Null for anything else. */
+  async slashSkill(text: string): Promise<ChatMessage['skill'] | null> {
     const invoked = skillStore.matchCommand(text)
     if (invoked) {
       analytics.track('skill_invoked', { via: 'slash' })
-      const instructions = skillStore.invoke(invoked.skill, invoked.args)
-      return this.start(chatId, text.trim(), { model, attachments, thinking, setup, skill: { name: invoked.skill.name, instructions } }).chatId
+      return { name: invoked.skill.name, instructions: skillStore.invoke(invoked.skill, invoked.args) }
     }
     // An MCP server's prompt run as /server:prompt: the model gets the prompt's text.
     const prompt = /^\/[\w.-]+:[\w.-]+/.test(text.trim()) ? await mcp.runPrompt(text) : null
     if (prompt) {
       analytics.track('mcp_prompt_used')
-      return this.start(chatId, text.trim(), { model, attachments, thinking, setup, skill: { name: prompt.name, instructions: prompt.text } }).chatId
+      return { name: prompt.name, instructions: prompt.text }
     }
-    return this.start(chatId, text, { model, attachments, thinking, setup }).chatId
+    return null
   }
 
   /** Opens an "Install with AI" chat: the model reads the README and installs it, asking before each command. */

@@ -126,7 +126,8 @@ export interface InvokeChannels {
   /** Connects a bot with the token the user pasted; throws if it doesn't work. */
   'channels:connect': (id: 'telegram' | 'discord', token: string) => ChannelStatus[]
   'channels:disconnect': (id: 'telegram' | 'discord') => ChannelStatus[]
-  'channels:newCode': (id: 'telegram' | 'discord') => ChannelStatus[]
+  'channels:approve': (id: 'telegram' | 'discord', peer: string) => ChannelStatus[]
+  'channels:block': (id: 'telegram' | 'discord', peer: string) => ChannelStatus[]
   'channels:unpair': (id: 'telegram' | 'discord', peer: string) => ChannelStatus[]
   'channels:setDeliver': (on: boolean) => ChannelStatus[]
   /** Reads a Claude Code plugin (a link or folder) and says what it would add; nothing is installed yet. */
@@ -335,7 +336,8 @@ export const INVOKE_CHANNELS = [
   'channels:status',
   'channels:connect',
   'channels:disconnect',
-  'channels:newCode',
+  'channels:approve',
+  'channels:block',
   'channels:unpair',
   'channels:setDeliver',
   'bundles:inspect',

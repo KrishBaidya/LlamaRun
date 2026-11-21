@@ -95,7 +95,7 @@ export class DiscordChannel implements Channel {
       const author = d.author as { bot?: boolean; username?: string; global_name?: string } | undefined
       // Direct messages only (no guild), never from bots.
       if (d.guild_id || author?.bot || typeof d.content !== 'string' || !d.content.trim()) return
-      events.message(String(d.channel_id), author?.global_name ?? author?.username ?? 'Discord', d.content)
+      events.message({ peer: String(d.channel_id), name: author?.global_name ?? author?.username ?? 'Discord', ...(author?.username ? { username: author.username } : {}) }, d.content)
     } else if (msg.t === 'INTERACTION_CREATE') {
       const data = d.data as { custom_id?: string } | undefined
       const pressed = data?.custom_id ? this.buttons.get(data.custom_id) : undefined

@@ -9,13 +9,13 @@ import { toolResultToText } from '../llm/toolPayload'
  */
 
 /** Longest tool result kept with a chat; the model saw the full one at the time. */
-const MAX_STORED_RESULT = 4000
+const MAX_STORED_RESULT = 12_000
 /** Longest single argument value kept (typed text, code). */
 const MAX_STORED_ARG = 1000
-/** How much of an earlier tool call later turns see, so they know what was already done. */
-const MAX_RECALLED_RESULT = 300
-/** Replies (newest first) whose tool calls later turns still see. */
-const RECALL_REPLIES = 2
+/** How much of an older reply's tool results later turns see. */
+const MAX_RECALLED_RESULT = 2000
+/** The newest replies with tool calls, whose results later turns see in full (as stored). */
+const RECALL_FULL = 2
 
 function cut(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max)}…[${text.length - max} more characters]`
@@ -67,27 +67,29 @@ export function replaceText(parts: MessagePart[], text: string): MessagePart[] {
 }
 
 /**
- * What the model reads for one of its earlier replies. The newest replies
- * keep a short record of their tool calls, so a follow-up ("now save it")
- * knows what was opened and done; older replies are text only.
+ * What the model reads for one of its earlier replies: its text and each tool
+ * call with what came back, so data it fetched (a portfolio, a file) is still
+ * there in later turns. `recall` is how much of each result to keep (true:
+ * all that was stored; false: text only).
  */
-export function replyForModel(message: ChatMessage, recallTools: boolean): string {
-  if (!recallTools || !message.parts?.some((p) => p.type === 'tool')) return message.content
+export function replyForModel(message: ChatMessage, recall: number | boolean): string {
+  if (recall === false || !message.parts?.some((p) => p.type === 'tool')) return message.content
+  const limit = recall === true ? MAX_STORED_RESULT : recall
   return message.parts
     .map((p) => {
       if (p.type === 'text') return p.text.trim()
       if (p.type === 'thinking') return ''
       if (p.type === 'steer') return `[the user added while you worked: ${p.text}]`
       const args = p.args && Object.keys(p.args).length ? ` ${JSON.stringify(p.args)}` : ''
-      const outcome = p.result ? `: ${cut(p.result.replace(/\s+/g, ' ').trim(), MAX_RECALLED_RESULT)}` : ''
+      const outcome = p.result ? `: ${cut(p.result.trim(), limit)}` : ''
       return `[earlier tool call ${p.name}${args}${p.status === 'error' ? ' failed' : ''}${outcome}]`
     })
     .filter(Boolean)
     .join('\n')
 }
 
-/** Ids of the assistant replies whose tool calls later turns still see. */
-export function recalledReplies(messages: ChatMessage[]): Set<string> {
-  const ids = messages.filter((m) => m.role === 'assistant' && m.parts?.some((p) => p.type === 'tool')).slice(-RECALL_REPLIES)
-  return new Set(ids.map((m) => m.id))
+/** How much of each reply's tool results later turns see: the newest few in full, older ones shortened. */
+export function recallLimits(messages: ChatMessage[]): Map<string, number> {
+  const withTools = messages.filter((m) => m.role === 'assistant' && m.parts?.some((p) => p.type === 'tool'))
+  return new Map(withTools.map((m, i) => [m.id, i >= withTools.length - RECALL_FULL ? MAX_STORED_RESULT : MAX_RECALLED_RESULT]))
 }

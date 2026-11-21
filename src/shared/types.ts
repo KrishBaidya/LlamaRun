@@ -269,9 +269,12 @@ export interface ChannelStatus {
   configured: boolean
   connected: boolean
   botName?: string
-  /** Send this code to the bot to pair an account; absent once used. */
-  pairCode?: string
-  paired: { peer: string; name: string }[]
+  /** People allowed to use the bot. */
+  paired: { peer: string; name: string; username?: string }[]
+  /** People who messaged the bot and are waiting for the user to allow or block them (for an hour). */
+  pending: { peer: string; name: string; username?: string; text: string; at: number }[]
+  /** People the bot ignores. */
+  blocked: { peer: string; name: string; username?: string }[]
   error?: string
   deliverRoutines: boolean
 }
