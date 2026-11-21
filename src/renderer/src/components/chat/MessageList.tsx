@@ -158,12 +158,25 @@ function argHint(args: ToolPart['args']): string {
 }
 
 /** One tool call in a reply, where it happened: name and status, with its input and result a click away. */
-/** The model's thinking between tool calls: its first line (Gemini titles each thought), the rest on click. */
+/** Latest heading from a thinking block (Gemini titles each thought section with **Heading**), falling back to the first line. */
+export function thinkingTitle(text: string): string {
+  const lines = text.trim().split('\n')
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim()
+    const bold = line.match(/^\*\*([^*]+)\*\*$/)
+    if (bold) return bold[1].trim()
+    const heading = line.match(/^#{1,6}\s+(.+?)\s*#*$/)
+    if (heading) return heading[1].replace(/\*\*/g, '').trim()
+  }
+  return (lines[0] ?? '').replace(/^#{1,6}\s+/, '').replace(/\*\*/g, '').trim()
+}
+
+/** The model's thinking between tool calls: its latest heading, the rest on click. */
 function ThinkingNote({ text }: { text: string }) {
   const [open, setOpen] = useState(false)
   const trimmed = text.trim()
   if (!trimmed) return null
-  const title = trimmed.split('\n')[0].replace(/\*\*/g, '').trim()
+  const title = thinkingTitle(trimmed)
   return (
     <div className="w-full max-w-full text-xs text-muted-foreground">
       <button type="button" className="flex w-full min-w-0 items-center gap-1.5 text-left hover:text-foreground" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
