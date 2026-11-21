@@ -88,6 +88,7 @@ describe('Discord', () => {
     if (String(url).startsWith('https://cdn.discordapp.com')) return new Response(new Uint8Array([7, 8]))
     calls.push({ method: init?.method ?? 'GET', path, body: init?.body && typeof init.body === 'string' ? JSON.parse(init.body) : undefined })
     if (path === '/applications/@me') return new Response(JSON.stringify({ id: 'app1' }))
+    if (path === '/users/@me/channels') return new Response(JSON.stringify({ id: 'dm9' }))
     if (path.endsWith('/commands')) return new Response(JSON.stringify([1, 2, 3]))
     if (path.endsWith('/messages') && init?.method === 'POST') return new Response(JSON.stringify({ id: 'msg1' }))
     return new Response(null, { status: 204 })
@@ -117,7 +118,18 @@ describe('Discord', () => {
     expect(calls.at(-1)!.body).toEqual({ type: 8, data: { choices: [{ name: '/li-post · Skill', value: '/li-post' }] } })
   })
 
-  it('registers the bot commands plus /run as direct-message slash commands', async () => {
+  it('answers a slash command used in a server privately and carries on in direct messages', async () => {
+    const dc = new DiscordChannel(http)
+    const events = { message: vi.fn(), answer: vi.fn() }
+    await dc.dispatch({ op: 0, t: 'INTERACTION_CREATE', d: { id: 'i3', token: 't', type: 2, guild_id: 'srv', channel_id: 'general', member: { user: { id: 'u1', username: 'krish' } }, data: { name: 'status' } } }, events)
+    expect(calls.find((c) => c.path === '/users/@me/channels')!.body).toEqual({ recipient_id: 'u1' })
+    const reply = calls.find((c) => c.path === '/interactions/i3/t/callback')!.body as { data: { content: string; flags: number } }
+    expect(reply.data.flags).toBe(64)
+    expect(reply.data.content).toContain('/channels/@me/dm9')
+    expect(events.message).toHaveBeenCalledWith({ peer: 'dm9', name: 'krish', username: 'krish' }, '/status')
+  })
+
+  it('registers the bot commands plus /run as slash commands', async () => {
     const dc = new DiscordChannel(http)
     await dc.setCommands([{ command: 'new', description: 'Start a fresh chat' }, { command: 'model', description: 'Model' }], null)
     const put = calls.find((c) => c.method === 'PUT')!

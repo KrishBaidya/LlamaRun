@@ -278,6 +278,8 @@ export interface ChannelStatus {
   error?: string
   /** What the bot's / menu last did: how many commands, for whom, confirmed or not. */
   menu?: string
+  /** Links that help set it up: add the bot to a server, open a chat with it. */
+  links?: { label: string; url: string }[]
   deliverRoutines: boolean
 }
 

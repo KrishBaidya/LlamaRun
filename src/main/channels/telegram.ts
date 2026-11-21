@@ -52,6 +52,7 @@ export class TelegramChannel implements Channel {
   /** Button key -> what pressing it answers. */
   private buttons = new Map<string, Button>()
   private keySeq = 0
+  private username = ''
 
   constructor(private readonly http: Fetch = (...a) => fetch(...a)) {}
 
@@ -70,6 +71,7 @@ export class TelegramChannel implements Channel {
   async start(token: string, events: ChannelEvents): Promise<{ botName: string }> {
     this.token = token.trim()
     const me = await this.call<{ username?: string; first_name?: string }>('getMe')
+    this.username = me.username ?? ''
     this.running = true
     void this.poll(events)
     return { botName: me.username ? `@${me.username}` : (me.first_name ?? 'your bot') }
@@ -244,6 +246,11 @@ export class TelegramChannel implements Channel {
     if (peer !== null) await this.call('setChatMenuButton', { chat_id: Number(peer), menu_button: { type: 'commands' } }).catch(() => {})
     const now = await this.call<BotCommand[]>('getMyCommands', { scope })
     return now.length
+  }
+
+  /** Opens the chat with the bot in Telegram. */
+  setupLinks(): { label: string; url: string }[] {
+    return this.username ? [{ label: 'Open the bot in Telegram', url: `https://t.me/${this.username}` }] : []
   }
 
   async setProfile(description: string, short: string): Promise<void> {

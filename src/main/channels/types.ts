@@ -83,6 +83,8 @@ export interface Channel {
   choose?(peer: string, text: string, options: { label: string; value: string }[]): Promise<void>
   /** The bot's profile texts: shown before anyone starts a chat with it. */
   setProfile?(description: string, short: string): Promise<void>
+  /** Links that help set it up (add the bot to a server, open a chat with it), once connected. */
+  setupLinks?(): { label: string; url: string }[]
 }
 
 /** Splits text into pieces of at most `max` characters, at line breaks where it can. */

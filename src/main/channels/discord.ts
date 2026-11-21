@@ -9,7 +9,9 @@ import { approvalButtons, approvalText, chunks, type BotCommand, type Channel, t
  * presses and slash commands over the REST API. Replies stream by editing one
  * message; Discord shows Markdown itself. Slash commands are global (Discord
  * has no per-person menus), so skills, MCP prompts and plugin commands sit
- * behind /run, whose suggestions only allowed people get. Needs the Message
+ * behind /run, whose suggestions only allowed people get. A slash command
+ * used in a server answers privately and carries on in the person's direct
+ * messages, so nothing of the chat shows in the server. Needs the Message
  * Content intent turned on for the bot in the Developer Portal.
  */
 
@@ -51,6 +53,10 @@ export class DiscordChannel implements Channel {
   private failures = 0
   private buttons = new Map<string, Button>()
   private keySeq = 0
+  private appId = ''
+  private botId = ''
+  /** Discord user id -> their direct-message channel with the bot. */
+  private dms = new Map<string, string>()
 
   constructor(private readonly http: typeof fetch = (...a) => fetch(...a)) {}
 
@@ -68,7 +74,9 @@ export class DiscordChannel implements Channel {
 
   async start(token: string, events: ChannelEvents): Promise<{ botName: string }> {
     this.token = token.trim()
-    const me = await this.rest<{ username: string }>('GET', '/users/@me')
+    const me = await this.rest<{ username: string; id?: string }>('GET', '/users/@me')
+    this.botId = me.id ?? ''
+    this.appId = (await this.rest<{ id?: string }>('GET', '/applications/@me').catch(() => ({ id: '' }))).id ?? ''
     this.running = true
     await this.connect(events)
     return { botName: me.username }
@@ -126,9 +134,12 @@ export class DiscordChannel implements Channel {
       events.message(this.sender(String(d.channel_id), author), text, { ...(d.id ? { messageId: String(d.id) } : {}), ...(files.length ? { files } : {}) })
       return
     }
-    if (msg.t !== 'INTERACTION_CREATE' || d.guild_id) return
-    const peer = String(d.channel_id)
-    const user = ((d.user ?? (d.member as { user?: Author } | undefined)?.user) as Author | undefined) ?? undefined
+    if (msg.t !== 'INTERACTION_CREATE') return
+    const user = ((d.user ?? (d.member as { user?: Author & { id?: string } } | undefined)?.user) as (Author & { id?: string }) | undefined) ?? undefined
+    // In a server, the conversation happens in the person's direct messages with the bot.
+    const inServer = Boolean(d.guild_id)
+    const peer = inServer ? (user?.id ? await this.dmWith(user.id).catch(() => '') : '') : String(d.channel_id)
+    if (!peer) return void (await this.callback(d, { type: 4, data: { content: "I couldn't open a direct message with you. Check that your privacy settings allow messages from this server.", flags: 64 } }))
     const data = (d.data ?? {}) as { custom_id?: string; name?: string; options?: { name: string; value: unknown; focused?: boolean }[] }
     if (d.type === AUTOCOMPLETE) {
       const focused = data.options?.find((o) => o.focused)
@@ -140,7 +151,9 @@ export class DiscordChannel implements Channel {
       const opt = (name: string): string => String(data.options?.find((o) => o.name === name)?.value ?? '').trim()
       // /run <command> <text> runs a skill, MCP prompt or plugin command; the bot's own commands take their argument as is.
       const text = data.name === 'run' ? `${opt('command').startsWith('/') ? opt('command') : `/${opt('command')}`} ${opt('text')}`.trim() : `/${data.name}${opt('name') ? ` ${opt('name')}` : ''}`
-      await this.callback(d, { type: 4, data: { content: `> ${text}`.slice(0, 2000) } })
+      if (inServer) await this.callback(d, { type: 4, data: { content: `Answering in our direct messages: https://discord.com/channels/@me/${peer}`, flags: 64 } })
+      else await this.callback(d, { type: 4, data: { content: `> ${text}`.slice(0, 2000) } })
+      if (inServer) await this.rest('POST', `/channels/${peer}/messages`, { content: `> ${text}`.slice(0, 2000), allowed_mentions: { parse: [] } }).catch(() => {})
       events.message(this.sender(peer, user), text)
       return
     }
@@ -157,6 +170,23 @@ export class DiscordChannel implements Channel {
       if (pressed.kind === 'approval') events.answer(pressed.approvalId, pressed.answer)
       else events.choice?.(pressed.peer, pressed.value)
     }
+  }
+
+  /** The direct-message channel with a user (Discord gives back the same one each time). */
+  private async dmWith(userId: string): Promise<string> {
+    const known = this.dms.get(userId)
+    if (known) return known
+    const channel = await this.rest<{ id: string }>('POST', '/users/@me/channels', { recipient_id: userId })
+    this.dms.set(userId, channel.id)
+    return channel.id
+  }
+
+  /** Add the bot to a server, and open its profile (with its Message button). */
+  setupLinks(): { label: string; url: string }[] {
+    return [
+      ...(this.appId ? [{ label: 'Add to a server', url: `https://discord.com/oauth2/authorize?client_id=${this.appId}&scope=bot%20applications.commands&permissions=0` }] : []),
+      ...(this.botId ? [{ label: 'Message the bot', url: `https://discord.com/users/${this.botId}` }] : [])
+    ]
   }
 
   private sender(peer: string, author: Author | undefined): { peer: string; name: string; username?: string } {
@@ -255,7 +285,8 @@ export class DiscordChannel implements Channel {
   async setCommands(commands: BotCommand[], peer: string | null): Promise<number | void> {
     if (peer !== null) return
     const app = await this.rest<{ id: string }>('GET', '/applications/@me')
-    const dmOnly = { contexts: [1], integration_types: [0] }
+    // Usable in servers, in direct messages with the bot and in group chats; answers always go to direct messages.
+    const dmOnly = { contexts: [0, 1, 2], integration_types: [0] }
     const body = [
       ...commands.map((c) => ({
         name: c.command,

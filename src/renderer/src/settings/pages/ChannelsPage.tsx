@@ -14,7 +14,7 @@ import { Page, PageHeader, SettingRow } from '../components'
 const HOW: Record<ChannelStatus['id'], string> = {
   telegram: 'In Telegram, message @BotFather, send /newbot and follow the steps. It gives you a token: paste it here.',
   discord:
-    'In the Discord Developer Portal, create an application, add a bot, turn on the Message Content intent and copy the bot token (turning Public Bot off is safer). Discord only lets you message a bot you share a server with: under OAuth2 > URL Generator tick "bot", open the link and add it to your own server. Then message it directly; your skills and commands are under /run.'
+    'In the Discord Developer Portal, create an application, open Bot, turn on Message Content Intent (and Public Bot off) and copy the token. Paste it here; then use Add to a server (any server of yours, even a new empty one) and Message the bot. Slash commands work in the server too: answers come to your direct messages.'
 }
 
 const who = (p: { name: string; username?: string; peer: string }): string => `${p.name}${p.username ? ` (@${p.username})` : ''}`
@@ -46,6 +46,15 @@ function ChannelCard({ status }: { status: ChannelStatus }) {
       <CardContent className="flex flex-col gap-3">
         {status.error && <p className="text-xs text-destructive">{status.error}</p>}
         {status.menu && !status.error?.startsWith('Menu:') && <p className="text-xs text-muted-foreground">{status.menu}</p>}
+        {status.connected && status.links && status.links.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {status.links.map((l) => (
+              <Button key={l.url} size="sm" variant="outline" onClick={() => void api.app.openExternal(l.url)}>
+                {l.label}
+              </Button>
+            ))}
+          </div>
+        )}
         {!status.configured ? (
           <div className="flex gap-2">
             <Input type="password" autoComplete="off" placeholder="Bot token" value={token} onChange={(e) => setToken(e.target.value)} />

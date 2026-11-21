@@ -359,6 +359,7 @@ class ChannelHub extends EventEmitter<{ changed: [ChannelStatus[]] }> {
         blocked: (r?.blocked ?? []).map(person),
         ...(this.errors.get(id) ? { error: this.errors.get(id) } : {}),
         ...(this.menuInfo.get(id) ? { menu: this.menuInfo.get(id) } : {}),
+        ...(this.live.get(id)?.setupLinks?.().length ? { links: this.live.get(id)!.setupLinks!() } : {}),
         deliverRoutines: this.load().deliverRoutines === true
       }
     })
